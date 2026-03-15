@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SNIP Bridge</title>
+  <style>
+    /* ===== V2 PREMIUM CSS — iZotope / FabFilter grade ===== */
+
+    /* ===== CSS VARIABLES ===== */
+    :root {
+      --bg: #050505;
+      --surface: #0E0E12;
+      --surface-raised: #141418;
+      --surface-light: #1C1C22;
+      --border: rgba(255, 255, 255, 0.06);
+      --border-soft: rgba(255, 255, 255, 0.03);
+      --pink: #E91E8C;
+      --pink-glow: rgba(233, 30, 140, 0.35);
+      --pink-glow-strong: rgba(233, 30, 140, 0.55);
+      --cyan: #00D4FF;
+      --cyan-glow: rgba(0, 212, 255, 0.35);
+      --cyan-glow-strong: rgba(0, 212, 255, 0.55);
+      --cyan-dim: rgba(0, 212, 255, 0.15);
+      --success: #00E676;
+      --success-glow: rgba(0, 230, 118, 0.4);
+      --warning: #FFD600;
+      --warning-glow: rgba(255, 214, 0, 0.35);
+      --error: #FF1744;
+      --error-glow: rgba(255, 23, 68, 0.4);
+      --text: #E8E8F0;
+      --text-bright: #FFFFFF;
+      --text-sec: #6B6B80;
+      --text-muted: #3A3A4A;
+      --font: 'Inter', 'SF Pro Display', -apple-system, sans-serif;
+      --mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      --panel-radius: 10px;
+      --meter-radius: 6px;
+    }
+
+    /* ===== RESET ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      width: 1000px;
+      height: 500px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+      /* Subtle vignette around the whole plugin */
+      background-image:
+        radial-gradient(ellipse 120% 80% at 50% 45%, transparent 50%, rgba(0,0,0,0.6) 100%);
+    }
+
+    /* ===== HEADER BAR ===== */
+    .header {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      background: linear-gradient(180deg, rgba(255,255,255,0.02) 0%, transparent 100%);
+    }
+
+    .logo {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      color: var(--text);
+      text-shadow: 0 0 20px rgba(255,255,255,0.08);
+    }
+    .logo span {
+      color: var(--pink);
+      text-shadow: 0 0 18px var(--pink-glow);
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+    }
+
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .control-label {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 2.5px;
+      text-transform: uppercase;
+      color: var(--text-sec);
+    }
+
+    .genre-select {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 30px 6px 12px;
+      font-family: var(--font);
+      font-size: 12px;
+      appearance: none;
+      cursor: pointer;
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.04),
+        0 2px 8px rgba(0,0,0,0.4);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 4l3 3 3-3' stroke='%236B6B80' stroke-width='1.2' fill='none'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .genre-select:focus {
+      border-color: rgba(233, 30, 140, 0.5);
+      outline: none;
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.04),
+        0 0 0 2px rgba(233, 30, 140, 0.15),
+        0 0 20px rgba(233, 30, 140, 0.1);
+    }
+    .genre-select:hover {
+      border-color: rgba(255,255,255,0.12);
+    }
+
+    .react-slider {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .react-slider input[type="range"] {
+      -webkit-appearance: none;
+      width: 90px;
+      height: 3px;
+      background: linear-gradient(90deg, var(--surface-light), var(--surface-light));
+      border-radius: 2px;
+      outline: none;
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);
+    }
+    .react-slider input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 40% 35%, #FF4DB2, var(--pink));
+      cursor: pointer;
+      border: 1.5px solid rgba(255,255,255,0.15);
+      box-shadow:
+        0 0 8px var(--pink-glow),
+        0 2px 4px rgba(0,0,0,0.5);
+      transition: box-shadow 0.15s;
+    }
+    .react-slider input[type="range"]::-webkit-slider-thumb:hover {
+      box-shadow:
+        0 0 14px var(--pink-glow-strong),
+        0 2px 4px rgba(0,0,0,0.5);
+    }
+    .react-value {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--cyan);
+      text-shadow: 0 0 8px var(--cyan-glow);
+      min-width: 32px;
+    }
+
+    /* ===== MAIN CONTENT ===== */
+    .main {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      gap: 1px;
+      background: var(--border-soft);
+    }
+
+    /* ===== COLUMNS — Glassmorphic Panels ===== */
+    .column {
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      background:
+        linear-gradient(175deg,
+          rgba(255,255,255,0.025) 0%,
+          transparent 40%,
+          rgba(0,0,0,0.1) 100%);
+      background-color: var(--surface);
+      position: relative;
+    }
+    /* Subtle inner top highlight for depth */
+    .column::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+    }
+    .column:last-child { border-right: none; }
+
+    .col-dynamics { width: 200px; }
+    .col-tonality { width: 220px; }
+    .col-stereo { width: 180px; }
+    .col-feedback { flex: 1; }
+
+    .section-label {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--text-sec);
+      margin-bottom: 12px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    }
+
+    /* ===== DYNAMICS METERS — Embedded Neon ===== */
+    .meters-row {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex: 1;
+    }
+
+    .meter-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .meter {
+      width: 34px;
+      height: 220px;
+      background: var(--bg);
+      border-radius: var(--meter-radius);
+      border: 1px solid rgba(255,255,255,0.04);
+      overflow: hidden;
+      position: relative;
+      display: flex;
+      flex-direction: column-reverse;
+      /* Deeply embedded look */
+      box-shadow:
+        inset 0 2px 6px rgba(0,0,0,0.8),
+        inset 0 0 12px rgba(0,0,0,0.4),
+        0 1px 0 rgba(255,255,255,0.03);
+    }
+
+    .meter-fill {
+      width: 100%;
+      background: linear-gradient(to top,
+        rgba(0, 212, 255, 0.6) 0%,
+        rgba(0, 212, 255, 0.85) 30%,
+        rgba(180, 50, 255, 0.85) 65%,
+        rgba(233, 30, 140, 0.9) 100%);
+      transition: height 80ms ease-out;
+      border-radius: 0 0 5px 5px;
+      position: relative;
+      /* Neon glow core */
+      box-shadow:
+        0 0 8px var(--cyan-glow-strong),
+        0 0 20px var(--cyan-glow),
+        inset 0 0 6px rgba(255,255,255,0.15);
+    }
+    /* Bright highlight line at the top of the fill */
+    .meter-fill::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 2px; right: 2px;
+      height: 2px;
+      background: rgba(255,255,255,0.5);
+      border-radius: 1px;
+      box-shadow: 0 0 6px rgba(255,255,255,0.3);
+    }
+
+    .meter-target-zone {
+      position: absolute;
+      left: 0;
+      right: 0;
+      background: rgba(233, 30, 140, 0.08);
+      border-top: 1px solid rgba(233, 30, 140, 0.4);
+      border-bottom: 1px solid rgba(233, 30, 140, 0.4);
+      box-shadow: inset 0 0 8px rgba(233, 30, 140, 0.1);
+    }
+
+    .meter-label {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--text-sec);
+    }
+
+    /* LED digital readout style */
+    .meter-value {
+      font-family: var(--mono);
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--cyan);
+      text-shadow:
+        0 0 6px var(--cyan-glow-strong),
+        0 0 16px var(--cyan-glow),
+        0 0 30px rgba(0, 212, 255, 0.15);
+      letter-spacing: -0.5px;
+    }
+
+    .meter-unit {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+    }
+
+    .meter-sub-value {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .meter-sub-value span {
+      text-shadow: 0 0 6px var(--cyan-glow);
+    }
+
+    /* ===== SPECTRAL BARS — Neon Embedded ===== */
+    .spectral-container {
+      display: flex;
+      gap: 5px;
+      justify-content: center;
+      align-items: flex-end;
+      flex: 1;
+    }
+
+    .spectral-band {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .spectral-bar-wrapper {
+      width: 28px;
+      height: 220px;
+      background: var(--bg);
+      border-radius: var(--meter-radius);
+      border: 1px solid rgba(255,255,255,0.04);
+      position: relative;
+      display: flex;
+      flex-direction: column-reverse;
+      overflow: hidden;
+      box-shadow:
+        inset 0 2px 6px rgba(0,0,0,0.8),
+        inset 0 0 10px rgba(0,0,0,0.3),
+        0 1px 0 rgba(255,255,255,0.03);
+    }
+
+    .spectral-fill {
+      width: 100%;
+      border-radius: 0 0 5px 5px;
+      transition: height 80ms ease-out, background-color 200ms ease, box-shadow 200ms ease;
+      position: relative;
+    }
+    /* Bright cap line on spectral bars */
+    .spectral-fill::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 3px; right: 3px;
+      height: 2px;
+      background: rgba(255,255,255,0.45);
+      border-radius: 1px;
+      box-shadow: 0 0 4px rgba(255,255,255,0.25);
+    }
+
+    .spectral-target {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 0;
+      border-top: 1.5px solid rgba(233, 30, 140, 0.6);
+      z-index: 2;
+      /* Subtle glow on target line */
+      box-shadow: 0 0 6px rgba(233, 30, 140, 0.3);
+    }
+
+    .band-label {
+      font-size: 8px;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    /* ===== STEREO SECTION — Premium Arc ===== */
+    .stereo-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      flex: 1;
+      justify-content: center;
+    }
+
+    .corr-meter {
+      width: 140px;
+      height: 80px;
+      position: relative;
+    }
+
+    .corr-arc {
+      width: 140px;
+      height: 80px;
+      filter: drop-shadow(0 0 3px rgba(0, 212, 255, 0.15));
+    }
+
+    .corr-labels {
+      display: flex;
+      justify-content: space-between;
+      width: 140px;
+      margin-top: 4px;
+    }
+    .corr-labels span {
+      font-family: var(--mono);
+      font-size: 8px;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+    }
+
+    .stereo-readouts {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+    }
+
+    .stereo-readout {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      width: 100%;
+      padding: 0 10px;
+    }
+
+    .stereo-readout .label {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--text-sec);
+    }
+
+    .stereo-readout .value {
+      font-family: var(--mono);
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--cyan);
+      text-shadow:
+        0 0 6px var(--cyan-glow-strong),
+        0 0 16px var(--cyan-glow);
+    }
+
+    /* Width bar */
+    .width-bar-container {
+      width: 100%;
+      padding: 0 10px;
+    }
+
+    .width-bar {
+      width: 100%;
+      height: 6px;
+      background: var(--bg);
+      border-radius: 3px;
+      border: 1px solid rgba(255,255,255,0.04);
+      overflow: hidden;
+      box-shadow:
+        inset 0 1px 3px rgba(0,0,0,0.6);
+    }
+
+    .width-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, rgba(0,212,255,0.4), var(--cyan));
+      border-radius: 2px;
+      transition: width 80ms ease-out;
+      box-shadow: 0 0 8px var(--cyan-glow);
+    }
+
+    /* ===== FEEDBACK SECTION ===== */
+    .feedback-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .feedback-header {
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--pink);
+      margin-bottom: 6px;
+      text-shadow: 0 0 12px var(--pink-glow);
+      letter-spacing: 0.5px;
+    }
+
+    .feedback-match {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .match-bar {
+      flex: 1;
+      height: 4px;
+      background: var(--bg);
+      border-radius: 2px;
+      overflow: hidden;
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);
+    }
+
+    .match-bar-fill {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 300ms ease-out, background-color 300ms ease;
+      box-shadow: 0 0 10px currentColor;
+    }
+
+    .match-percent {
+      font-family: var(--mono);
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--pink);
+      min-width: 40px;
+      text-align: right;
+      text-shadow: 0 0 10px var(--pink-glow);
+    }
+
+    .feedback-separator {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border), transparent);
+      margin-bottom: 10px;
+    }
+
+    .feedback-lines {
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.85;
+      flex: 1;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+    .feedback-lines::-webkit-scrollbar { width: 3px; }
+    .feedback-lines::-webkit-scrollbar-track { background: transparent; }
+    .feedback-lines::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px;
+    }
+
+    .fb-pass {
+      color: var(--success);
+      text-shadow: 0 0 8px var(--success-glow);
+      font-weight: 600;
+    }
+    .fb-warn {
+      color: var(--warning);
+      text-shadow: 0 0 8px var(--warning-glow);
+      font-weight: 600;
+    }
+    .fb-fail {
+      color: var(--error);
+      text-shadow: 0 0 8px var(--error-glow);
+      font-weight: 600;
+    }
+    .fb-text { color: var(--text-sec); }
+
+    /* ===== FOOTER BAR ===== */
+    .footer {
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+      background: linear-gradient(0deg, rgba(255,255,255,0.015) 0%, transparent 100%);
+    }
+
+    .status-area {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .status-led {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow:
+        0 0 4px var(--success),
+        0 0 10px var(--success-glow);
+    }
+    .status-led.sending {
+      background: var(--warning);
+      box-shadow:
+        0 0 4px var(--warning),
+        0 0 10px var(--warning-glow);
+    }
+    .status-led.error {
+      background: var(--error);
+      box-shadow:
+        0 0 4px var(--error),
+        0 0 10px var(--error-glow);
+    }
+
+    .status-text {
+      font-size: 11px;
+      color: var(--text-sec);
+      letter-spacing: 0.3px;
+    }
+
+    /* 3D Premium Send Button */
+    .send-button {
+      color: var(--text-bright);
+      font-family: var(--font);
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      border: none;
+      border-radius: 8px;
+      padding: 13px 36px;
+      cursor: pointer;
+      position: relative;
+      /* 3D layered gradient */
+      background:
+        linear-gradient(180deg,
+          rgba(255,255,255,0.12) 0%,
+          transparent 40%,
+          rgba(0,0,0,0.15) 100%),
+        linear-gradient(180deg, #F02A96, #C4167A);
+      border-top: 1px solid rgba(255,255,255,0.2);
+      border-bottom: 1px solid rgba(0,0,0,0.3);
+      box-shadow:
+        0 2px 8px rgba(233, 30, 140, 0.3),
+        0 4px 16px rgba(233, 30, 140, 0.15),
+        inset 0 1px 0 rgba(255,255,255,0.1);
+      transition: all 0.2s ease;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    }
+    .send-button:hover {
+      background:
+        linear-gradient(180deg,
+          rgba(255,255,255,0.18) 0%,
+          transparent 40%,
+          rgba(0,0,0,0.1) 100%),
+        linear-gradient(180deg, #FF3DA6, #E91E8C);
+      box-shadow:
+        0 2px 12px rgba(233, 30, 140, 0.45),
+        0 6px 24px rgba(233, 30, 140, 0.2),
+        inset 0 1px 0 rgba(255,255,255,0.15);
+      transform: translateY(-1px);
+    }
+    .send-button:active {
+      transform: translateY(1px);
+      background:
+        linear-gradient(180deg,
+          transparent 0%,
+          rgba(255,255,255,0.05) 60%,
+          rgba(0,0,0,0.2) 100%),
+        linear-gradient(180deg, #C4167A, #A01068);
+      box-shadow:
+        0 1px 4px rgba(233, 30, 140, 0.3),
+        inset 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    @keyframes pulse-glow {
+      0%, 100% {
+        box-shadow:
+          0 2px 8px rgba(233, 30, 140, 0.3),
+          0 4px 16px rgba(233, 30, 140, 0.15);
+      }
+      50% {
+        box-shadow:
+          0 2px 16px rgba(233, 30, 140, 0.5),
+          0 6px 30px rgba(233, 30, 140, 0.3),
+          0 0 40px rgba(233, 30, 140, 0.15);
+      }
+    }
+    .send-button.sending {
+      animation: pulse-glow 1.2s ease-in-out infinite;
+    }
+    .send-button.sent {
+      background:
+        linear-gradient(180deg,
+          rgba(255,255,255,0.12) 0%,
+          transparent 40%,
+          rgba(0,0,0,0.15) 100%),
+        linear-gradient(180deg, #00F08A, #00C864);
+      border-top: 1px solid rgba(255,255,255,0.2);
+      box-shadow:
+        0 2px 8px var(--success-glow),
+        0 4px 16px rgba(0, 230, 118, 0.15);
+      animation: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="logo">SNIP <span>BRIDGE</span></div>
+    <div class="header-controls">
+      <div class="control-group">
+        <span class="control-label">Genre</span>
+        <select class="genre-select" id="target_genre">
+          <option value="0">Hip-Hop / Trap</option>
+          <option value="1">Pop</option>
+          <option value="2">EDM / Dance</option>
+          <option value="3">Rock / Alternative</option>
+          <option value="4">R&B / Soul</option>
+          <option value="5">Lo-Fi / Ambient</option>
+          <option value="6">Classical / Jazz</option>
+        </select>
+      </div>
+      <div class="control-group react-slider">
+        <span class="control-label">React</span>
+        <input type="range" id="analysis_window" min="0.5" max="10" step="0.1" value="3.0">
+        <span class="react-value" id="react-display">3.0s</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div class="main">
+
+    <!-- COLUMN 1: DYNAMICS -->
+    <div class="column col-dynamics">
+      <div class="section-label">Dynamics</div>
+      <div class="meters-row">
+        <div class="meter-group">
+          <div class="meter" id="lufs-meter">
+            <div class="meter-fill" id="lufs-fill" style="height: 65%;"></div>
+            <div class="meter-target-zone" id="lufs-target" style="bottom: 55%; height: 12%;"></div>
+          </div>
+          <div class="meter-label">LUFS</div>
+          <div class="meter-value" id="lufs-value">-9.2</div>
+          <div class="meter-unit">Short-term</div>
+        </div>
+        <div class="meter-group">
+          <div class="meter" id="rms-meter">
+            <div class="meter-fill" id="rms-fill" style="height: 58%;"></div>
+          </div>
+          <div class="meter-label">RMS</div>
+          <div class="meter-value" id="rms-value">-11.4</div>
+          <div class="meter-unit">dBFS</div>
+        </div>
+      </div>
+      <div style="text-align:center; margin-top: 4px;">
+        <div class="meter-sub-value">Integrated: <span id="lufs-int-value" style="color: var(--cyan);">-10.1</span> LUFS</div>
+      </div>
+    </div>
+
+    <!-- COLUMN 2: TONALITY -->
+    <div class="column col-tonality">
+      <div class="section-label">Tonality</div>
+      <div class="spectral-container">
+        <div class="spectral-band">
+          <div class="spectral-bar-wrapper">
+            <div class="spectral-fill" id="band-sub" style="height: 55%; background: var(--warning);"></div>
+            <div class="spectral-target" id="target-sub" style="bottom: 70%;"></div>
+          </div>
+          <div class="band-label">Sub</div>
+        </div>
+        <div class="spectral-band">
+          <div class="spectral-bar-wrapper">
+            <div class="spectral-fill" id="band-low" style="height: 62%; background: var(--warning);"></div>
+            <div class="spectral-target" id="target-low" style="bottom: 72%;"></div>
+          </div>
+          <div class="band-label">Low</div>
+        </div>
+        <div class="spectral-band">
+          <div class="spectral-bar-wrapper">
+            <div class="spectral-fill" id="band-lmid" style="height: 70%; background: var(--success);"></div>
+            <div class="spectral-target" id="target-lmid" style="bottom: 68%;"></div>
+          </div>
+          <div class="band-label">L-Mid</div>
+        </div>
+        <div class="spectral-band">
+          <div class="spectral-bar-wrapper">
+            <div class="spectral-fill" id="band-mid" style="height: 60%; background: var(--success);"></div>
+            <div class="spectral-target" id="target-mid" style="bottom: 58%;"></div>
+          </div>
+          <div class="band-label">Mid</div>
+        </div>
+        <div class="spectral-band">
+          <div class="spectral-bar-wrapper">
+            <div class="spectral-fill" id="band-hmid" style="height: 50%; background: var(--success);"></div>
+            <div class="spectral-target" id="target-hmid" style="bottom: 48%;"></div>
+          </div>
+          <div class="band-label">H-Mid</div>
+        </div>
+        <div class="spectral-band">
+          <div class="spectral-bar-wrapper">
+            <div class="spectral-fill" id="band-high" style="height: 35%; background: var(--error);"></div>
+            <div class="spectral-target" id="target-high" style="bottom: 50%;"></div>
+          </div>
+          <div class="band-label">High</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COLUMN 3: STEREO -->
+    <div class="column col-stereo">
+      <div class="section-label">Stereo</div>
+      <div class="stereo-content">
+        <!-- Correlation Arc (SVG) — Premium redesign -->
+        <div class="corr-meter">
+          <svg class="corr-arc" viewBox="0 0 140 80">
+            <defs>
+              <!-- Premium gradient for arc -->
+              <linearGradient id="arc-gradient" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="#FF174450"/>
+                <stop offset="30%" stop-color="#FFD60035"/>
+                <stop offset="55%" stop-color="#00E67630"/>
+                <stop offset="100%" stop-color="#00D4FF40"/>
+              </linearGradient>
+              <!-- Intense glow filter for needle -->
+              <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
+                <feGaussianBlur stdDeviation="3" result="blur1"/>
+                <feGaussianBlur stdDeviation="6" result="blur2"/>
+                <feMerge>
+                  <feMergeNode in="blur2"/>
+                  <feMergeNode in="blur1"/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
+              <!-- Subtle track glow -->
+              <filter id="track-glow">
+                <feGaussianBlur stdDeviation="1.5" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+            <!-- Thin background track -->
+            <path d="M 10 75 A 60 60 0 0 1 130 75" stroke="rgba(255,255,255,0.06)" stroke-width="2" fill="none" stroke-linecap="round"/>
+            <!-- Gradient colored arc — thin and elegant -->
+            <path d="M 10 75 A 60 60 0 0 1 130 75" stroke="url(#arc-gradient)" stroke-width="3" fill="none" stroke-linecap="round" filter="url(#track-glow)"/>
+            <!-- Tick marks -->
+            <line x1="10" y1="75" x2="10" y2="70" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+            <line x1="70" y1="15" x2="70" y2="20" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+            <line x1="130" y1="75" x2="130" y2="70" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+            <!-- Glowing needle indicator -->
+            <circle id="corr-needle" cx="108" cy="28" r="4" fill="#00D4FF" filter="url(#glow)"/>
+            <!-- Bright core of needle -->
+            <circle id="corr-needle-core" cx="108" cy="28" r="1.5" fill="#FFFFFF" opacity="0.9"/>
+          </svg>
+          <div class="corr-labels">
+            <span>-1.0</span>
+            <span>0</span>
+            <span>+1.0</span>
+          </div>
+        </div>
+
+        <div class="stereo-readouts">
+          <div class="stereo-readout">
+            <span class="label">Corr</span>
+            <span class="value" id="corr-value">0.72</span>
+          </div>
+          <div class="stereo-readout">
+            <span class="label">Width</span>
+            <span class="value" id="width-value">65%</span>
+          </div>
+          <div class="width-bar-container">
+            <div class="width-bar">
+              <div class="width-bar-fill" id="width-fill" style="width: 32.5%;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COLUMN 4: FEEDBACK -->
+    <div class="column col-feedback">
+      <div class="section-label">Mix Feedback</div>
+      <div class="feedback-content">
+        <div class="feedback-header" id="feedback-genre">Hip-Hop / Trap</div>
+        <div class="feedback-match">
+          <div class="match-bar">
+            <div class="match-bar-fill" id="match-fill" style="width: 72%; background: var(--warning);"></div>
+          </div>
+          <div class="match-percent" id="match-value">72%</div>
+        </div>
+        <div class="feedback-separator"></div>
+        <div class="feedback-lines" id="feedback-text">
+          <div><span class="fb-pass">&#10003; Dynamics:</span> <span class="fb-text">LUFS at -9.2 &mdash; within target (-8 to -11)</span></div>
+          <div><span class="fb-warn">&#9888; Tonality:</span> <span class="fb-text">Low-end at 28% &mdash; below target (35-45%). Consider boosting sub/bass.</span></div>
+          <div><span class="fb-fail">&#10007; Width:</span> <span class="fb-text">Stereo at 65% &mdash; too wide for genre. Narrow the low-end stereo image.</span></div>
+          <div style="margin-top: 12px;"><span class="fb-pass">&#10003; Correlation:</span> <span class="fb-text">0.72 &mdash; good mono compatibility.</span></div>
+          <div><span class="fb-warn">&#9888; High-End:</span> <span class="fb-text">HF energy significantly below target. Mix may sound dull on bright playback systems.</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <div class="status-area">
+      <div class="status-led" id="status-led"></div>
+      <span class="status-text" id="status-text">Ready</span>
+    </div>
+    <button class="send-button" id="btn_send_snip">Send to Meetsnip.com</button>
+  </div>
+
+  <!-- PREVIEW SIMULATION SCRIPT (identical to v1) -->
+  <script>
+    const reactSlider = document.getElementById('analysis_window');
+    const reactDisplay = document.getElementById('react-display');
+    reactSlider.addEventListener('input', () => {
+      reactDisplay.textContent = parseFloat(reactSlider.value).toFixed(1) + 's';
+    });
+
+    const profiles = {
+      0: { name: 'Hip-Hop / Trap', lufs: [-8, -11], low: 0.40, high: 0.25, width: [30, 50] },
+      1: { name: 'Pop', lufs: [-9, -12], low: 0.30, high: 0.50, width: [40, 65] },
+      2: { name: 'EDM / Dance', lufs: [-7, -10], low: 0.45, high: 0.50, width: [45, 70] },
+      3: { name: 'Rock / Alternative', lufs: [-10, -14], low: 0.25, high: 0.40, width: [30, 50] },
+      4: { name: 'R&B / Soul', lufs: [-10, -13], low: 0.35, high: 0.30, width: [35, 60] },
+      5: { name: 'Lo-Fi / Ambient', lufs: [-14, -20], low: 0.30, high: 0.20, width: [20, 40] },
+      6: { name: 'Classical / Jazz', lufs: [-16, -24], low: 0.20, high: 0.35, width: [25, 50] },
+    };
+
+    let mix = {
+      lufsShort: -9.2, lufsInt: -10.1, rms: -11.4,
+      bands: [0.18, 0.22, 0.25, 0.18, 0.10, 0.07],
+      correlation: 0.72, width: 65
+    };
+
+    function getDevColor(actual, target, tolerance) {
+      const dev = Math.abs(actual - target) / tolerance;
+      if (dev < 0.3) return 'var(--success)';
+      if (dev < 0.7) return 'var(--warning)';
+      return 'var(--error)';
+    }
+
+    // Glow shadows mapped to deviation colors
+    function getDevGlow(actual, target, tolerance) {
+      const dev = Math.abs(actual - target) / tolerance;
+      if (dev < 0.3) return '0 0 8px var(--success-glow), inset 0 0 4px rgba(0,230,118,0.1)';
+      if (dev < 0.7) return '0 0 8px var(--warning-glow), inset 0 0 4px rgba(255,214,0,0.1)';
+      return '0 0 8px var(--error-glow), inset 0 0 4px rgba(255,23,68,0.1)';
+    }
+
+    function updateUI() {
+      const genre = parseInt(document.getElementById('target_genre').value);
+      const profile = profiles[genre];
+
+      mix.lufsShort += (Math.random() - 0.5) * 0.4;
+      mix.rms += (Math.random() - 0.5) * 0.3;
+      mix.correlation += (Math.random() - 0.5) * 0.02;
+      mix.correlation = Math.max(-1, Math.min(1, mix.correlation));
+      mix.width += (Math.random() - 0.5) * 2;
+      mix.width = Math.max(0, Math.min(200, mix.width));
+
+      for (let i = 0; i < 6; i++) {
+        mix.bands[i] += (Math.random() - 0.5) * 0.02;
+        mix.bands[i] = Math.max(0.02, Math.min(0.5, mix.bands[i]));
+      }
+
+      const lufsPercent = Math.max(0, Math.min(100, ((mix.lufsShort + 60) / 60) * 100));
+      const rmsPercent = Math.max(0, Math.min(100, ((mix.rms + 60) / 60) * 100));
+      document.getElementById('lufs-fill').style.height = lufsPercent + '%';
+      document.getElementById('rms-fill').style.height = rmsPercent + '%';
+      document.getElementById('lufs-value').textContent = mix.lufsShort.toFixed(1);
+      document.getElementById('rms-value').textContent = mix.rms.toFixed(1);
+      document.getElementById('lufs-int-value').textContent = mix.lufsInt.toFixed(1);
+
+      const targetTop = ((profile.lufs[0] + 60) / 60) * 100;
+      const targetBot = ((profile.lufs[1] + 60) / 60) * 100;
+      document.getElementById('lufs-target').style.bottom = targetBot + '%';
+      document.getElementById('lufs-target').style.height = (targetTop - targetBot) + '%';
+
+      const bandIds = ['sub', 'low', 'lmid', 'mid', 'hmid', 'high'];
+      const targetBands = [profile.low, profile.low * 0.8, 0.25, 0.18, 0.12, profile.high * 0.5];
+      bandIds.forEach((id, i) => {
+        const bar = document.getElementById('band-' + id);
+        const target = document.getElementById('target-' + id);
+        const pct = mix.bands[i] * 200;
+        const tgtPct = targetBands[i] * 200;
+        bar.style.height = Math.min(95, pct) + '%';
+        target.style.bottom = Math.min(95, tgtPct) + '%';
+        bar.style.background = getDevColor(mix.bands[i], targetBands[i], 0.15);
+        bar.style.boxShadow = getDevGlow(mix.bands[i], targetBands[i], 0.15);
+      });
+
+      document.getElementById('corr-value').textContent = mix.correlation.toFixed(2);
+      document.getElementById('width-value').textContent = Math.round(mix.width) + '%';
+      document.getElementById('width-fill').style.width = (mix.width / 2) + '%';
+
+      // Move both needle circles together
+      const angle = ((mix.correlation + 1) / 2) * Math.PI;
+      const cx = 70 - 60 * Math.cos(angle);
+      const cy = 75 - 60 * Math.sin(angle);
+      document.getElementById('corr-needle').setAttribute('cx', cx);
+      document.getElementById('corr-needle').setAttribute('cy', cy);
+      document.getElementById('corr-needle-core').setAttribute('cx', cx);
+      document.getElementById('corr-needle-core').setAttribute('cy', cy);
+
+      document.getElementById('feedback-genre').textContent = profile.name;
+
+      const dynMatch = (mix.lufsShort >= profile.lufs[1] && mix.lufsShort <= profile.lufs[0]) ? 100 : Math.max(0, 100 - Math.abs(mix.lufsShort - (profile.lufs[0] + profile.lufs[1]) / 2) * 10);
+      const tonMatch = Math.max(0, 100 - Math.abs(mix.bands[0] + mix.bands[1] - profile.low) * 200);
+      const widMatch = (mix.width >= profile.width[0] && mix.width <= profile.width[1]) ? 100 : Math.max(0, 100 - Math.abs(mix.width - (profile.width[0] + profile.width[1]) / 2) * 2);
+      const overall = Math.round((dynMatch + tonMatch + widMatch) / 3);
+
+      document.getElementById('match-value').textContent = overall + '%';
+      const matchFill = document.getElementById('match-fill');
+      matchFill.style.width = overall + '%';
+      matchFill.style.background = overall > 75 ? 'var(--success)' : overall > 50 ? 'var(--warning)' : 'var(--error)';
+
+      const fb = document.getElementById('feedback-text');
+      const dynStatus = dynMatch > 80 ? 'pass' : dynMatch > 50 ? 'warn' : 'fail';
+      const dynIcon = dynStatus === 'pass' ? '&#10003;' : dynStatus === 'warn' ? '&#9888;' : '&#10007;';
+      const tonStatus = tonMatch > 80 ? 'pass' : tonMatch > 50 ? 'warn' : 'fail';
+      const tonIcon = tonStatus === 'pass' ? '&#10003;' : tonStatus === 'warn' ? '&#9888;' : '&#10007;';
+      const widStatus = widMatch > 80 ? 'pass' : widMatch > 50 ? 'warn' : 'fail';
+      const widIcon = widStatus === 'pass' ? '&#10003;' : widStatus === 'warn' ? '&#9888;' : '&#10007;';
+
+      const dynMsg = dynMatch > 80
+        ? `LUFS at ${mix.lufsShort.toFixed(1)} &mdash; within target (${profile.lufs[0]} to ${profile.lufs[1]})`
+        : `LUFS at ${mix.lufsShort.toFixed(1)} &mdash; outside target (${profile.lufs[0]} to ${profile.lufs[1]}). ${mix.lufsShort > profile.lufs[0] ? 'Mix is too loud.' : 'Mix is too quiet.'}`;
+
+      const lowEnergy = Math.round((mix.bands[0] + mix.bands[1]) * 100);
+      const tonMsg = tonMatch > 80
+        ? `Low-end at ${lowEnergy}% &mdash; on target for ${profile.name}.`
+        : `Low-end at ${lowEnergy}% &mdash; ${lowEnergy < profile.low * 100 ? 'below' : 'above'} target (${Math.round(profile.low * 100)}%). ${lowEnergy < profile.low * 100 ? 'Consider boosting sub/bass.' : 'Consider reducing low-end.'}`;
+
+      const widMsg = widMatch > 80
+        ? `Width at ${Math.round(mix.width)}% &mdash; within target for ${profile.name}.`
+        : `Width at ${Math.round(mix.width)}% &mdash; ${mix.width > profile.width[1] ? 'too wide' : 'too narrow'} for genre. ${mix.width > profile.width[1] ? 'Narrow the stereo image.' : 'Widen the mix.'}`;
+
+      const corrMsg = mix.correlation > 0.5
+        ? `${mix.correlation.toFixed(2)} &mdash; good mono compatibility.`
+        : mix.correlation > 0
+        ? `${mix.correlation.toFixed(2)} &mdash; moderate mono compatibility. Check critical elements.`
+        : `${mix.correlation.toFixed(2)} &mdash; poor mono compatibility! Phase issues likely.`;
+      const corrStatus = mix.correlation > 0.5 ? 'pass' : mix.correlation > 0 ? 'warn' : 'fail';
+      const corrIcon = corrStatus === 'pass' ? '&#10003;' : corrStatus === 'warn' ? '&#9888;' : '&#10007;';
+
+      fb.innerHTML = `
+        <div><span class="fb-${dynStatus}">${dynIcon} Dynamics:</span> <span class="fb-text">${dynMsg}</span></div>
+        <div><span class="fb-${tonStatus}">${tonIcon} Tonality:</span> <span class="fb-text">${tonMsg}</span></div>
+        <div><span class="fb-${widStatus}">${widIcon} Width:</span> <span class="fb-text">${widMsg}</span></div>
+        <div style="margin-top: 8px;"><span class="fb-${corrStatus}">${corrIcon} Correlation:</span> <span class="fb-text">${corrMsg}</span></div>
+      `;
+    }
+
+    document.getElementById('target_genre').addEventListener('change', updateUI);
+
+    const sendBtn = document.getElementById('btn_send_snip');
+    const statusLed = document.getElementById('status-led');
+    const statusText = document.getElementById('status-text');
+
+    sendBtn.addEventListener('click', () => {
+      sendBtn.classList.add('sending');
+      sendBtn.textContent = 'Sending...';
+      statusLed.className = 'status-led sending';
+      statusText.textContent = 'Sending to Meetsnip.com...';
+
+      setTimeout(() => {
+        sendBtn.classList.remove('sending');
+        sendBtn.classList.add('sent');
+        sendBtn.textContent = 'Sent \u2713';
+        statusLed.className = 'status-led';
+        statusText.textContent = 'Analysis sent successfully';
+
+        setTimeout(() => {
+          sendBtn.classList.remove('sent');
+          sendBtn.textContent = 'Send to Meetsnip.com';
+          statusText.textContent = 'Ready';
+        }, 3000);
+      }, 1500);
+    });
+
+    setInterval(updateUI, 66);
+    updateUI();
+  </script>
+
+</body>
+</html>

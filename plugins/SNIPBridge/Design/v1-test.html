@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SNIP Bridge</title>
+  <style>
+    /* ===== CSS VARIABLES ===== */
+    :root {
+      --bg: #0D0D0D;
+      --surface: #1A1A1A;
+      --surface-light: #242424;
+      --border: #2A2A2A;
+      --pink: #E91E8C;
+      --cyan: #00D4FF;
+      --cyan-dim: rgba(0, 212, 255, 0.5);
+      --success: #00E676;
+      --warning: #FFD600;
+      --error: #FF1744;
+      --text: #FFFFFF;
+      --text-sec: #808080;
+      --text-muted: #4A4A4A;
+      --font: 'Inter', 'SF Pro Display', -apple-system, sans-serif;
+      --mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    }
+
+    /* ===== RESET ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      width: 1000px;
+      height: 500px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+    }
+
+    /* ===== HEADER BAR ===== */
+    .header {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .logo {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+    .logo span { color: var(--pink); }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .control-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--text-sec);
+    }
+
+    .genre-select {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 6px 28px 6px 10px;
+      font-family: var(--font);
+      font-size: 13px;
+      appearance: none;
+      cursor: pointer;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' stroke='%23808080' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+    }
+    .genre-select:focus {
+      border-color: var(--pink);
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(233, 30, 140, 0.3);
+    }
+
+    .react-slider {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .react-slider input[type="range"] {
+      -webkit-appearance: none;
+      width: 100px;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      outline: none;
+    }
+    .react-slider input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--pink);
+      cursor: pointer;
+      border: none;
+    }
+    .react-value {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--cyan);
+      min-width: 32px;
+    }
+
+    /* ===== MAIN CONTENT ===== */
+    .main {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ===== COLUMNS ===== */
+    .column {
+      padding: 12px 16px;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+    }
+    .column:last-child { border-right: none; }
+
+    .col-dynamics { width: 200px; }
+    .col-tonality { width: 220px; }
+    .col-stereo { width: 180px; }
+    .col-feedback { flex: 1; }
+
+    .section-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--text-sec);
+      margin-bottom: 12px;
+    }
+
+    /* ===== DYNAMICS METERS ===== */
+    .meters-row {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex: 1;
+    }
+
+    .meter-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .meter {
+      width: 32px;
+      height: 220px;
+      background: var(--surface);
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      position: relative;
+      display: flex;
+      flex-direction: column-reverse;
+    }
+
+    .meter-fill {
+      width: 100%;
+      background: linear-gradient(to top, var(--cyan), var(--pink));
+      transition: height 80ms ease-out;
+      border-radius: 0 0 3px 3px;
+    }
+
+    .meter-target-zone {
+      position: absolute;
+      left: 0;
+      right: 0;
+      background: rgba(233, 30, 140, 0.15);
+      border-top: 1px dashed var(--pink);
+      border-bottom: 1px dashed var(--pink);
+    }
+
+    .meter-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-sec);
+    }
+
+    .meter-value {
+      font-family: var(--mono);
+      font-size: 18px;
+      font-weight: 500;
+      color: var(--cyan);
+    }
+
+    .meter-unit {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-sec);
+    }
+
+    .meter-sub-value {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* ===== SPECTRAL BARS ===== */
+    .spectral-container {
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      align-items: flex-end;
+      flex: 1;
+    }
+
+    .spectral-band {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .spectral-bar-wrapper {
+      width: 26px;
+      height: 220px;
+      background: var(--surface);
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      position: relative;
+      display: flex;
+      flex-direction: column-reverse;
+      overflow: hidden;
+    }
+
+    .spectral-fill {
+      width: 100%;
+      border-radius: 0 0 2px 2px;
+      transition: height 80ms ease-out, background-color 200ms ease;
+    }
+
+    .spectral-target {
+      position: absolute;
+      left: -1px;
+      right: -1px;
+      height: 0;
+      border-top: 2px dashed var(--pink);
+      z-index: 2;
+    }
+
+    .band-label {
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+      color: var(--text-sec);
+      text-transform: uppercase;
+    }
+
+    /* ===== STEREO SECTION ===== */
+    .stereo-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      flex: 1;
+      justify-content: center;
+    }
+
+    .corr-meter {
+      width: 140px;
+      height: 80px;
+      position: relative;
+    }
+
+    .corr-arc {
+      width: 140px;
+      height: 80px;
+    }
+
+    .corr-labels {
+      display: flex;
+      justify-content: space-between;
+      width: 140px;
+      margin-top: 2px;
+    }
+    .corr-labels span {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--text-muted);
+    }
+
+    .stereo-readouts {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .stereo-readout {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      width: 100%;
+      padding: 0 8px;
+    }
+
+    .stereo-readout .label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-sec);
+    }
+
+    .stereo-readout .value {
+      font-family: var(--mono);
+      font-size: 18px;
+      font-weight: 500;
+      color: var(--cyan);
+    }
+
+    /* Width bar */
+    .width-bar-container {
+      width: 100%;
+      padding: 0 8px;
+    }
+
+    .width-bar {
+      width: 100%;
+      height: 8px;
+      background: var(--surface);
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+
+    .width-bar-fill {
+      height: 100%;
+      background: linear-gradient(to right, var(--cyan-dim), var(--cyan));
+      border-radius: 3px;
+      transition: width 80ms ease-out;
+    }
+
+    /* ===== FEEDBACK SECTION ===== */
+    .feedback-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .feedback-header {
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--pink);
+      margin-bottom: 4px;
+    }
+
+    .feedback-match {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .match-bar {
+      flex: 1;
+      height: 6px;
+      background: var(--surface);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .match-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 300ms ease-out, background-color 300ms ease;
+    }
+
+    .match-percent {
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--pink);
+      min-width: 36px;
+      text-align: right;
+    }
+
+    .feedback-separator {
+      height: 1px;
+      background: var(--border);
+      margin-bottom: 10px;
+    }
+
+    .feedback-lines {
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.7;
+      flex: 1;
+      overflow-y: auto;
+    }
+    .feedback-lines::-webkit-scrollbar { width: 4px; }
+    .feedback-lines::-webkit-scrollbar-track { background: transparent; }
+    .feedback-lines::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .fb-pass { color: var(--success); }
+    .fb-warn { color: var(--warning); }
+    .fb-fail { color: var(--error); }
+    .fb-text { color: var(--text-sec); }
+
+    /* ===== FOOTER BAR ===== */
+    .footer {
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .status-area {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-led {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 6px var(--success);
+    }
+    .status-led.sending {
+      background: var(--warning);
+      box-shadow: 0 0 6px var(--warning);
+    }
+    .status-led.error {
+      background: var(--error);
+      box-shadow: 0 0 6px var(--error);
+    }
+
+    .status-text {
+      font-size: 12px;
+      color: var(--text-sec);
+    }
+
+    .send-button {
+      background: var(--pink);
+      color: var(--text);
+      font-family: var(--font);
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      border: none;
+      border-radius: 6px;
+      padding: 12px 32px;
+      cursor: pointer;
+      transition: filter 0.15s, box-shadow 0.15s;
+    }
+    .send-button:hover {
+      filter: brightness(1.2);
+      box-shadow: 0 0 20px rgba(233, 30, 140, 0.4);
+    }
+    .send-button:active {
+      filter: brightness(0.9);
+    }
+
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 10px rgba(233, 30, 140, 0.3); }
+      50% { box-shadow: 0 0 25px rgba(233, 30, 140, 0.6); }
+    }
+    .send-button.sending {
+      animation: pulse-glow 1s infinite;
+    }
+    .send-button.sent {
+      background: var(--success);
+      animation: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="logo">SNIP <span>BRIDGE</span></div>
+    <div class="header-controls">
+      <div class="control-group">
+        <span class="control-label">Genre</span>
+        <select class="genre-select" id="target_genre">
+          <option value="0">Hip-Hop / Trap</option>
+          <option value="1">Pop</option>
+          <option value="2">EDM / Dance</option>
+          <option value="3">Rock / Alternative</option>
+          <option value="4">R&B / Soul</option>
+          <option value="5">Lo-Fi / Ambient</option>
+          <option value="6">Classical / Jazz</option>
+        </select>
+      </div>
+      <div class="control-group react-slider">
+        <span class="control-label">React</span>
+        <input type="range" id="analysis_window" min="0.5" max="10" step="0.1" value="3.0">
+        <span class="react-value" id="react-display">3.0s</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div class="main">
+
+    <!-- COLUMN 1: DYNAMICS -->
+    <div class="column col-dynamics">
+      <div class="section-label">Dynamics</div>
+      <div class="meters-row">
+        <div class="meter-group">
+          <div class="meter" id="lufs-meter">
+            <div class="meter-fill" id="lufs-fill" style="height: 65%;"></div>
+            <div class="meter-target-zone" id="lufs-target" style="bottom: 55%; height: 12%;"></div>
+          </div>
+          <div class="meter-label">LUFS</div>
+          <div class="meter-value" id="lufs-value">-9.2</div>
+          <div class="meter-unit">Short-term</div>
+        </div>
+        <div class="meter-group">
+          <div class="meter" id="rms-meter">
+            <div class="meter-fill" id="rms-fill" style="height: 58%;"></div>
+          </div>
+          <div class="meter-label">RMS</div>
+          <div class="meter-value" id="rms-value">-11.4</div>
+          <div class="meter-unit">dBFS</div>
+        </div>
+      </div>
+      <div style="text-align:center; margin-top: 4px;">
+        <div class="meter-sub-value">Integrated: <span id="lufs-int-value" style="color: var(--cyan);">-10.1</span> LUFS</div>
+      </div>
+    </div>
+
+    <!-- COLUMN 2: TONALITY -->
+    <div class="column col-tonality">
+      <div class="section-label">Tonality</div>
+      <div class="spectral-container">
+        <div class="spectral-band">
+          <div class="spectral-bar-wrapper">
+            <div class="spectral-fill" id="band-sub" style="height: 55%; background: var(--warning);"></div>
+            <div class="spectral-target" id="target-sub" style="bottom: 70%;"></div>
+          </div>
+          <div class="band-label">Sub</div>
+        </div>
+        <div class="spectral-band">
+          <div class="spectral-bar-wrapper">
+            <div class="spectral-fill" id="band-low" style="height: 62%; background: var(--warning);"></div>
+            <div class="spectral-target" id="target-low" style="bottom: 72%;"></div>
+          </div>
+          <div class="band-label">Low</div>
+        </div>
+        <div class="spectral-band">
+          <div class="spectral-bar-wrapper">
+            <div class="spectral-fill" id="band-lmid" style="height: 70%; background: var(--success);"></div>
+            <div class="spectral-target" id="target-lmid" style="bottom: 68%;"></div>
+          </div>
+          <div class="band-label">L-Mid</div>
+        </div>
+        <div class="spectral-band">
+          <div class="spectral-bar-wrapper">
+            <div class="spectral-fill" id="band-mid" style="height: 60%; background: var(--success);"></div>
+            <div class="spectral-target" id="target-mid" style="bottom: 58%;"></div>
+          </div>
+          <div class="band-label">Mid</div>
+        </div>
+        <div class="spectral-band">
+          <div class="spectral-bar-wrapper">
+            <div class="spectral-fill" id="band-hmid" style="height: 50%; background: var(--success);"></div>
+            <div class="spectral-target" id="target-hmid" style="bottom: 48%;"></div>
+          </div>
+          <div class="band-label">H-Mid</div>
+        </div>
+        <div class="spectral-band">
+          <div class="spectral-bar-wrapper">
+            <div class="spectral-fill" id="band-high" style="height: 35%; background: var(--error);"></div>
+            <div class="spectral-target" id="target-high" style="bottom: 50%;"></div>
+          </div>
+          <div class="band-label">High</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COLUMN 3: STEREO -->
+    <div class="column col-stereo">
+      <div class="section-label">Stereo</div>
+      <div class="stereo-content">
+        <!-- Correlation Arc (SVG) -->
+        <div class="corr-meter">
+          <svg class="corr-arc" viewBox="0 0 140 80">
+            <!-- Background arc segments -->
+            <path d="M 10 75 A 60 60 0 0 1 45 20" stroke="#FF174440" stroke-width="8" fill="none" stroke-linecap="round"/>
+            <path d="M 45 20 A 60 60 0 0 1 80 10" stroke="#FFD60040" stroke-width="8" fill="none" stroke-linecap="round"/>
+            <path d="M 80 10 A 60 60 0 0 1 130 75" stroke="#00E67640" stroke-width="8" fill="none" stroke-linecap="round"/>
+            <!-- Needle indicator -->
+            <circle id="corr-needle" cx="108" cy="28" r="5" fill="var(--cyan)" filter="url(#glow)"/>
+            <defs>
+              <filter id="glow">
+                <feGaussianBlur stdDeviation="2" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+          </svg>
+          <div class="corr-labels">
+            <span>-1.0</span>
+            <span>0</span>
+            <span>+1.0</span>
+          </div>
+        </div>
+
+        <div class="stereo-readouts">
+          <div class="stereo-readout">
+            <span class="label">Corr</span>
+            <span class="value" id="corr-value">0.72</span>
+          </div>
+          <div class="stereo-readout">
+            <span class="label">Width</span>
+            <span class="value" id="width-value">65%</span>
+          </div>
+          <div class="width-bar-container">
+            <div class="width-bar">
+              <div class="width-bar-fill" id="width-fill" style="width: 32.5%;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COLUMN 4: FEEDBACK -->
+    <div class="column col-feedback">
+      <div class="section-label">Mix Feedback</div>
+      <div class="feedback-content">
+        <div class="feedback-header" id="feedback-genre">Hip-Hop / Trap</div>
+        <div class="feedback-match">
+          <div class="match-bar">
+            <div class="match-bar-fill" id="match-fill" style="width: 72%; background: var(--warning);"></div>
+          </div>
+          <div class="match-percent" id="match-value">72%</div>
+        </div>
+        <div class="feedback-separator"></div>
+        <div class="feedback-lines" id="feedback-text">
+          <div><span class="fb-pass">&#10003; Dynamics:</span> <span class="fb-text">LUFS at -9.2 &mdash; within target (-8 to -11)</span></div>
+          <div><span class="fb-warn">&#9888; Tonality:</span> <span class="fb-text">Low-end at 28% &mdash; below target (35-45%). Consider boosting sub/bass.</span></div>
+          <div><span class="fb-fail">&#10007; Width:</span> <span class="fb-text">Stereo at 65% &mdash; too wide for genre. Narrow the low-end stereo image.</span></div>
+          <div style="margin-top: 12px;"><span class="fb-pass">&#10003; Correlation:</span> <span class="fb-text">0.72 &mdash; good mono compatibility.</span></div>
+          <div><span class="fb-warn">&#9888; High-End:</span> <span class="fb-text">HF energy significantly below target. Mix may sound dull on bright playback systems.</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <div class="status-area">
+      <div class="status-led" id="status-led"></div>
+      <span class="status-text" id="status-text">Ready</span>
+    </div>
+    <button class="send-button" id="btn_send_snip">Send to Meetsnip.com</button>
+  </div>
+
+  <!-- PREVIEW SIMULATION SCRIPT -->
+  <script>
+    // ===== PREVIEW MODE: Simulated data for design review =====
+
+    const reactSlider = document.getElementById('analysis_window');
+    const reactDisplay = document.getElementById('react-display');
+    reactSlider.addEventListener('input', () => {
+      reactDisplay.textContent = parseFloat(reactSlider.value).toFixed(1) + 's';
+    });
+
+    // Genre profiles for simulation
+    const profiles = {
+      0: { name: 'Hip-Hop / Trap', lufs: [-8, -11], low: 0.40, high: 0.25, width: [30, 50] },
+      1: { name: 'Pop', lufs: [-9, -12], low: 0.30, high: 0.50, width: [40, 65] },
+      2: { name: 'EDM / Dance', lufs: [-7, -10], low: 0.45, high: 0.50, width: [45, 70] },
+      3: { name: 'Rock / Alternative', lufs: [-10, -14], low: 0.25, high: 0.40, width: [30, 50] },
+      4: { name: 'R&B / Soul', lufs: [-10, -13], low: 0.35, high: 0.30, width: [35, 60] },
+      5: { name: 'Lo-Fi / Ambient', lufs: [-14, -20], low: 0.30, high: 0.20, width: [20, 40] },
+      6: { name: 'Classical / Jazz', lufs: [-16, -24], low: 0.20, high: 0.35, width: [25, 50] },
+    };
+
+    // Simulated current mix values
+    let mix = {
+      lufsShort: -9.2, lufsInt: -10.1, rms: -11.4,
+      bands: [0.18, 0.22, 0.25, 0.18, 0.10, 0.07],
+      correlation: 0.72, width: 65
+    };
+
+    function getDevColor(actual, target, tolerance) {
+      const dev = Math.abs(actual - target) / tolerance;
+      if (dev < 0.3) return 'var(--success)';
+      if (dev < 0.7) return 'var(--warning)';
+      return 'var(--error)';
+    }
+
+    function updateUI() {
+      const genre = parseInt(document.getElementById('target_genre').value);
+      const profile = profiles[genre];
+
+      // Randomize mix slightly for animation
+      mix.lufsShort += (Math.random() - 0.5) * 0.4;
+      mix.rms += (Math.random() - 0.5) * 0.3;
+      mix.correlation += (Math.random() - 0.5) * 0.02;
+      mix.correlation = Math.max(-1, Math.min(1, mix.correlation));
+      mix.width += (Math.random() - 0.5) * 2;
+      mix.width = Math.max(0, Math.min(200, mix.width));
+
+      for (let i = 0; i < 6; i++) {
+        mix.bands[i] += (Math.random() - 0.5) * 0.02;
+        mix.bands[i] = Math.max(0.02, Math.min(0.5, mix.bands[i]));
+      }
+
+      // Update LUFS/RMS meters
+      const lufsPercent = Math.max(0, Math.min(100, ((mix.lufsShort + 60) / 60) * 100));
+      const rmsPercent = Math.max(0, Math.min(100, ((mix.rms + 60) / 60) * 100));
+      document.getElementById('lufs-fill').style.height = lufsPercent + '%';
+      document.getElementById('rms-fill').style.height = rmsPercent + '%';
+      document.getElementById('lufs-value').textContent = mix.lufsShort.toFixed(1);
+      document.getElementById('rms-value').textContent = mix.rms.toFixed(1);
+      document.getElementById('lufs-int-value').textContent = mix.lufsInt.toFixed(1);
+
+      // LUFS target zone
+      const targetTop = ((profile.lufs[0] + 60) / 60) * 100;
+      const targetBot = ((profile.lufs[1] + 60) / 60) * 100;
+      document.getElementById('lufs-target').style.bottom = targetBot + '%';
+      document.getElementById('lufs-target').style.height = (targetTop - targetBot) + '%';
+
+      // Update spectral bars
+      const bandIds = ['sub', 'low', 'lmid', 'mid', 'hmid', 'high'];
+      const targetBands = [profile.low, profile.low * 0.8, 0.25, 0.18, 0.12, profile.high * 0.5];
+      bandIds.forEach((id, i) => {
+        const bar = document.getElementById('band-' + id);
+        const target = document.getElementById('target-' + id);
+        const pct = mix.bands[i] * 200;
+        const tgtPct = targetBands[i] * 200;
+        bar.style.height = Math.min(95, pct) + '%';
+        target.style.bottom = Math.min(95, tgtPct) + '%';
+        bar.style.background = getDevColor(mix.bands[i], targetBands[i], 0.15);
+      });
+
+      // Stereo
+      document.getElementById('corr-value').textContent = mix.correlation.toFixed(2);
+      document.getElementById('width-value').textContent = Math.round(mix.width) + '%';
+      document.getElementById('width-fill').style.width = (mix.width / 2) + '%';
+
+      // Correlation needle position on arc
+      const needle = document.getElementById('corr-needle');
+      const angle = ((mix.correlation + 1) / 2) * Math.PI;
+      const cx = 70 - 60 * Math.cos(angle);
+      const cy = 75 - 60 * Math.sin(angle);
+      needle.setAttribute('cx', cx);
+      needle.setAttribute('cy', cy);
+
+      // Feedback
+      document.getElementById('feedback-genre').textContent = profile.name;
+
+      // Calculate match percentage
+      const dynMatch = (mix.lufsShort >= profile.lufs[1] && mix.lufsShort <= profile.lufs[0]) ? 100 : Math.max(0, 100 - Math.abs(mix.lufsShort - (profile.lufs[0] + profile.lufs[1]) / 2) * 10);
+      const tonMatch = Math.max(0, 100 - Math.abs(mix.bands[0] + mix.bands[1] - profile.low) * 200);
+      const widMatch = (mix.width >= profile.width[0] && mix.width <= profile.width[1]) ? 100 : Math.max(0, 100 - Math.abs(mix.width - (profile.width[0] + profile.width[1]) / 2) * 2);
+      const overall = Math.round((dynMatch + tonMatch + widMatch) / 3);
+
+      document.getElementById('match-value').textContent = overall + '%';
+      const matchFill = document.getElementById('match-fill');
+      matchFill.style.width = overall + '%';
+      matchFill.style.background = overall > 75 ? 'var(--success)' : overall > 50 ? 'var(--warning)' : 'var(--error)';
+
+      // Feedback lines
+      const fb = document.getElementById('feedback-text');
+      const dynStatus = dynMatch > 80 ? 'pass' : dynMatch > 50 ? 'warn' : 'fail';
+      const dynIcon = dynStatus === 'pass' ? '&#10003;' : dynStatus === 'warn' ? '&#9888;' : '&#10007;';
+      const tonStatus = tonMatch > 80 ? 'pass' : tonMatch > 50 ? 'warn' : 'fail';
+      const tonIcon = tonStatus === 'pass' ? '&#10003;' : tonStatus === 'warn' ? '&#9888;' : '&#10007;';
+      const widStatus = widMatch > 80 ? 'pass' : widMatch > 50 ? 'warn' : 'fail';
+      const widIcon = widStatus === 'pass' ? '&#10003;' : widStatus === 'warn' ? '&#9888;' : '&#10007;';
+
+      const dynMsg = dynMatch > 80
+        ? `LUFS at ${mix.lufsShort.toFixed(1)} &mdash; within target (${profile.lufs[0]} to ${profile.lufs[1]})`
+        : `LUFS at ${mix.lufsShort.toFixed(1)} &mdash; outside target (${profile.lufs[0]} to ${profile.lufs[1]}). ${mix.lufsShort > profile.lufs[0] ? 'Mix is too loud.' : 'Mix is too quiet.'}`;
+
+      const lowEnergy = Math.round((mix.bands[0] + mix.bands[1]) * 100);
+      const tonMsg = tonMatch > 80
+        ? `Low-end at ${lowEnergy}% &mdash; on target for ${profile.name}.`
+        : `Low-end at ${lowEnergy}% &mdash; ${lowEnergy < profile.low * 100 ? 'below' : 'above'} target (${Math.round(profile.low * 100)}%). ${lowEnergy < profile.low * 100 ? 'Consider boosting sub/bass.' : 'Consider reducing low-end.'}`;
+
+      const widMsg = widMatch > 80
+        ? `Width at ${Math.round(mix.width)}% &mdash; within target for ${profile.name}.`
+        : `Width at ${Math.round(mix.width)}% &mdash; ${mix.width > profile.width[1] ? 'too wide' : 'too narrow'} for genre. ${mix.width > profile.width[1] ? 'Narrow the stereo image.' : 'Widen the mix.'}`;
+
+      const corrMsg = mix.correlation > 0.5
+        ? `${mix.correlation.toFixed(2)} &mdash; good mono compatibility.`
+        : mix.correlation > 0
+        ? `${mix.correlation.toFixed(2)} &mdash; moderate mono compatibility. Check critical elements.`
+        : `${mix.correlation.toFixed(2)} &mdash; poor mono compatibility! Phase issues likely.`;
+      const corrStatus = mix.correlation > 0.5 ? 'pass' : mix.correlation > 0 ? 'warn' : 'fail';
+      const corrIcon = corrStatus === 'pass' ? '&#10003;' : corrStatus === 'warn' ? '&#9888;' : '&#10007;';
+
+      fb.innerHTML = `
+        <div><span class="fb-${dynStatus}">${dynIcon} Dynamics:</span> <span class="fb-text">${dynMsg}</span></div>
+        <div><span class="fb-${tonStatus}">${tonIcon} Tonality:</span> <span class="fb-text">${tonMsg}</span></div>
+        <div><span class="fb-${widStatus}">${widIcon} Width:</span> <span class="fb-text">${widMsg}</span></div>
+        <div style="margin-top: 8px;"><span class="fb-${corrStatus}">${corrIcon} Correlation:</span> <span class="fb-text">${corrMsg}</span></div>
+      `;
+    }
+
+    // Genre change handler
+    document.getElementById('target_genre').addEventListener('change', updateUI);
+
+    // Send button simulation
+    const sendBtn = document.getElementById('btn_send_snip');
+    const statusLed = document.getElementById('status-led');
+    const statusText = document.getElementById('status-text');
+
+    sendBtn.addEventListener('click', () => {
+      sendBtn.classList.add('sending');
+      sendBtn.textContent = 'Sending...';
+      statusLed.className = 'status-led sending';
+      statusText.textContent = 'Sending to Meetsnip.com...';
+
+      setTimeout(() => {
+        sendBtn.classList.remove('sending');
+        sendBtn.classList.add('sent');
+        sendBtn.textContent = 'Sent \u2713';
+        statusLed.className = 'status-led';
+        statusText.textContent = 'Analysis sent successfully';
+
+        setTimeout(() => {
+          sendBtn.classList.remove('sent');
+          sendBtn.textContent = 'Send to Meetsnip.com';
+          statusText.textContent = 'Ready';
+        }, 3000);
+      }, 1500);
+    });
+
+    // Animate at ~15Hz for preview (30Hz in production)
+    setInterval(updateUI, 66);
+    updateUI();
+  </script>
+
+</body>
+</html>

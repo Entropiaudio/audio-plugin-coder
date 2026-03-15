@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SNIP Bridge</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #040608;
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      font-family: monospace;
+    }
+
+    #plugin {
+      width: 100vw;
+      height: 100vh;
+      background: #080c14;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* -- HEADER -- */
+    .header {
+      height: 40px;
+      background: #0a0e1a;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      flex-shrink: 0;
+      gap: 16px;
+    }
+    .logo { font-size: 14px; font-weight: 700; letter-spacing: 3px; color: #fff; }
+    .logo span { color: #E91E8C; text-shadow: 0 0 14px rgba(233,30,140,0.4); }
+    .hsel {
+      background: #0d1120; color: rgba(160,185,220,0.75);
+      border: 1px solid rgba(255,255,255,0.1); border-radius: 4px;
+      padding: 3px 8px; font-family: monospace; font-size: 9px;
+      outline: none; cursor: pointer;
+    }
+    .send-btn {
+      background: linear-gradient(180deg,rgba(255,255,255,0.1) 0%,transparent 40%,rgba(0,0,0,0.15) 100%),
+                  linear-gradient(180deg,#F02A96,#C4167A);
+      color: #fff; font-family: monospace; font-weight: 700; font-size: 11px;
+      letter-spacing: 1.5px; text-transform: uppercase; border: none;
+      border-top: 1px solid rgba(255,255,255,0.18); border-radius: 5px;
+      padding: 7px 22px; cursor: pointer;
+      box-shadow: 0 2px 10px rgba(233,30,140,0.3);
+      transition: filter 0.15s, box-shadow 0.15s;
+    }
+    .send-btn:hover { filter: brightness(1.15); box-shadow: 0 2px 18px rgba(233,30,140,0.5); }
+    .send-btn.sending { animation: pulse-glow 1.2s ease-in-out infinite; }
+    .send-btn.sent { background: linear-gradient(180deg,rgba(255,255,255,0.1) 0%,transparent 40%,rgba(0,0,0,0.15) 100%), linear-gradient(180deg,#00F08A,#00C864); animation: none; }
+    @keyframes pulse-glow {
+      0%,100% { box-shadow: 0 2px 10px rgba(233,30,140,0.3); }
+      50% { box-shadow: 0 2px 24px rgba(233,30,140,0.6), 0 0 40px rgba(233,30,140,0.2); }
+    }
+    .plbl { font-size: 8px; letter-spacing: 2.5px; color: rgba(160,185,220,0.38); text-transform: uppercase; }
+
+    /* -- BODY -- */
+    .body { flex: 1; display: flex; overflow: hidden; }
+
+    /* -- SPECTRUM -- */
+    #spec-panel {
+      flex: 1.5; min-width: 0; background: #0d1018;
+      border-right: 1px solid rgba(255,255,255,0.06);
+      display: flex; flex-direction: column; padding: 10px 12px 8px;
+    }
+
+    /* -- RIGHT -- */
+    .right { flex: 1; display: flex; flex-direction: column; }
+    .rpanel { border-bottom: 1px solid rgba(255,255,255,0.06); background: #0d1018; overflow: hidden; }
+    .rpanel:last-child { border-bottom: none; }
+
+    /* -- TOP RIGHT: stereo + meters -- */
+    #top-right { display: flex; flex-direction: row; align-items: stretch; flex-shrink: 0; height: 210px; }
+
+    #vs-col {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      justify-content: flex-start; padding: 8px 8px 8px 12px;
+      border-right: 1px solid rgba(255,255,255,0.05);
+    }
+    #vs-sub { display: flex; gap: 14px; justify-content: center; padding: 5px 4px 0; width: 100%; }
+    .st-readout { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+    .st-lbl { font-size: 7px; letter-spacing: 1.5px; color: rgba(140,190,220,0.38); text-transform: uppercase; }
+    .st-val { font-size: 13px; font-weight: 600; color: #00d4ff; text-shadow: 0 0 8px rgba(0,200,255,0.4); letter-spacing: -0.5px; }
+    .wbar-wrap { position: relative; height: 4px; background: rgba(0,0,0,0.5); border-radius: 2px; border: 1px solid rgba(255,255,255,0.05); overflow: hidden; }
+    .wbar-l { position: absolute; right: 50%; top: 0; bottom: 0; background: linear-gradient(to left,rgba(0,180,255,0.75),rgba(0,100,200,0.25)); border-radius: 3px 0 0 3px; }
+    .wbar-r { position: absolute; left: 50%; top: 0; bottom: 0; background: linear-gradient(to right,rgba(0,180,255,0.75),rgba(0,100,200,0.25)); border-radius: 0 3px 3px 0; }
+    .wbar-c { position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px; background: rgba(255,255,255,0.18); transform: translateX(-50%); }
+    .wbar-tgt { position: absolute; top: 0; bottom: 0; background: rgba(255,170,40,0.12); border-left: 1px solid rgba(255,175,50,0.45); border-right: 1px solid rgba(255,175,50,0.45); }
+    .wbar-lcr { display: flex; justify-content: space-between; margin-top: 2px; }
+    .wbar-lcr span { font-size: 7px; color: rgba(140,190,220,0.28); }
+
+    #meters-col { flex: 1; display: flex; flex-direction: row; align-items: stretch; padding: 8px 10px 8px 8px; gap: 6px; }
+    .meter-track { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; }
+    .meter-num { font-size: 12px; font-weight: 600; letter-spacing: -0.5px; line-height: 1; }
+    .meter-lbl { font-size: 7px; letter-spacing: 1.5px; color: rgba(160,210,185,0.38); text-transform: uppercase; }
+    .meter-unit { font-size: 7px; color: rgba(160,210,185,0.28); }
+
+    /* -- FEEDBACK -- */
+    #fb-panel { display: flex; flex-direction: row; gap: 10px; padding: 10px 14px; flex: 1; }
+    #fb-arc-area { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; flex-shrink: 0; }
+    .fb-score { font-size: 20px; font-weight: 600; letter-spacing: -0.5px; margin-top: -4px; }
+    .fb-match-lbl { font-size: 7px; letter-spacing: 1.5px; color: rgba(160,185,220,0.35); text-transform: uppercase; }
+    #fb-right { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6px; }
+    #genre-name { font-size: 11px; font-weight: 600; color: rgba(200,215,240,0.8); margin-bottom: 2px; }
+    .mrow { display: flex; flex-direction: column; gap: 2px; }
+    .mtop { display: flex; align-items: center; gap: 5px; }
+    .micon { font-size: 9px; width: 12px; text-align: center; font-weight: 700; }
+    .mname { font-size: 9px; color: rgba(200,215,235,0.6); width: 62px; }
+    .mbarw { flex: 1; height: 3px; background: rgba(0,0,0,0.5); border-radius: 2px; overflow: hidden; }
+    .mbar { height: 100%; border-radius: 2px; transition: width 400ms ease; }
+    .mpct { font-size: 9px; font-weight: 600; min-width: 28px; text-align: right; }
+    .mmsg { padding-left: 17px; font-size: 8px; color: rgba(140,160,195,0.5); line-height: 1.4; }
+  </style>
+</head>
+<body>
+<div id="plugin">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="logo">SNIP <span>BRIDGE</span></div>
+    <div style="display:flex;align-items:center;gap:6px;margin-left:12px;">
+      <span class="plbl">Genre</span>
+      <select class="hsel" id="main-genre">
+        <option value="0">Hip-Hop / Trap</option>
+        <option value="1">Pop</option>
+        <option value="2">EDM / Dance</option>
+        <option value="3">Rock</option>
+        <option value="4">Lo-Fi</option>
+      </select>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;">
+      <span class="plbl">React</span>
+      <input type="range" min="0.5" max="10" step="0.1" value="3" id="react-sl"
+        style="-webkit-appearance:none;width:70px;height:3px;background:#1a1e2e;border-radius:2px;outline:none;">
+      <span id="react-val" style="font-size:9px;color:#00d4ff;min-width:28px;">3.0s</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
+      <div id="silence-badge" style="display:none;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:3px;padding:2px 8px;font-size:8px;letter-spacing:1.5px;color:rgba(160,185,220,0.4);text-transform:uppercase;">Silent</div>
+      <div id="status-led" style="width:6px;height:6px;border-radius:50%;background:#00e676;box-shadow:0 0 6px rgba(0,230,118,0.6);"></div>
+      <span id="status-text" style="font-size:9px;color:rgba(160,185,220,0.4);">Ready</span>
+    </div>
+    <button class="send-btn" id="btn_send_snip">Send to Meetsnip</button>
+  </div>
+
+  <!-- BODY -->
+  <div class="body">
+
+    <!-- SPECTRUM -->
+    <div id="spec-panel">
+      <div style="display:flex;align-items:center;margin-bottom:6px;gap:12px;">
+        <span class="plbl">Spectrum</span>
+        <div style="display:flex;align-items:center;gap:10px;margin-left:auto;">
+          <div style="display:flex;align-items:center;gap:4px;">
+            <div style="width:14px;height:2px;background:linear-gradient(90deg,#90e860,#00ffd0,#3080ff);border-radius:1px;"></div>
+            <span style="font-size:8px;color:rgba(160,205,190,0.45);">Signal</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;">
+            <div style="width:14px;height:2px;background:rgba(255,175,50,0.8);border-radius:1px;"></div>
+            <span style="font-size:8px;color:rgba(255,185,80,0.55);">Target</span>
+          </div>
+        </div>
+      </div>
+      <canvas id="spec-cv" style="flex:1;display:block;width:100%;min-height:0;"></canvas>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="right">
+
+      <!-- TOP: stereo + meters -->
+      <div class="rpanel" id="top-right">
+        <div id="vs-col">
+          <span class="plbl" style="align-self:flex-start;margin-bottom:5px;">Stereo</span>
+          <canvas id="vs-cv" style="display:block;"></canvas>
+          <div id="vs-sub">
+            <div class="st-readout">
+              <span class="st-lbl">Corr</span>
+              <span class="st-val" id="corr-val">---</span>
+            </div>
+            <div class="st-readout" style="flex:1;min-width:80px;">
+              <span class="st-lbl">Width</span>
+              <span class="st-val" id="width-val">---</span>
+              <div style="width:100%;margin-top:3px;">
+                <div class="wbar-wrap">
+                  <div class="wbar-tgt" id="wbar-tgt"></div>
+                  <div class="wbar-l" id="wbar-l"></div>
+                  <div class="wbar-r" id="wbar-r"></div>
+                  <div class="wbar-c"></div>
+                </div>
+                <div class="wbar-lcr"><span>L</span><span>C</span><span>R</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="meters-col">
+          <canvas id="dscale" style="display:block;width:18px;flex-shrink:0;"></canvas>
+          <div class="meter-track">
+            <canvas id="lufs-cv" style="display:block;flex:1;width:100%;min-height:0;"></canvas>
+            <div style="text-align:center;">
+              <div class="meter-lbl">LUFS</div>
+              <div id="lufs-val" class="meter-num" style="color:#555;">---</div>
+              <div class="meter-unit">S-term</div>
+            </div>
+          </div>
+          <div class="meter-track">
+            <canvas id="rms-cv" style="display:block;flex:1;width:100%;min-height:0;"></canvas>
+            <div style="text-align:center;">
+              <div class="meter-lbl">RMS</div>
+              <div id="rms-val" class="meter-num" style="color:#555;">---</div>
+              <div class="meter-unit">dBFS</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding-bottom:18px;gap:1px;">
+            <span style="font-size:7px;color:rgba(160,210,185,0.3);">INT</span>
+            <span id="int-val" style="font-size:11px;font-weight:600;color:#00c878;text-shadow:0 0 6px rgba(0,190,110,0.35);">---</span>
+            <span style="font-size:7px;color:rgba(160,210,185,0.26);">LUFS</span>
+            <button id="btn-reset-lufs" style="margin-top:4px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:3px;color:rgba(160,210,185,0.5);font-family:monospace;font-size:7px;letter-spacing:1px;padding:2px 6px;cursor:pointer;text-transform:uppercase;" title="Reset Integrated LUFS">RST</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- FEEDBACK -->
+      <div class="rpanel" id="fb-panel" style="flex:1;">
+        <div id="fb-arc-area">
+          <canvas id="fb-arc-cv" width="80" height="80" style="display:block;"></canvas>
+          <div class="fb-score" id="fb-score">--</div>
+          <div class="fb-match-lbl">Match</div>
+        </div>
+        <div id="fb-right">
+          <div id="genre-name">Hip-Hop / Trap</div>
+          <div id="metrics-container" style="display:flex;flex-direction:column;gap:6px;"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var DPR = window.devicePixelRatio || 1;
+  var juceAvailable = typeof window.__JUCE__ !== 'undefined' && window.__JUCE__ !== null;
+
+  // Minimal JUCE slider state helper
+  function getSliderState(name) {
+    if (!juceAvailable) return null;
+    try {
+      var sliders = window.__JUCE__.initialisationData.__juce__sliders;
+      if (!sliders || !sliders[name]) return null;
+      var s = sliders[name];
+      var getNativeFn = function(fnName) {
+        try { return window.__JUCE__.backend.getNativeFunction(fnName); }
+        catch(e) { return function(){}; }
+      };
+      return {
+        properties: s.properties,
+        valueChangedEvent: s.valueChangedEvent,
+        getNormalisedValue: function() { return s.properties.normalisedValue || 0; },
+        setNormalisedValue: function(v) {
+          var dragStart = getNativeFn("sliderDragStarted__" + name);
+          var valChanged = getNativeFn("sliderValueChanged__" + name);
+          var dragEnd = getNativeFn("sliderDragEnded__" + name);
+          dragStart(); valChanged(v); dragEnd();
+        }
+      };
+    } catch(e) { return null; }
+  }
+
+  var genreState = getSliderState("target_genre");
+  var reactState = getSliderState("analysis_window");
+
+  // -- Genre Data --
+  var genreNames = ['Hip-Hop / Trap','Pop','EDM / Dance','Rock','Lo-Fi'];
+  var genreData = [
+    {lufsLo:-11,lufsHi:-8, rmsLo:-13,rmsHi:-10, spread:0.42, wlo:0.25, whi:0.50},
+    {lufsLo:-12,lufsHi:-9, rmsLo:-14,rmsHi:-11, spread:0.55, wlo:0.35, whi:0.62},
+    {lufsLo:-10,lufsHi:-7, rmsLo:-12,rmsHi:-9,  spread:0.65, wlo:0.40, whi:0.70},
+    {lufsLo:-14,lufsHi:-10,rmsLo:-16,rmsHi:-12, spread:0.48, wlo:0.28, whi:0.55},
+    {lufsLo:-18,lufsHi:-14,rmsLo:-20,rmsHi:-16, spread:0.30, wlo:0.15, whi:0.40},
+  ];
+
+  // -- Analysis State --
+  var genre = 0;
+  var lufsV = -60, lufsT2 = -60, lufsPk = -60, lufsPkT = 80;
+  var rmsV = -60, rmsT2 = -60, rmsPk = -60, rmsPkT = 80, intV = -60;
+  var corrV = 0, corrT = 0, widthV = 0, widthT = 0, tSpread = 0.42;
+  var fbScores = {dynamics:0, tonality:0, width:0, correlation:0};
+  var fbTgts = {dynamics:0, tonality:0, width:0, correlation:0};
+  var fbSmooth = 0;
+  var hasReceivedData = false;
+
+  // -- Spectrum Data --
+  var FMIN = 10, FMAX = 20000, N = 300;
+  var specSig = new Float32Array(N);
+  var specSmth = new Float32Array(N);
+  var specTLo = new Float32Array(N);
+  var specTHi = new Float32Array(N);
+
+  var specKP = [
+    [[10,-34,5],[60,-30,5],[120,-32,5],[300,-40,5],[800,-46,5],[3000,-52,5],[10000,-60,5],[20000,-68,5]],
+    [[10,-44,4],[80,-40,4],[200,-37,4],[800,-38,4],[3000,-40,4],[8000,-44,4],[20000,-52,4]],
+    [[10,-30,6],[80,-27,6],[200,-33,6],[600,-40,6],[2000,-44,6],[8000,-50,6],[20000,-58,6]],
+    [[10,-48,5],[100,-44,5],[400,-36,5],[1500,-37,5],[5000,-42,5],[12000,-50,5],[20000,-58,5]],
+    [[10,-46,4],[200,-44,4],[800,-46,4],[3000,-56,4],[8000,-68,4],[20000,-80,4]],
+  ];
+
+  function interpKP(kp, f) {
+    if (f <= kp[0][0]) return [kp[0][1]-kp[0][2], kp[0][1]+kp[0][2]];
+    if (f >= kp[kp.length-1][0]) { var l = kp[kp.length-1]; return [l[1]-l[2], l[1]+l[2]]; }
+    for (var i = 1; i < kp.length; i++) {
+      if (f <= kp[i][0]) {
+        var t = (Math.log(f)-Math.log(kp[i-1][0]))/(Math.log(kp[i][0])-Math.log(kp[i-1][0]));
+        var c = kp[i-1][1]+(kp[i][1]-kp[i-1][1])*t;
+        var hw = kp[i-1][2]+(kp[i][2]-kp[i-1][2])*t;
+        return [c-hw, c+hw];
+      }
+    }
+  }
+
+  function gaussSmooth(arr, s) {
+    s = s || 8;
+    var out = new Float32Array(arr.length), r = Math.ceil(s*2.5);
+    for (var i = 0; i < arr.length; i++) {
+      var sum = 0, w = 0;
+      for (var j = Math.max(0,i-r); j <= Math.min(arr.length-1,i+r); j++) {
+        var wj = Math.exp(-.5*((i-j)/s)*((i-j)/s));
+        sum += arr[j]*wj; w += wj;
+      }
+      out[i] = sum/w;
+    }
+    return out;
+  }
+
+  var lastGenre = -1;
+  function buildSpecTargets() {
+    var kp = specKP[genre];
+    var rL = new Float32Array(N), rH = new Float32Array(N);
+    for (var i = 0; i < N; i++) {
+      var f = Math.pow(FMAX/FMIN, i/(N-1))*FMIN;
+      var r = interpKP(kp, f);
+      rL[i] = r[0]; rH[i] = r[1];
+    }
+    specTLo = gaussSmooth(rL);
+    specTHi = gaussSmooth(rH);
+  }
+
+  for (var i = 0; i < N; i++) { specSig[i] = -100; specSmth[i] = -100; }
+  buildSpecTargets();
+
+  // -- Stereo Particles --
+  var stParts = [];
+  for (var pi = 0; pi < 100; pi++) {
+    stParts.push({
+      freq: Math.random(), angle: (Math.random()-.5)*.9, radius: .2+Math.random()*.65,
+      vA: (Math.random()-.5)*.008, vR: (Math.random()-.5)*.006,
+      life: Math.random(), vL: .002+Math.random()*.004, size: 1+Math.random()*2.2
+    });
+  }
+
+  // ===== CANVAS RENDERING =====
+
+  // -- Spectrum --
+  var specCv = document.getElementById('spec-cv'), specCtx = specCv.getContext('2d');
+
+  function setupSpec() {
+    var p = specCv.parentElement;
+    var pw = p.offsetWidth-24, ph = p.offsetHeight-30;
+    if (!pw || !ph) return;
+    specCv.width = pw*DPR; specCv.height = ph*DPR;
+    specCv.style.width = pw+'px'; specCv.style.height = ph+'px';
+    specCtx.setTransform(DPR,0,0,DPR,0,0);
+  }
+
+  function drawSpec() {
+    var w = specCv.offsetWidth, h = specCv.offsetHeight;
+    if (!w || !h) return;
+    var pL = 36, pT = 6, pB = 20, gw = w-pL-6, gh = h-pT-pB, bottom = pT+gh;
+    var fToX = function(f) { return pL+Math.log(f/FMIN)/Math.log(FMAX/FMIN)*gw; };
+    var dToY = function(d) { return pT+(0-d)/120*gh; };
+
+    specCtx.clearRect(0,0,w,h);
+    specCtx.fillStyle = '#0d1018'; specCtx.fillRect(0,0,w,h);
+
+    var gridMinor = [-10,-30,-50,-70,-90,-110];
+    for (var gi = 0; gi < gridMinor.length; gi++) {
+      var d = gridMinor[gi], y = dToY(d);
+      if (y < pT || y > bottom) continue;
+      specCtx.strokeStyle = 'rgba(255,255,255,0.04)'; specCtx.lineWidth = 0.4;
+      specCtx.beginPath(); specCtx.moveTo(pL,y); specCtx.lineTo(pL+gw,y); specCtx.stroke();
+    }
+    var gridMajor = [0,-20,-40,-60,-80,-100,-120];
+    for (var gi2 = 0; gi2 < gridMajor.length; gi2++) {
+      var d2 = gridMajor[gi2], y2 = dToY(d2);
+      if (y2 < pT || y2 > bottom) continue;
+      specCtx.strokeStyle = d2 === 0 ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)';
+      specCtx.lineWidth = 0.5;
+      specCtx.beginPath(); specCtx.moveTo(pL,y2); specCtx.lineTo(pL+gw,y2); specCtx.stroke();
+      specCtx.fillStyle = 'rgba(175,215,200,0.45)'; specCtx.font = '8px monospace'; specCtx.textAlign = 'right';
+      specCtx.fillText(d2, pL-4, y2+3);
+    }
+    specCtx.setLineDash([3,5]);
+    var freqLines = [10,20,50,100,200,500,1000,2000,5000,10000,20000];
+    for (var fi = 0; fi < freqLines.length; fi++) {
+      var f = freqLines[fi], x = fToX(f), maj = (f===100||f===1000||f===10000);
+      specCtx.strokeStyle = maj ? 'rgba(255,255,255,0.09)' : 'rgba(255,255,255,0.04)';
+      specCtx.lineWidth = maj ? 0.6 : 0.35;
+      specCtx.beginPath(); specCtx.moveTo(x,pT); specCtx.lineTo(x,bottom); specCtx.stroke();
+      specCtx.fillStyle = maj ? 'rgba(200,225,210,0.6)' : 'rgba(175,205,195,0.3)';
+      specCtx.font = (maj ? '9' : '8')+'px monospace'; specCtx.textAlign = 'center';
+      specCtx.fillText(f >= 1000 ? (f/1000)+'k' : f, x, bottom+13);
+    }
+    specCtx.setLineDash([]);
+
+    var spts = [], tup = [], tdn = [];
+    for (var si = 0; si < N; si++) {
+      var sf = Math.pow(FMAX/FMIN, si/(N-1))*FMIN, sx = fToX(sf);
+      spts.push([sx, dToY(specSmth[si])]);
+      tup.push([sx, dToY(specTHi[si])]);
+      tdn.push([sx, dToY(specTLo[si])]);
+    }
+
+    function ct(pts) { for (var ci = 1; ci < pts.length; ci++) { var mx = (pts[ci-1][0]+pts[ci][0])*.5; specCtx.bezierCurveTo(mx,pts[ci-1][1],mx,pts[ci][1],pts[ci][0],pts[ci][1]); } }
+    function cr(pts) { for (var ci = pts.length-2; ci >= 0; ci--) { var mx = (pts[ci+1][0]+pts[ci][0])*.5; specCtx.bezierCurveTo(mx,pts[ci+1][1],mx,pts[ci][1],pts[ci][0],pts[ci][1]); } }
+
+    // Target band
+    specCtx.beginPath(); specCtx.moveTo(tup[0][0],tup[0][1]); ct(tup); cr(tdn); specCtx.closePath();
+    var tbf = specCtx.createLinearGradient(pL,0,pL+gw,0);
+    tbf.addColorStop(0,'rgba(255,140,30,0.13)'); tbf.addColorStop(.5,'rgba(255,165,45,0.16)'); tbf.addColorStop(1,'rgba(255,120,80,0.09)');
+    specCtx.fillStyle = tbf; specCtx.fill();
+    specCtx.beginPath(); specCtx.moveTo(tup[0][0],tup[0][1]); ct(tup);
+    specCtx.shadowColor = 'rgba(255,160,40,0.38)'; specCtx.shadowBlur = 5;
+    specCtx.strokeStyle = 'rgba(255,185,55,0.78)'; specCtx.lineWidth = 1.4; specCtx.stroke(); specCtx.shadowBlur = 0;
+    specCtx.beginPath(); specCtx.moveTo(tdn[0][0],tdn[0][1]); ct(tdn);
+    specCtx.strokeStyle = 'rgba(220,130,40,0.35)'; specCtx.lineWidth = 0.9; specCtx.stroke();
+
+    // Signal fill
+    specCtx.beginPath();
+    specCtx.moveTo(spts[0][0], bottom); specCtx.lineTo(spts[0][0], spts[0][1]);
+    ct(spts); specCtx.lineTo(spts[N-1][0], bottom); specCtx.closePath();
+    var sfg = specCtx.createLinearGradient(pL,0,pL+gw,0);
+    sfg.addColorStop(0,'rgba(110,195,75,0.68)'); sfg.addColorStop(.2,'rgba(35,205,135,0.74)');
+    sfg.addColorStop(.45,'rgba(0,218,198,0.76)'); sfg.addColorStop(.72,'rgba(0,182,232,0.70)');
+    sfg.addColorStop(1,'rgba(65,90,200,0.48)');
+    specCtx.fillStyle = sfg; specCtx.fill();
+    specCtx.save(); specCtx.beginPath(); specCtx.rect(pL,pT,gw,gh); specCtx.clip();
+    var fd = specCtx.createLinearGradient(0,pT,0,bottom);
+    fd.addColorStop(.45,'rgba(0,0,0,0)'); fd.addColorStop(1,'rgba(8,12,20,0.96)');
+    specCtx.fillStyle = fd; specCtx.fillRect(pL,pT,gw,gh); specCtx.restore();
+
+    var eg = specCtx.createLinearGradient(pL,0,pL+gw,0);
+    eg.addColorStop(0,'rgba(155,242,115,0.85)'); eg.addColorStop(.4,'rgba(0,255,218,0.95)');
+    eg.addColorStop(.72,'rgba(0,202,252,0.9)'); eg.addColorStop(1,'rgba(95,110,252,0.62)');
+    specCtx.beginPath(); specCtx.moveTo(spts[0][0],spts[0][1]); ct(spts);
+    specCtx.shadowColor = 'rgba(0,228,192,0.45)'; specCtx.shadowBlur = 7;
+    specCtx.strokeStyle = eg; specCtx.lineWidth = 2; specCtx.stroke(); specCtx.shadowBlur = 0;
+    specCtx.beginPath(); specCtx.moveTo(spts[0][0],spts[0][1]); ct(spts);
+    specCtx.strokeStyle = 'rgba(222,255,238,0.35)'; specCtx.lineWidth = 1; specCtx.stroke();
+    specCtx.strokeStyle = 'rgba(255,255,255,0.05)'; specCtx.lineWidth = 1;
+    specCtx.strokeRect(pL+.5,pT+.5,gw-1,gh-1);
+  }
+
+  // -- Dynamics (Meters) --
+  var lufsCv = document.getElementById('lufs-cv'), lufsCtx = lufsCv.getContext('2d');
+  var rmsCv = document.getElementById('rms-cv'), rmsCtx = rmsCv.getContext('2d');
+  var dscaleCv = document.getElementById('dscale'), dscaleCtx = dscaleCv.getContext('2d');
+  var DB_TOP = 0, DB_BOT = -36;
+  var dToY3 = function(d) { return (DB_TOP-d)/(DB_TOP-DB_BOT); };
+
+  function setupMeter(cv, ctx) {
+    if (!cv.offsetWidth || !cv.offsetHeight) return;
+    cv.width = cv.offsetWidth*DPR; cv.height = cv.offsetHeight*DPR;
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+  }
+
+  function setupDscale() {
+    var h = lufsCv.offsetHeight; if (!h) return;
+    dscaleCv.width = 18*DPR; dscaleCv.height = h*DPR; dscaleCv.style.height = h+'px';
+    dscaleCtx.setTransform(DPR,0,0,DPR,0,0); dscaleCtx.clearRect(0,0,18,h);
+    var marks = [0,-3,-6,-9,-12,-18,-24,-30,-36];
+    for (var mi = 0; mi < marks.length; mi++) {
+      var d = marks[mi], y = dToY3(d)*h;
+      dscaleCtx.fillStyle = d === 0 ? 'rgba(255,255,255,0.45)' : d >= -9 ? 'rgba(160,210,185,0.48)' : 'rgba(160,210,185,0.26)';
+      dscaleCtx.font = '7px monospace'; dscaleCtx.textAlign = 'right';
+      dscaleCtx.fillText(d, 16, y+3);
+    }
+  }
+
+  function drawMeter(ctx, db, peak, tLo, tHi) {
+    var w = ctx.canvas.offsetWidth, h = ctx.canvas.offsetHeight;
+    if (!w || !h) return;
+    ctx.clearRect(0,0,w,h);
+    ctx.fillStyle = '#060e0a'; ctx.beginPath(); ctx.roundRect(0,0,w,h,3); ctx.fill();
+
+    if (tLo !== null) {
+      var ty1 = dToY3(tHi)*h, ty2 = dToY3(tLo)*h;
+      ctx.fillStyle = 'rgba(255,168,40,0.1)'; ctx.fillRect(0,ty1,w,ty2-ty1);
+      ctx.strokeStyle = 'rgba(255,185,55,0.7)'; ctx.lineWidth = 1;
+      ctx.shadowColor = 'rgba(255,165,30,0.38)'; ctx.shadowBlur = 4;
+      ctx.beginPath(); ctx.moveTo(0,ty1); ctx.lineTo(w,ty1); ctx.stroke(); ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(255,168,40,0.28)'; ctx.lineWidth = 0.7;
+      ctx.beginPath(); ctx.moveTo(0,ty2); ctx.lineTo(w,ty2); ctx.stroke();
+    }
+
+    var marks = [0,-3,-6,-9,-12,-18,-24,-30,-36];
+    for (var mi = 0; mi < marks.length; mi++) {
+      var d = marks[mi], y = dToY3(d)*h;
+      ctx.strokeStyle = d%6 === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)';
+      ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+    }
+
+    var fH = (1-dToY3(db))*h, fY = h-fH;
+    if (fH > 0) {
+      var gr = ctx.createLinearGradient(0,h,0,0);
+      gr.addColorStop(0,'rgba(0,200,100,0.88)'); gr.addColorStop(.58,'rgba(0,235,120,0.9)');
+      gr.addColorStop(.78,'rgba(180,235,50,0.9)'); gr.addColorStop(.9,'rgba(255,205,0,0.9)');
+      gr.addColorStop(1,'rgba(255,55,25,0.95)');
+      ctx.fillStyle = gr; ctx.fillRect(0,fY,w,fH);
+      ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(0,fY,w,1.5);
+    }
+
+    if (peak > DB_BOT) {
+      var py = dToY3(peak)*h;
+      var pc = peak > -3 ? 'rgba(255,70,30,0.95)' : peak > -9 ? 'rgba(255,210,0,0.95)' : 'rgba(0,240,120,0.95)';
+      ctx.strokeStyle = pc; ctx.lineWidth = 2; ctx.shadowColor = pc; ctx.shadowBlur = 5;
+      ctx.beginPath(); ctx.moveTo(1,py); ctx.lineTo(w-1,py); ctx.stroke(); ctx.shadowBlur = 0;
+    }
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 0.7;
+    ctx.beginPath(); ctx.roundRect(.5,.5,w-1,h-1,3); ctx.stroke();
+  }
+
+  // -- Stereo Vectorscope --
+  var vsCv = document.getElementById('vs-cv'), vsCtx = vsCv.getContext('2d');
+
+  function setupVS() {
+    var col = document.getElementById('vs-col');
+    var availW = col.offsetWidth-20, availH = 170;
+    var sz = Math.min(availW, availH*2);
+    var ch = Math.round(sz/2)+12;
+    vsCv.width = sz*DPR; vsCv.height = ch*DPR;
+    vsCv.style.width = sz+'px'; vsCv.style.height = ch+'px';
+    vsCtx.setTransform(DPR,0,0,DPR,0,0);
+  }
+
+  function freqCol(f, a) {
+    return 'rgba('+Math.round(20+30*(1-f))+','+Math.round(150+70*(1-f))+','+Math.round(195+60*f)+','+a+')';
+  }
+
+  function buildVShape(cx0, cy0, R, sp, dep, np, seed) {
+    var pts = [];
+    for (var vi = 0; vi <= np; vi++) {
+      var t = vi/np, ba = Math.PI+t*Math.PI, ph = t*Math.PI*5;
+      var noise = seed === null
+        ? 0.5+0.4*Math.sin(ph+Date.now()*.0008)*(0.35+0.45*Math.sin(ph*1.6+Date.now()*.0005))
+        : 0.5+0.3*Math.sin(ph*.9+seed)*(0.4+0.3*Math.sin(ph*1.4+seed*1.3));
+      var cp = Math.max(0, seed === null ? corrV : .6), ad = Math.abs(t-.5)*2;
+      var env = Math.pow(Math.max(0, 1-ad/(sp*1.8)), .65);
+      var r = R*(.13+noise*sp*dep*(1-cp*.45)*env);
+      pts.push([cx0+r*Math.cos(ba), cy0+r*Math.sin(ba)]);
+    }
+    return pts;
+  }
+
+  function drawShapeVS(pts, fs, ss, gl, lw) {
+    vsCtx.beginPath(); vsCtx.moveTo(pts[0][0], pts[0][1]);
+    for (var si = 1; si < pts.length; si++) { var mx = (pts[si-1][0]+pts[si][0])*.5; vsCtx.bezierCurveTo(mx,pts[si-1][1],mx,pts[si][1],pts[si][0],pts[si][1]); }
+    vsCtx.closePath(); vsCtx.fillStyle = fs; vsCtx.fill();
+    vsCtx.beginPath(); vsCtx.moveTo(pts[0][0], pts[0][1]);
+    for (var si2 = 1; si2 < pts.length; si2++) { var mx2 = (pts[si2-1][0]+pts[si2][0])*.5; vsCtx.bezierCurveTo(mx2,pts[si2-1][1],mx2,pts[si2][1],pts[si2][0],pts[si2][1]); }
+    vsCtx.closePath(); vsCtx.shadowColor = gl; vsCtx.shadowBlur = 5; vsCtx.strokeStyle = ss; vsCtx.lineWidth = lw; vsCtx.stroke(); vsCtx.shadowBlur = 0;
+  }
+
+  function drawThinArcVS(cx0, cy0, R, sp, rad, col, glow) {
+    var h2 = sp*Math.PI*.9, aS = Math.PI*1.5-h2, aE = Math.PI*1.5+h2, r = R*rad;
+    vsCtx.beginPath(); vsCtx.arc(cx0,cy0,r,aS,aE);
+    vsCtx.strokeStyle = col; vsCtx.lineWidth = 1.3; vsCtx.shadowColor = glow; vsCtx.shadowBlur = 5; vsCtx.stroke(); vsCtx.shadowBlur = 0;
+    var arcEnds = [aS, aE];
+    for (var ei = 0; ei < arcEnds.length; ei++) {
+      var a = arcEnds[ei];
+      vsCtx.beginPath();
+      vsCtx.moveTo(cx0+(r-3)*Math.cos(a), cy0+(r-3)*Math.sin(a));
+      vsCtx.lineTo(cx0+(r+3)*Math.cos(a), cy0+(r+3)*Math.sin(a));
+      vsCtx.strokeStyle = col; vsCtx.lineWidth = 1.2; vsCtx.stroke();
+    }
+  }
+
+  function drawVS() {
+    var w = vsCv.offsetWidth, h = vsCv.offsetHeight;
+    if (!w || !h) return;
+    var cx0 = w/2, cy0 = h-10, R = Math.min(w*.46, h*.86);
+    vsCtx.clearRect(0,0,w,h); vsCtx.fillStyle = '#0a1020'; vsCtx.fillRect(0,0,w,h);
+    vsCtx.beginPath(); vsCtx.arc(cx0,cy0,R,Math.PI,0); vsCtx.closePath();
+    vsCtx.fillStyle = 'rgba(0,15,35,0.55)'; vsCtx.fill();
+    vsCtx.strokeStyle = 'rgba(255,255,255,0.05)'; vsCtx.lineWidth = 0.7; vsCtx.stroke();
+
+    var rings = [.4,.7,1];
+    for (var ri = 0; ri < rings.length; ri++) {
+      vsCtx.beginPath(); vsCtx.arc(cx0,cy0,R*rings[ri],Math.PI,0);
+      vsCtx.strokeStyle = 'rgba(100,160,220,'+(rings[ri]===1?.09:.04)+')'; vsCtx.lineWidth = .4; vsCtx.stroke();
+    }
+    var spokes = [Math.PI, Math.PI*1.25, Math.PI*1.5, Math.PI*1.75, 0];
+    for (var spi = 0; spi < spokes.length; spi++) {
+      var a = spokes[spi], maj = (a===Math.PI||a===Math.PI*1.5||a===0);
+      vsCtx.beginPath(); vsCtx.moveTo(cx0,cy0); vsCtx.lineTo(cx0+R*Math.cos(a), cy0+R*Math.sin(a));
+      vsCtx.strokeStyle = maj ? 'rgba(100,170,230,0.13)' : 'rgba(100,170,230,0.05)';
+      vsCtx.lineWidth = maj ? .7 : .35; vsCtx.stroke();
+    }
+    var labels = [{a:Math.PI,t:'L'},{a:Math.PI*1.5,t:'C'},{a:0,t:'R'}];
+    for (var li = 0; li < labels.length; li++) {
+      vsCtx.fillStyle = 'rgba(140,190,220,0.42)'; vsCtx.font = '8px monospace';
+      vsCtx.textAlign = 'center'; vsCtx.textBaseline = 'middle';
+      vsCtx.fillText(labels[li].t, cx0+(R+9)*Math.cos(labels[li].a), cy0+(R+9)*Math.sin(labels[li].a));
+    }
+
+    var tgt = genreData[genre];
+    tSpread += (tgt.spread-tSpread)*.04;
+
+    var tpts = buildVShape(cx0,cy0,R,tSpread,.72,100,42);
+    var tF = vsCtx.createRadialGradient(cx0,cy0,0,cx0,cy0,R);
+    tF.addColorStop(0,'rgba(255,150,20,0.18)'); tF.addColorStop(1,'rgba(255,100,10,0.03)');
+    drawShapeVS(tpts, tF, 'rgba(255,185,55,0.52)', 'rgba(255,160,30,0.38)', 1.2);
+
+    var vpts = buildVShape(cx0,cy0,R,widthV*.78,1,100,null);
+    var sF = vsCtx.createRadialGradient(cx0,cy0,0,cx0,cy0,R);
+    sF.addColorStop(0,'rgba(0,155,255,0.25)'); sF.addColorStop(1,'rgba(0,80,180,0.04)');
+    drawShapeVS(vpts, sF, 'rgba(0,200,255,0.52)', 'rgba(0,185,255,0.38)', 1.2);
+
+    drawThinArcVS(cx0,cy0,R,tSpread,.96,'rgba(255,185,55,0.8)','rgba(255,160,30,0.42)');
+    drawThinArcVS(cx0,cy0,R,widthV*.72,.85,'rgba(0,205,255,0.8)','rgba(0,180,255,0.42)');
+
+    for (var pi2 = 0; pi2 < stParts.length; pi2++) {
+      var p = stParts[pi2];
+      p.angle += p.vA*(widthV*1.2); p.radius += p.vR; p.life += p.vL;
+      if (p.life > 1) { p.life = 0; p.radius = .1+Math.random()*.3; p.angle = (Math.random()-.5)*widthV*1.5; }
+      if (p.radius > 1) p.vR *= -1;
+      if (p.radius < 0) { p.radius = .05; p.vR = Math.abs(p.vR); }
+      if (Math.abs(p.angle) > widthV*1.2) p.vA *= -.8;
+      var pa = Math.PI*1.5+p.angle*Math.PI, pr = p.radius*R*.83;
+      vsCtx.beginPath(); vsCtx.arc(cx0+pr*Math.cos(pa), cy0+pr*Math.sin(pa), p.size*.5, 0, Math.PI*2);
+      vsCtx.fillStyle = freqCol(p.freq, (0.3+0.5*Math.sin(p.life*Math.PI))*.6); vsCtx.fill();
+    }
+
+    vsCtx.beginPath(); vsCtx.arc(cx0,cy0,2.5,0,Math.PI*2);
+    vsCtx.fillStyle = 'rgba(0,220,255,0.9)'; vsCtx.shadowColor = 'rgba(0,200,255,0.7)'; vsCtx.shadowBlur = 6; vsCtx.fill(); vsCtx.shadowBlur = 0;
+  }
+
+  // -- Feedback Arc --
+  var fbArcCv = document.getElementById('fb-arc-cv'), fbArcCtx = fbArcCv.getContext('2d');
+
+  function drawFbArc(score) {
+    fbArcCtx.clearRect(0,0,80,80);
+    var cx = 40, cy = 44, R = 28;
+    fbArcCtx.beginPath(); fbArcCtx.arc(cx,cy,R,Math.PI*.72,Math.PI*2.28);
+    fbArcCtx.strokeStyle = 'rgba(255,255,255,0.07)'; fbArcCtx.lineWidth = 5; fbArcCtx.lineCap = 'round'; fbArcCtx.stroke();
+    var aEnd = Math.PI*.72+(score/100)*Math.PI*1.56;
+    var col = score > 75 ? '#00e090' : score > 50 ? '#ffc830' : '#ff4422';
+    var glow = score > 75 ? 'rgba(0,210,130,0.55)' : score > 50 ? 'rgba(255,190,30,0.55)' : 'rgba(255,50,20,0.55)';
+    fbArcCtx.beginPath(); fbArcCtx.arc(cx,cy,R,Math.PI*.72,aEnd);
+    fbArcCtx.strokeStyle = col; fbArcCtx.lineWidth = 5; fbArcCtx.shadowColor = glow; fbArcCtx.shadowBlur = 10; fbArcCtx.stroke(); fbArcCtx.shadowBlur = 0;
+    var ex = cx+R*Math.cos(aEnd), ey = cy+R*Math.sin(aEnd);
+    fbArcCtx.beginPath(); fbArcCtx.arc(ex,ey,3,0,Math.PI*2);
+    fbArcCtx.fillStyle = col; fbArcCtx.shadowColor = glow; fbArcCtx.shadowBlur = 7; fbArcCtx.fill(); fbArcCtx.shadowBlur = 0;
+    return col;
+  }
+
+  function renderMetrics() {
+    var defs = [
+      {key:'dynamics',    label:'Dynamics',    msgs:['Loudness on target.','Slightly off target.','Loudness mismatch.']},
+      {key:'tonality',    label:'Tonality',    msgs:['Spectral balance good.','Tonal balance off.','Significant mismatch.']},
+      {key:'width',       label:'Width',       msgs:['Width ideal.','Width off target.','Width mismatch.']},
+      {key:'correlation', label:'Correlation', msgs:['Good mono compat.','Moderate compat.','Phase issues!']},
+    ];
+    var el = document.getElementById('metrics-container');
+    el.innerHTML = '';
+    for (var di = 0; di < defs.length; di++) {
+      var def = defs[di], s = fbScores[def.key];
+      var col = s > 75 ? 'rgba(0,220,120,0.88)' : s > 50 ? 'rgba(255,190,40,0.88)' : 'rgba(255,60,40,0.88)';
+      var bc = s > 75 ? 'rgba(0,215,110,0.8)' : s > 50 ? 'rgba(255,185,35,0.8)' : 'rgba(255,55,35,0.8)';
+      var ic = s > 75 ? '\u2713' : s > 50 ? '\u25B2' : '\u2715';
+      var msg = s > 75 ? def.msgs[0] : s > 50 ? def.msgs[1] : def.msgs[2];
+      var row = document.createElement('div');
+      row.className = 'mrow';
+      row.innerHTML = '<div class="mtop">' +
+        '<span class="micon" style="color:'+col+';">'+ic+'</span>' +
+        '<span class="mname">'+def.label+'</span>' +
+        '<div class="mbarw"><div class="mbar" style="width:'+s+'%;background:'+bc+';"></div></div>' +
+        '<span class="mpct" style="color:'+col+';">'+Math.round(s)+'%</span>' +
+        '</div>' +
+        '<div class="mmsg">'+msg+'</div>';
+      el.appendChild(row);
+    }
+  }
+
+  // ===== JUCE EVENT HANDLERS =====
+
+  // Genre parameter: bidirectional binding
+  var genreSelect = document.getElementById('main-genre');
+  genreSelect.addEventListener('change', function(e) {
+    genre = +e.target.value;
+    if (genreState) genreState.setNormalisedValue(genre / 4);
+  });
+
+  if (genreState && genreState.valueChangedEvent) {
+    genreState.valueChangedEvent.addListener(function() {
+      var idx = Math.round(genreState.getNormalisedValue() * 4);
+      genre = Math.max(0, Math.min(4, idx));
+      genreSelect.value = genre;
+    });
+  }
+
+  // Reaction time slider: bidirectional binding
+  var reactSlider = document.getElementById('react-sl');
+  var reactVal = document.getElementById('react-val');
+  reactSlider.addEventListener('input', function(e) {
+    var val = parseFloat(e.target.value);
+    reactVal.textContent = val.toFixed(1) + 's';
+    if (reactState) reactState.setNormalisedValue((val - 0.5) / 9.5);
+  });
+
+  if (reactState && reactState.valueChangedEvent) {
+    reactState.valueChangedEvent.addListener(function() {
+      var val = 0.5 + reactState.getNormalisedValue() * 9.5;
+      reactSlider.value = val;
+      reactVal.textContent = val.toFixed(1) + 's';
+    });
+  }
+
+  // Reset LUFS button
+  var resetBtn = document.getElementById('btn-reset-lufs');
+  resetBtn.addEventListener('click', function() {
+    intV = -60;
+    document.getElementById('int-val').textContent = '---';
+    if (juceAvailable) {
+      try { window.__JUCE__.backend.emitEvent("resetLufs", {}); }
+      catch(e) {}
+    }
+  });
+
+  // Silence badge
+  var silenceBadge = document.getElementById('silence-badge');
+
+  // Send button
+  var sendBtn = document.getElementById('btn_send_snip');
+  var statusLed = document.getElementById('status-led');
+  var statusText = document.getElementById('status-text');
+
+  sendBtn.addEventListener('click', function() {
+    sendBtn.classList.add('sending');
+    sendBtn.textContent = 'Sending...';
+    statusLed.style.background = '#FFD600';
+    statusLed.style.boxShadow = '0 0 6px rgba(255,214,0,0.6)';
+    statusText.textContent = 'Sending to Meetsnip.com...';
+    if (juceAvailable) {
+      try { window.__JUCE__.backend.emitEvent("sendToSnip", {}); }
+      catch(e) { /* fallback: simulate */ simulateSendResult(); }
+    } else {
+      simulateSendResult();
+    }
+  });
+
+  function simulateSendResult() {
+    setTimeout(function() {
+      handleSendResult({success: true});
+    }, 1500);
+  }
+
+  function handleSendResult(data) {
+    if (data && data.success) {
+      sendBtn.classList.remove('sending'); sendBtn.classList.add('sent'); sendBtn.textContent = 'Sent \u2713';
+      statusLed.style.background = '#00e676'; statusLed.style.boxShadow = '0 0 6px rgba(0,230,118,0.6)';
+      statusText.textContent = 'Analysis sent successfully';
+      setTimeout(function() {
+        sendBtn.classList.remove('sent'); sendBtn.textContent = 'Send to Meetsnip';
+        statusText.textContent = 'Ready';
+      }, 3000);
+    } else {
+      sendBtn.classList.remove('sending'); sendBtn.textContent = 'Send to Meetsnip';
+      statusLed.style.background = '#FF1744'; statusLed.style.boxShadow = '0 0 6px rgba(255,23,68,0.6)';
+      statusText.textContent = data && data.error ? 'Failed: ' + data.error : 'Send failed';
+      setTimeout(function() {
+        statusLed.style.background = '#00e676'; statusLed.style.boxShadow = '0 0 6px rgba(0,230,118,0.6)';
+        statusText.textContent = 'Ready';
+      }, 3000);
+    }
+  }
+
+  // Listen for C++ events (guarded)
+  if (juceAvailable && window.__JUCE__.backend) {
+    try {
+      window.__JUCE__.backend.addEventListener("sendResult", function(event) {
+        handleSendResult(event.detail);
+      });
+
+      window.__JUCE__.backend.addEventListener("analysisUpdate", function(event) {
+        var d = event.detail;
+        if (!d) return;
+        hasReceivedData = true;
+
+        if (d.lufsShort !== undefined) lufsT2 = d.lufsShort;
+        if (d.lufsInt !== undefined) intV = d.lufsInt;
+        if (d.rms !== undefined) rmsT2 = d.rms;
+        if (d.correlation !== undefined) corrT = d.correlation;
+        if (d.width !== undefined) widthT = d.width;
+
+        if (d.spectrum && d.spectrum.length === N) {
+          for (var si = 0; si < N; si++) specSig[si] = d.spectrum[si];
+        }
+
+        if (d.feedback) {
+          if (d.feedback.dynamics !== undefined) fbTgts.dynamics = d.feedback.dynamics;
+          if (d.feedback.tonality !== undefined) fbTgts.tonality = d.feedback.tonality;
+          if (d.feedback.width !== undefined) fbTgts.width = d.feedback.width;
+          if (d.feedback.correlation !== undefined) fbTgts.correlation = d.feedback.correlation;
+        }
+
+        // Silence indicator
+        if (d.isSilent !== undefined) {
+          silenceBadge.style.display = d.isSilent ? 'block' : 'none';
+        }
+      });
+    } catch(e) {
+      console.warn("SNIP Bridge: Failed to set up JUCE event listeners:", e);
+    }
+  }
+
+  // ===== SETUP & MAIN LOOP =====
+
+  function setupAll() {
+    setupSpec(); setupVS();
+    setupMeter(lufsCv, lufsCtx); setupMeter(rmsCv, rmsCtx);
+    setTimeout(setupDscale, 20);
+  }
+
+  var setupRetries = 0;
+  function trySetup() {
+    setupAll();
+    setupRetries++;
+    if ((!specCv.offsetWidth || !specCv.offsetHeight) && setupRetries < 20) {
+      setTimeout(trySetup, 100);
+    }
+  }
+
+  setTimeout(trySetup, 60);
+  window.addEventListener('resize', function() { setTimeout(setupAll, 30); });
+
+  function tick() {
+    if (genre !== lastGenre) { buildSpecTargets(); lastGenre = genre; }
+
+    // Smooth spectrum toward signal
+    for (var ti = 0; ti < N; ti++) {
+      specSmth[ti] += (specSig[ti]-specSmth[ti])*.1;
+    }
+    drawSpec();
+
+    // Dynamics: smooth toward targets
+    lufsV += (lufsT2-lufsV)*.15;
+    rmsV += (rmsT2-rmsV)*.15;
+    if (lufsV > lufsPk) { lufsPk = lufsV; lufsPkT = 80; }
+    else if (--lufsPkT <= 0) lufsPk -= .05;
+    if (rmsV > rmsPk) { rmsPk = rmsV; rmsPkT = 80; }
+    else if (--rmsPkT <= 0) rmsPk -= .05;
+
+    var tgt = genreData[genre];
+    setupMeter(lufsCv, lufsCtx);
+    drawMeter(lufsCtx, lufsV, lufsPk, tgt.lufsLo, tgt.lufsHi);
+    setupMeter(rmsCv, rmsCtx);
+    drawMeter(rmsCtx, rmsV, rmsPk, tgt.rmsLo, tgt.rmsHi);
+
+    var inL = lufsV >= tgt.lufsLo && lufsV <= tgt.lufsHi;
+    var inR = rmsV >= tgt.rmsLo && rmsV <= tgt.rmsHi;
+    document.getElementById('lufs-val').textContent = lufsV > -55 ? lufsV.toFixed(1) : '---';
+    document.getElementById('lufs-val').style.color = lufsV <= -55 ? '#555' : inL ? '#00e090' : lufsV > tgt.lufsHi ? '#ff4422' : '#ffd020';
+    document.getElementById('rms-val').textContent = rmsV > -55 ? rmsV.toFixed(1) : '---';
+    document.getElementById('rms-val').style.color = rmsV <= -55 ? '#555' : inR ? '#00e090' : rmsV > tgt.rmsHi ? '#ff4422' : '#ffd020';
+    document.getElementById('int-val').textContent = intV > -55 ? intV.toFixed(1) : '---';
+
+    // Stereo: smooth toward targets
+    corrV += (corrT-corrV)*.05;
+    widthV += (widthT-widthV)*.05;
+    drawVS();
+    document.getElementById('corr-val').textContent = hasReceivedData ? corrV.toFixed(2) : '---';
+    document.getElementById('width-val').textContent = hasReceivedData ? Math.round(widthV*100)+'%' : '---';
+    var hw = (widthV*.5)*48;
+    document.getElementById('wbar-l').style.width = hw+'%';
+    document.getElementById('wbar-r').style.width = hw+'%';
+    document.getElementById('wbar-tgt').style.left = ((0.5-tgt.whi/2)*100)+'%';
+    document.getElementById('wbar-tgt').style.width = ((tgt.whi-tgt.wlo)*100)+'%';
+
+    // Feedback: smooth scores
+    var keys = ['dynamics','tonality','width','correlation'];
+    for (var ki = 0; ki < keys.length; ki++) {
+      fbScores[keys[ki]] += (fbTgts[keys[ki]]-fbScores[keys[ki]])*.04;
+    }
+    var overall = Math.round((fbScores.dynamics+fbScores.tonality+fbScores.width+fbScores.correlation)/4);
+    fbSmooth += (overall-fbSmooth)*.04;
+    var sc = Math.round(fbSmooth), arcCol = drawFbArc(fbSmooth);
+    document.getElementById('fb-score').textContent = hasReceivedData ? sc : '--';
+    document.getElementById('fb-score').style.color = arcCol;
+    document.getElementById('genre-name').textContent = genreNames[genre];
+    renderMetrics();
+
+    requestAnimationFrame(tick);
+  }
+
+  setTimeout(tick, 120);
+})();
+</script>
+</body>
+</html>
