@@ -1,0 +1,616 @@
+import * as Juce from "./juce/index.js";
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SNIP Bridge — JUCE WebView Integration
+// Canvas-based UI driven by C++ analysis backend
+// ═══════════════════════════════════════════════════════════════════════════
+
+const DPR = window.devicePixelRatio || 1;
+
+// ── JUCE Parameter States ─────────────────────────────────────────────────
+const genreState = Juce.getSliderState("target_genre");
+const reactState = Juce.getSliderState("analysis_window");
+
+// ── Genre Data ────────────────────────────────────────────────────────────
+const genreNames = ['Hip-Hop / Trap','Pop','EDM / Dance','Rock','Lo-Fi'];
+const genreData = [
+  {lufsLo:-11,lufsHi:-8, rmsLo:-13,rmsHi:-10, spread:0.42, wlo:0.25, whi:0.50},
+  {lufsLo:-12,lufsHi:-9, rmsLo:-14,rmsHi:-11, spread:0.55, wlo:0.35, whi:0.62},
+  {lufsLo:-10,lufsHi:-7, rmsLo:-12,rmsHi:-9,  spread:0.65, wlo:0.40, whi:0.70},
+  {lufsLo:-14,lufsHi:-10,rmsLo:-16,rmsHi:-12, spread:0.48, wlo:0.28, whi:0.55},
+  {lufsLo:-18,lufsHi:-14,rmsLo:-20,rmsHi:-16, spread:0.30, wlo:0.15, whi:0.40},
+];
+
+// ── Analysis Data (Updated by C++ backend) ────────────────────────────────
+let genre = 0;
+let lufsV = -60, lufsT2 = -60, lufsPk = -60, lufsPkT = 80;
+let rmsV = -60, rmsT2 = -60, rmsPk = -60, rmsPkT = 80, intV = -60;
+let corrV = 0, corrT = 0, widthV = 0, widthT = 0, tSpread = 0.42;
+let fbScores = {dynamics:0, tonality:0, width:0, correlation:0};
+let fbTgts = {dynamics:0, tonality:0, width:0, correlation:0};
+let fbSmooth = 0;
+let hasReceivedData = false;
+
+// ── Spectrum Data ─────────────────────────────────────────────────────────
+const FMIN = 10, FMAX = 20000, N = 300;
+let specSig = new Float32Array(N);
+let specSmth = new Float32Array(N);
+let specTLo = new Float32Array(N);
+let specTHi = new Float32Array(N);
+
+const specKP = [
+  [[10,-34,5],[60,-30,5],[120,-32,5],[300,-40,5],[800,-46,5],[3000,-52,5],[10000,-60,5],[20000,-68,5]],
+  [[10,-44,4],[80,-40,4],[200,-37,4],[800,-38,4],[3000,-40,4],[8000,-44,4],[20000,-52,4]],
+  [[10,-30,6],[80,-27,6],[200,-33,6],[600,-40,6],[2000,-44,6],[8000,-50,6],[20000,-58,6]],
+  [[10,-48,5],[100,-44,5],[400,-36,5],[1500,-37,5],[5000,-42,5],[12000,-50,5],[20000,-58,5]],
+  [[10,-46,4],[200,-44,4],[800,-46,4],[3000,-56,4],[8000,-68,4],[20000,-80,4]],
+];
+
+function interpKP(kp, f) {
+  if (f <= kp[0][0]) return [kp[0][1]-kp[0][2], kp[0][1]+kp[0][2]];
+  if (f >= kp[kp.length-1][0]) { const l = kp[kp.length-1]; return [l[1]-l[2], l[1]+l[2]]; }
+  for (let i = 1; i < kp.length; i++) {
+    if (f <= kp[i][0]) {
+      const t = (Math.log(f)-Math.log(kp[i-1][0]))/(Math.log(kp[i][0])-Math.log(kp[i-1][0]));
+      const c = kp[i-1][1]+(kp[i][1]-kp[i-1][1])*t;
+      const hw = kp[i-1][2]+(kp[i][2]-kp[i-1][2])*t;
+      return [c-hw, c+hw];
+    }
+  }
+}
+
+function gaussSmooth(arr, s = 8) {
+  const out = new Float32Array(arr.length), r = Math.ceil(s*2.5);
+  for (let i = 0; i < arr.length; i++) {
+    let sum = 0, w = 0;
+    for (let j = Math.max(0,i-r); j <= Math.min(arr.length-1,i+r); j++) {
+      const wj = Math.exp(-.5*((i-j)/s)**2);
+      sum += arr[j]*wj; w += wj;
+    }
+    out[i] = sum/w;
+  }
+  return out;
+}
+
+let lastGenre = -1;
+function buildSpecTargets() {
+  const kp = specKP[genre];
+  const rL = new Float32Array(N), rH = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const f = Math.pow(FMAX/FMIN, i/(N-1))*FMIN;
+    const [lo, hi] = interpKP(kp, f);
+    rL[i] = lo; rH[i] = hi;
+  }
+  specTLo = gaussSmooth(rL);
+  specTHi = gaussSmooth(rH);
+}
+
+// Initialize spectrum with silence
+for (let i = 0; i < N; i++) {
+  specSig[i] = -100;
+  specSmth[i] = -100;
+}
+buildSpecTargets();
+
+// ── Stereo Particles ──────────────────────────────────────────────────────
+const stParts = Array.from({length: 100}, () => ({
+  freq: Math.random(),
+  angle: (Math.random()-.5)*.9,
+  radius: .2+Math.random()*.65,
+  vA: (Math.random()-.5)*.008,
+  vR: (Math.random()-.5)*.006,
+  life: Math.random(),
+  vL: .002+Math.random()*.004,
+  size: 1+Math.random()*2.2
+}));
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CANVAS RENDERING
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Spectrum ──────────────────────────────────────────────────────────────
+const specCv = document.getElementById('spec-cv');
+const specCtx = specCv.getContext('2d');
+
+function setupSpec() {
+  const p = specCv.parentElement;
+  const pw = p.offsetWidth-24, ph = p.offsetHeight-30;
+  if (!pw || !ph) return;
+  specCv.width = pw*DPR; specCv.height = ph*DPR;
+  specCv.style.width = pw+'px'; specCv.style.height = ph+'px';
+  specCtx.setTransform(DPR,0,0,DPR,0,0);
+}
+
+function drawSpec() {
+  const w = specCv.offsetWidth, h = specCv.offsetHeight;
+  if (!w || !h) return;
+  const pL = 36, pT = 6, pB = 20, gw = w-pL-6, gh = h-pT-pB, bottom = pT+gh;
+  const fToX = f => pL+Math.log(f/FMIN)/Math.log(FMAX/FMIN)*gw;
+  const dToY = d => pT+(0-d)/120*gh;
+
+  specCtx.clearRect(0,0,w,h);
+  specCtx.fillStyle = '#0d1018'; specCtx.fillRect(0,0,w,h);
+
+  for (const d of [-10,-30,-50,-70,-90,-110]) {
+    const y = dToY(d); if (y < pT || y > bottom) continue;
+    specCtx.strokeStyle = 'rgba(255,255,255,0.04)'; specCtx.lineWidth = 0.4;
+    specCtx.beginPath(); specCtx.moveTo(pL,y); specCtx.lineTo(pL+gw,y); specCtx.stroke();
+  }
+  for (const d of [0,-20,-40,-60,-80,-100,-120]) {
+    const y = dToY(d); if (y < pT || y > bottom) continue;
+    specCtx.strokeStyle = d === 0 ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)';
+    specCtx.lineWidth = 0.5;
+    specCtx.beginPath(); specCtx.moveTo(pL,y); specCtx.lineTo(pL+gw,y); specCtx.stroke();
+    specCtx.fillStyle = 'rgba(175,215,200,0.45)'; specCtx.font = '8px monospace'; specCtx.textAlign = 'right';
+    specCtx.fillText(d, pL-4, y+3);
+  }
+  specCtx.setLineDash([3,5]);
+  for (const f of [10,20,50,100,200,500,1000,2000,5000,10000,20000]) {
+    const x = fToX(f), maj = [100,1000,10000].includes(f);
+    specCtx.strokeStyle = maj ? 'rgba(255,255,255,0.09)' : 'rgba(255,255,255,0.04)';
+    specCtx.lineWidth = maj ? 0.6 : 0.35;
+    specCtx.beginPath(); specCtx.moveTo(x,pT); specCtx.lineTo(x,bottom); specCtx.stroke();
+    specCtx.fillStyle = maj ? 'rgba(200,225,210,0.6)' : 'rgba(175,205,195,0.3)';
+    specCtx.font = (maj ? '9' : '8')+'px monospace'; specCtx.textAlign = 'center';
+    specCtx.fillText(f >= 1000 ? (f/1000)+'k' : f, x, bottom+13);
+  }
+  specCtx.setLineDash([]);
+
+  const spts = [], tup = [], tdn = [];
+  for (let i = 0; i < N; i++) {
+    const f = Math.pow(FMAX/FMIN, i/(N-1))*FMIN, x = fToX(f);
+    spts.push([x, dToY(specSmth[i])]);
+    tup.push([x, dToY(specTHi[i])]);
+    tdn.push([x, dToY(specTLo[i])]);
+  }
+
+  function ct(pts) { for (let i = 1; i < pts.length; i++) { const mx = (pts[i-1][0]+pts[i][0])*.5; specCtx.bezierCurveTo(mx,pts[i-1][1],mx,pts[i][1],pts[i][0],pts[i][1]); } }
+  function cr(pts) { for (let i = pts.length-2; i >= 0; i--) { const mx = (pts[i+1][0]+pts[i][0])*.5; specCtx.bezierCurveTo(mx,pts[i+1][1],mx,pts[i][1],pts[i][0],pts[i][1]); } }
+
+  // Target band
+  specCtx.beginPath(); specCtx.moveTo(tup[0][0],tup[0][1]); ct(tup); cr(tdn); specCtx.closePath();
+  const tbf = specCtx.createLinearGradient(pL,0,pL+gw,0);
+  tbf.addColorStop(0,'rgba(255,140,30,0.13)'); tbf.addColorStop(.5,'rgba(255,165,45,0.16)'); tbf.addColorStop(1,'rgba(255,120,80,0.09)');
+  specCtx.fillStyle = tbf; specCtx.fill();
+  specCtx.beginPath(); specCtx.moveTo(tup[0][0],tup[0][1]); ct(tup);
+  specCtx.shadowColor = 'rgba(255,160,40,0.38)'; specCtx.shadowBlur = 5;
+  specCtx.strokeStyle = 'rgba(255,185,55,0.78)'; specCtx.lineWidth = 1.4; specCtx.stroke(); specCtx.shadowBlur = 0;
+  specCtx.beginPath(); specCtx.moveTo(tdn[0][0],tdn[0][1]); ct(tdn);
+  specCtx.strokeStyle = 'rgba(220,130,40,0.35)'; specCtx.lineWidth = 0.9; specCtx.stroke();
+
+  // Signal fill
+  specCtx.beginPath();
+  specCtx.moveTo(spts[0][0], bottom); specCtx.lineTo(spts[0][0], spts[0][1]);
+  ct(spts); specCtx.lineTo(spts[N-1][0], bottom); specCtx.closePath();
+  const sf = specCtx.createLinearGradient(pL,0,pL+gw,0);
+  sf.addColorStop(0,'rgba(110,195,75,0.68)'); sf.addColorStop(.2,'rgba(35,205,135,0.74)');
+  sf.addColorStop(.45,'rgba(0,218,198,0.76)'); sf.addColorStop(.72,'rgba(0,182,232,0.70)');
+  sf.addColorStop(1,'rgba(65,90,200,0.48)');
+  specCtx.fillStyle = sf; specCtx.fill();
+  specCtx.save(); specCtx.beginPath(); specCtx.rect(pL,pT,gw,gh); specCtx.clip();
+  const fd = specCtx.createLinearGradient(0,pT,0,bottom);
+  fd.addColorStop(.45,'rgba(0,0,0,0)'); fd.addColorStop(1,'rgba(8,12,20,0.96)');
+  specCtx.fillStyle = fd; specCtx.fillRect(pL,pT,gw,gh); specCtx.restore();
+
+  const eg = specCtx.createLinearGradient(pL,0,pL+gw,0);
+  eg.addColorStop(0,'rgba(155,242,115,0.85)'); eg.addColorStop(.4,'rgba(0,255,218,0.95)');
+  eg.addColorStop(.72,'rgba(0,202,252,0.9)'); eg.addColorStop(1,'rgba(95,110,252,0.62)');
+  specCtx.beginPath(); specCtx.moveTo(spts[0][0],spts[0][1]); ct(spts);
+  specCtx.shadowColor = 'rgba(0,228,192,0.45)'; specCtx.shadowBlur = 7;
+  specCtx.strokeStyle = eg; specCtx.lineWidth = 2; specCtx.stroke(); specCtx.shadowBlur = 0;
+  specCtx.beginPath(); specCtx.moveTo(spts[0][0],spts[0][1]); ct(spts);
+  specCtx.strokeStyle = 'rgba(222,255,238,0.35)'; specCtx.lineWidth = 1; specCtx.stroke();
+  specCtx.strokeStyle = 'rgba(255,255,255,0.05)'; specCtx.lineWidth = 1;
+  specCtx.strokeRect(pL+.5,pT+.5,gw-1,gh-1);
+}
+
+// ── Dynamics (Meters) ─────────────────────────────────────────────────────
+const lufsCv = document.getElementById('lufs-cv'), lufsCtx = lufsCv.getContext('2d');
+const rmsCv = document.getElementById('rms-cv'), rmsCtx = rmsCv.getContext('2d');
+const dscaleCv = document.getElementById('dscale'), dscaleCtx = dscaleCv.getContext('2d');
+const DB_TOP = 0, DB_BOT = -36;
+const dToY3 = d => (DB_TOP-d)/(DB_TOP-DB_BOT);
+
+function setupMeter(cv, ctx) {
+  if (!cv.offsetWidth || !cv.offsetHeight) return;
+  cv.width = cv.offsetWidth*DPR; cv.height = cv.offsetHeight*DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+
+function setupDscale() {
+  const h = lufsCv.offsetHeight; if (!h) return;
+  dscaleCv.width = 18*DPR; dscaleCv.height = h*DPR; dscaleCv.style.height = h+'px';
+  dscaleCtx.setTransform(DPR,0,0,DPR,0,0); dscaleCtx.clearRect(0,0,18,h);
+  for (const d of [0,-3,-6,-9,-12,-18,-24,-30,-36]) {
+    const y = dToY3(d)*h;
+    dscaleCtx.fillStyle = d === 0 ? 'rgba(255,255,255,0.45)' : d >= -9 ? 'rgba(160,210,185,0.48)' : 'rgba(160,210,185,0.26)';
+    dscaleCtx.font = '7px monospace'; dscaleCtx.textAlign = 'right';
+    dscaleCtx.fillText(d, 16, y+3);
+  }
+}
+
+function drawMeter(ctx, db, peak, tLo, tHi) {
+  const w = ctx.canvas.offsetWidth, h = ctx.canvas.offsetHeight;
+  if (!w || !h) return;
+  ctx.clearRect(0,0,w,h);
+  ctx.fillStyle = '#060e0a'; ctx.beginPath(); ctx.roundRect(0,0,w,h,3); ctx.fill();
+
+  if (tLo !== null) {
+    const ty1 = dToY3(tHi)*h, ty2 = dToY3(tLo)*h;
+    ctx.fillStyle = 'rgba(255,168,40,0.1)'; ctx.fillRect(0,ty1,w,ty2-ty1);
+    ctx.strokeStyle = 'rgba(255,185,55,0.7)'; ctx.lineWidth = 1;
+    ctx.shadowColor = 'rgba(255,165,30,0.38)'; ctx.shadowBlur = 4;
+    ctx.beginPath(); ctx.moveTo(0,ty1); ctx.lineTo(w,ty1); ctx.stroke(); ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255,168,40,0.28)'; ctx.lineWidth = 0.7;
+    ctx.beginPath(); ctx.moveTo(0,ty2); ctx.lineTo(w,ty2); ctx.stroke();
+  }
+
+  for (const d of [0,-3,-6,-9,-12,-18,-24,-30,-36]) {
+    const y = dToY3(d)*h;
+    ctx.strokeStyle = d%6 === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)';
+    ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+  }
+
+  const fH = (1-dToY3(db))*h, fY = h-fH;
+  if (fH > 0) {
+    const gr = ctx.createLinearGradient(0,h,0,0);
+    gr.addColorStop(0,'rgba(0,200,100,0.88)'); gr.addColorStop(.58,'rgba(0,235,120,0.9)');
+    gr.addColorStop(.78,'rgba(180,235,50,0.9)'); gr.addColorStop(.9,'rgba(255,205,0,0.9)');
+    gr.addColorStop(1,'rgba(255,55,25,0.95)');
+    ctx.fillStyle = gr; ctx.fillRect(0,fY,w,fH);
+    ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(0,fY,w,1.5);
+  }
+
+  if (peak > DB_BOT) {
+    const py = dToY3(peak)*h;
+    const pc = peak > -3 ? 'rgba(255,70,30,0.95)' : peak > -9 ? 'rgba(255,210,0,0.95)' : 'rgba(0,240,120,0.95)';
+    ctx.strokeStyle = pc; ctx.lineWidth = 2; ctx.shadowColor = pc; ctx.shadowBlur = 5;
+    ctx.beginPath(); ctx.moveTo(1,py); ctx.lineTo(w-1,py); ctx.stroke(); ctx.shadowBlur = 0;
+  }
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 0.7;
+  ctx.beginPath(); ctx.roundRect(.5,.5,w-1,h-1,3); ctx.stroke();
+}
+
+// ── Stereo Vectorscope ────────────────────────────────────────────────────
+const vsCv = document.getElementById('vs-cv'), vsCtx = vsCv.getContext('2d');
+
+function setupVS() {
+  const col = document.getElementById('vs-col');
+  const availW = col.offsetWidth-20, availH = 170;
+  const sz = Math.min(availW, availH*2);
+  const ch = Math.round(sz/2)+12;
+  vsCv.width = sz*DPR; vsCv.height = ch*DPR;
+  vsCv.style.width = sz+'px'; vsCv.style.height = ch+'px';
+  vsCtx.setTransform(DPR,0,0,DPR,0,0);
+}
+
+function freqCol(f, a) {
+  return `rgba(${Math.round(20+30*(1-f))},${Math.round(150+70*(1-f))},${Math.round(195+60*f)},${a})`;
+}
+
+function buildVShape(cx0, cy0, R, sp, dep, np, seed) {
+  const pts = [];
+  for (let i = 0; i <= np; i++) {
+    const t = i/np, ba = Math.PI+t*Math.PI, ph = t*Math.PI*5;
+    const noise = seed === null
+      ? 0.5+0.4*Math.sin(ph+Date.now()*.0008)*(0.35+0.45*Math.sin(ph*1.6+Date.now()*.0005))
+      : 0.5+0.3*Math.sin(ph*.9+seed)*(0.4+0.3*Math.sin(ph*1.4+seed*1.3));
+    const cp = Math.max(0, seed === null ? corrV : .6), ad = Math.abs(t-.5)*2;
+    const env = Math.pow(Math.max(0, 1-ad/(sp*1.8)), .65);
+    const r = R*(.13+noise*sp*dep*(1-cp*.45)*env);
+    pts.push([cx0+r*Math.cos(ba), cy0+r*Math.sin(ba)]);
+  }
+  return pts;
+}
+
+function drawShapeVS(pts, fs, ss, gl, lw) {
+  vsCtx.beginPath(); vsCtx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) { const mx = (pts[i-1][0]+pts[i][0])*.5; vsCtx.bezierCurveTo(mx,pts[i-1][1],mx,pts[i][1],pts[i][0],pts[i][1]); }
+  vsCtx.closePath(); vsCtx.fillStyle = fs; vsCtx.fill();
+  vsCtx.beginPath(); vsCtx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) { const mx = (pts[i-1][0]+pts[i][0])*.5; vsCtx.bezierCurveTo(mx,pts[i-1][1],mx,pts[i][1],pts[i][0],pts[i][1]); }
+  vsCtx.closePath(); vsCtx.shadowColor = gl; vsCtx.shadowBlur = 5; vsCtx.strokeStyle = ss; vsCtx.lineWidth = lw; vsCtx.stroke(); vsCtx.shadowBlur = 0;
+}
+
+function drawThinArcVS(cx0, cy0, R, sp, rad, col, glow) {
+  const h2 = sp*Math.PI*.9, aS = Math.PI*1.5-h2, aE = Math.PI*1.5+h2, r = R*rad;
+  vsCtx.beginPath(); vsCtx.arc(cx0,cy0,r,aS,aE);
+  vsCtx.strokeStyle = col; vsCtx.lineWidth = 1.3; vsCtx.shadowColor = glow; vsCtx.shadowBlur = 5; vsCtx.stroke(); vsCtx.shadowBlur = 0;
+  for (const a of [aS, aE]) {
+    vsCtx.beginPath();
+    vsCtx.moveTo(cx0+(r-3)*Math.cos(a), cy0+(r-3)*Math.sin(a));
+    vsCtx.lineTo(cx0+(r+3)*Math.cos(a), cy0+(r+3)*Math.sin(a));
+    vsCtx.strokeStyle = col; vsCtx.lineWidth = 1.2; vsCtx.stroke();
+  }
+}
+
+function drawVS() {
+  const w = vsCv.offsetWidth, h = vsCv.offsetHeight;
+  if (!w || !h) return;
+  const cx0 = w/2, cy0 = h-10, R = Math.min(w*.46, h*.86);
+  vsCtx.clearRect(0,0,w,h); vsCtx.fillStyle = '#0a1020'; vsCtx.fillRect(0,0,w,h);
+  vsCtx.beginPath(); vsCtx.arc(cx0,cy0,R,Math.PI,0); vsCtx.closePath();
+  vsCtx.fillStyle = 'rgba(0,15,35,0.55)'; vsCtx.fill();
+  vsCtx.strokeStyle = 'rgba(255,255,255,0.05)'; vsCtx.lineWidth = 0.7; vsCtx.stroke();
+
+  for (const r of [.4,.7,1]) {
+    vsCtx.beginPath(); vsCtx.arc(cx0,cy0,R*r,Math.PI,0);
+    vsCtx.strokeStyle = `rgba(100,160,220,${r === 1 ? .09 : .04})`; vsCtx.lineWidth = .4; vsCtx.stroke();
+  }
+  for (const a of [Math.PI, Math.PI*1.25, Math.PI*1.5, Math.PI*1.75, 0]) {
+    const maj = [Math.PI, Math.PI*1.5, 0].includes(a);
+    vsCtx.beginPath(); vsCtx.moveTo(cx0,cy0); vsCtx.lineTo(cx0+R*Math.cos(a), cy0+R*Math.sin(a));
+    vsCtx.strokeStyle = maj ? 'rgba(100,170,230,0.13)' : 'rgba(100,170,230,0.05)';
+    vsCtx.lineWidth = maj ? .7 : .35; vsCtx.stroke();
+  }
+  for (const {a,t} of [{a:Math.PI,t:'L'},{a:Math.PI*1.5,t:'C'},{a:0,t:'R'}]) {
+    vsCtx.fillStyle = 'rgba(140,190,220,0.42)'; vsCtx.font = '8px monospace';
+    vsCtx.textAlign = 'center'; vsCtx.textBaseline = 'middle';
+    vsCtx.fillText(t, cx0+(R+9)*Math.cos(a), cy0+(R+9)*Math.sin(a));
+  }
+
+  const tgt = genreData[genre];
+  tSpread += (tgt.spread-tSpread)*.04;
+
+  const tpts = buildVShape(cx0,cy0,R,tSpread,.72,100,42);
+  const tF = vsCtx.createRadialGradient(cx0,cy0,0,cx0,cy0,R);
+  tF.addColorStop(0,'rgba(255,150,20,0.18)'); tF.addColorStop(1,'rgba(255,100,10,0.03)');
+  drawShapeVS(tpts, tF, 'rgba(255,185,55,0.52)', 'rgba(255,160,30,0.38)', 1.2);
+
+  const spts = buildVShape(cx0,cy0,R,widthV*.78,1,100,null);
+  const sF = vsCtx.createRadialGradient(cx0,cy0,0,cx0,cy0,R);
+  sF.addColorStop(0,'rgba(0,155,255,0.25)'); sF.addColorStop(1,'rgba(0,80,180,0.04)');
+  drawShapeVS(spts, sF, 'rgba(0,200,255,0.52)', 'rgba(0,185,255,0.38)', 1.2);
+
+  drawThinArcVS(cx0,cy0,R,tSpread,.96,'rgba(255,185,55,0.8)','rgba(255,160,30,0.42)');
+  drawThinArcVS(cx0,cy0,R,widthV*.72,.85,'rgba(0,205,255,0.8)','rgba(0,180,255,0.42)');
+
+  for (const p of stParts) {
+    p.angle += p.vA*(widthV*1.2); p.radius += p.vR; p.life += p.vL;
+    if (p.life > 1) { p.life = 0; p.radius = .1+Math.random()*.3; p.angle = (Math.random()-.5)*widthV*1.5; }
+    if (p.radius > 1) p.vR *= -1;
+    if (p.radius < 0) { p.radius = .05; p.vR = Math.abs(p.vR); }
+    if (Math.abs(p.angle) > widthV*1.2) p.vA *= -.8;
+    const a = Math.PI*1.5+p.angle*Math.PI, r = p.radius*R*.83;
+    vsCtx.beginPath(); vsCtx.arc(cx0+r*Math.cos(a), cy0+r*Math.sin(a), p.size*.5, 0, Math.PI*2);
+    vsCtx.fillStyle = freqCol(p.freq, (0.3+0.5*Math.sin(p.life*Math.PI))*.6); vsCtx.fill();
+  }
+
+  vsCtx.beginPath(); vsCtx.arc(cx0,cy0,2.5,0,Math.PI*2);
+  vsCtx.fillStyle = 'rgba(0,220,255,0.9)'; vsCtx.shadowColor = 'rgba(0,200,255,0.7)'; vsCtx.shadowBlur = 6; vsCtx.fill(); vsCtx.shadowBlur = 0;
+}
+
+// ── Feedback Arc ──────────────────────────────────────────────────────────
+const fbArcCv = document.getElementById('fb-arc-cv'), fbArcCtx = fbArcCv.getContext('2d');
+
+function drawFbArc(score) {
+  fbArcCtx.clearRect(0,0,80,80);
+  const cx = 40, cy = 44, R = 28;
+  fbArcCtx.beginPath(); fbArcCtx.arc(cx,cy,R,Math.PI*.72,Math.PI*2.28);
+  fbArcCtx.strokeStyle = 'rgba(255,255,255,0.07)'; fbArcCtx.lineWidth = 5; fbArcCtx.lineCap = 'round'; fbArcCtx.stroke();
+  const aEnd = Math.PI*.72+(score/100)*Math.PI*1.56;
+  const col = score > 75 ? '#00e090' : score > 50 ? '#ffc830' : '#ff4422';
+  const glow = score > 75 ? 'rgba(0,210,130,0.55)' : score > 50 ? 'rgba(255,190,30,0.55)' : 'rgba(255,50,20,0.55)';
+  fbArcCtx.beginPath(); fbArcCtx.arc(cx,cy,R,Math.PI*.72,aEnd);
+  fbArcCtx.strokeStyle = col; fbArcCtx.lineWidth = 5; fbArcCtx.shadowColor = glow; fbArcCtx.shadowBlur = 10; fbArcCtx.stroke(); fbArcCtx.shadowBlur = 0;
+  const ex = cx+R*Math.cos(aEnd), ey = cy+R*Math.sin(aEnd);
+  fbArcCtx.beginPath(); fbArcCtx.arc(ex,ey,3,0,Math.PI*2);
+  fbArcCtx.fillStyle = col; fbArcCtx.shadowColor = glow; fbArcCtx.shadowBlur = 7; fbArcCtx.fill(); fbArcCtx.shadowBlur = 0;
+  return col;
+}
+
+function renderMetrics() {
+  const defs = [
+    {key:'dynamics',    label:'Dynamics',    msgs:['Loudness on target.','Slightly off target.','Loudness mismatch.']},
+    {key:'tonality',    label:'Tonality',    msgs:['Spectral balance good.','Tonal balance off.','Significant mismatch.']},
+    {key:'width',       label:'Width',       msgs:['Width ideal.','Width off target.','Width mismatch.']},
+    {key:'correlation', label:'Correlation', msgs:['Good mono compat.','Moderate compat.','Phase issues!']},
+  ];
+  const el = document.getElementById('metrics-container');
+  el.innerHTML = '';
+  for (const {key, label, msgs} of defs) {
+    const s = fbScores[key];
+    const col = s > 75 ? 'rgba(0,220,120,0.88)' : s > 50 ? 'rgba(255,190,40,0.88)' : 'rgba(255,60,40,0.88)';
+    const bc = s > 75 ? 'rgba(0,215,110,0.8)' : s > 50 ? 'rgba(255,185,35,0.8)' : 'rgba(255,55,35,0.8)';
+    const ic = s > 75 ? '\u2713' : s > 50 ? '\u25B2' : '\u2715';
+    const msg = s > 75 ? msgs[0] : s > 50 ? msgs[1] : msgs[2];
+    const row = document.createElement('div');
+    row.className = 'mrow';
+    row.innerHTML = `<div class="mtop">
+      <span class="micon" style="color:${col};">${ic}</span>
+      <span class="mname">${label}</span>
+      <div class="mbarw"><div class="mbar" style="width:${s}%;background:${bc};"></div></div>
+      <span class="mpct" style="color:${col};">${Math.round(s)}%</span>
+    </div>
+    <div class="mmsg">${msg}</div>`;
+    el.appendChild(row);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// JUCE EVENT HANDLERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Genre parameter: bidirectional binding
+const genreSelect = document.getElementById('main-genre');
+genreSelect.addEventListener('change', e => {
+  genre = +e.target.value;
+  genreState.setNormalisedValue(genre / 4);
+});
+
+genreState.valueChangedEvent.addListener(() => {
+  const idx = Math.round(genreState.getNormalisedValue() * 4);
+  genre = Math.max(0, Math.min(4, idx));
+  genreSelect.value = genre;
+});
+
+// Reaction time slider: bidirectional binding
+const reactSlider = document.getElementById('react-sl');
+const reactVal = document.getElementById('react-val');
+reactSlider.addEventListener('input', e => {
+  const val = parseFloat(e.target.value);
+  reactVal.textContent = val.toFixed(1) + 's';
+  reactState.setNormalisedValue((val - 0.5) / 9.5);
+});
+
+reactState.valueChangedEvent.addListener(() => {
+  const val = 0.5 + reactState.getNormalisedValue() * 9.5;
+  reactSlider.value = val;
+  reactVal.textContent = val.toFixed(1) + 's';
+});
+
+// Send button
+const sendBtn = document.getElementById('btn_send_snip');
+const statusLed = document.getElementById('status-led');
+const statusText = document.getElementById('status-text');
+
+sendBtn.addEventListener('click', () => {
+  sendBtn.classList.add('sending');
+  sendBtn.textContent = 'Sending...';
+  statusLed.style.background = '#FFD600';
+  statusLed.style.boxShadow = '0 0 6px rgba(255,214,0,0.6)';
+  statusText.textContent = 'Sending to Meetsnip.com...';
+  window.__JUCE__.backend.emitEvent("sendToSnip", {});
+});
+
+// Listen for send result from C++
+window.__JUCE__.backend.addEventListener("sendResult", (event) => {
+  const data = event.detail;
+  if (data && data.success) {
+    sendBtn.classList.remove('sending');
+    sendBtn.classList.add('sent');
+    sendBtn.textContent = 'Sent \u2713';
+    statusLed.style.background = '#00e676';
+    statusLed.style.boxShadow = '0 0 6px rgba(0,230,118,0.6)';
+    statusText.textContent = 'Analysis sent successfully';
+    setTimeout(() => {
+      sendBtn.classList.remove('sent');
+      sendBtn.textContent = 'Send to Meetsnip';
+      statusText.textContent = 'Ready';
+    }, 3000);
+  } else {
+    sendBtn.classList.remove('sending');
+    sendBtn.textContent = 'Send to Meetsnip';
+    statusLed.style.background = '#FF1744';
+    statusLed.style.boxShadow = '0 0 6px rgba(255,23,68,0.6)';
+    statusText.textContent = 'Send failed';
+    setTimeout(() => {
+      statusLed.style.background = '#00e676';
+      statusLed.style.boxShadow = '0 0 6px rgba(0,230,118,0.6)';
+      statusText.textContent = 'Ready';
+    }, 3000);
+  }
+});
+
+// Listen for analysis data from C++ (30Hz)
+window.__JUCE__.backend.addEventListener("analysisUpdate", (event) => {
+  const d = event.detail;
+  if (!d) return;
+  hasReceivedData = true;
+
+  if (d.lufsShort !== undefined) lufsT2 = d.lufsShort;
+  if (d.lufsInt !== undefined) intV = d.lufsInt;
+  if (d.rms !== undefined) rmsT2 = d.rms;
+  if (d.correlation !== undefined) corrT = d.correlation;
+  if (d.width !== undefined) widthT = d.width;
+
+  // Full spectrum data (Phase 4.1.1)
+  if (d.spectrum && d.spectrum.length === N) {
+    for (let i = 0; i < N; i++) specSig[i] = d.spectrum[i];
+  }
+
+  // Feedback scores (Phase 4.1.2)
+  if (d.feedback) {
+    if (d.feedback.dynamics !== undefined) fbTgts.dynamics = d.feedback.dynamics;
+    if (d.feedback.tonality !== undefined) fbTgts.tonality = d.feedback.tonality;
+    if (d.feedback.width !== undefined) fbTgts.width = d.feedback.width;
+    if (d.feedback.correlation !== undefined) fbTgts.correlation = d.feedback.correlation;
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SETUP & MAIN LOOP
+// ═══════════════════════════════════════════════════════════════════════════
+
+function setupAll() {
+  setupSpec();
+  setupVS();
+  setupMeter(lufsCv, lufsCtx);
+  setupMeter(rmsCv, rmsCtx);
+  setTimeout(setupDscale, 20);
+}
+
+// Retry setup until canvases have dimensions (WebView may delay layout)
+let setupRetries = 0;
+function trySetup() {
+  setupAll();
+  setupRetries++;
+  // Keep retrying if spectrum canvas has no dimensions (max 20 attempts over 2s)
+  if ((!specCv.offsetWidth || !specCv.offsetHeight) && setupRetries < 20) {
+    setTimeout(trySetup, 100);
+  }
+}
+
+setTimeout(trySetup, 60);
+window.addEventListener('resize', () => setTimeout(setupAll, 30));
+
+function tick() {
+  if (genre !== lastGenre) { buildSpecTargets(); lastGenre = genre; }
+
+  // Smooth spectrum toward signal
+  for (let i = 0; i < N; i++) {
+    specSmth[i] += (specSig[i]-specSmth[i])*.1;
+  }
+  drawSpec();
+
+  // Dynamics: smooth toward targets
+  lufsV += (lufsT2-lufsV)*.15;
+  rmsV += (rmsT2-rmsV)*.15;
+  if (lufsV > lufsPk) { lufsPk = lufsV; lufsPkT = 80; }
+  else if (--lufsPkT <= 0) lufsPk -= .05;
+  if (rmsV > rmsPk) { rmsPk = rmsV; rmsPkT = 80; }
+  else if (--rmsPkT <= 0) rmsPk -= .05;
+
+  const tgt = genreData[genre];
+  setupMeter(lufsCv, lufsCtx);
+  drawMeter(lufsCtx, lufsV, lufsPk, tgt.lufsLo, tgt.lufsHi);
+  setupMeter(rmsCv, rmsCtx);
+  drawMeter(rmsCtx, rmsV, rmsPk, tgt.rmsLo, tgt.rmsHi);
+
+  const inL = lufsV >= tgt.lufsLo && lufsV <= tgt.lufsHi;
+  const inR = rmsV >= tgt.rmsLo && rmsV <= tgt.rmsHi;
+  document.getElementById('lufs-val').textContent = lufsV > -55 ? lufsV.toFixed(1) : '---';
+  document.getElementById('lufs-val').style.color = lufsV <= -55 ? '#555' : inL ? '#00e090' : lufsV > tgt.lufsHi ? '#ff4422' : '#ffd020';
+  document.getElementById('rms-val').textContent = rmsV > -55 ? rmsV.toFixed(1) : '---';
+  document.getElementById('rms-val').style.color = rmsV <= -55 ? '#555' : inR ? '#00e090' : rmsV > tgt.rmsHi ? '#ff4422' : '#ffd020';
+  document.getElementById('int-val').textContent = intV > -55 ? intV.toFixed(1) : '---';
+
+  // Stereo: smooth toward targets
+  corrV += (corrT-corrV)*.05;
+  widthV += (widthT-widthV)*.05;
+  drawVS();
+  document.getElementById('corr-val').textContent = hasReceivedData ? corrV.toFixed(2) : '---';
+  document.getElementById('width-val').textContent = hasReceivedData ? Math.round(widthV*100)+'%' : '---';
+  const hw = (widthV*.5)*48;
+  document.getElementById('wbar-l').style.width = hw+'%';
+  document.getElementById('wbar-r').style.width = hw+'%';
+  document.getElementById('wbar-tgt').style.left = ((0.5-tgt.whi/2)*100)+'%';
+  document.getElementById('wbar-tgt').style.width = ((tgt.whi-tgt.wlo)*100)+'%';
+
+  // Feedback: smooth scores
+  for (const k of Object.keys(fbTgts)) {
+    fbScores[k] += (fbTgts[k]-fbScores[k])*.04;
+  }
+  const overall = Math.round((fbScores.dynamics+fbScores.tonality+fbScores.width+fbScores.correlation)/4);
+  fbSmooth += (overall-fbSmooth)*.04;
+  const sc = Math.round(fbSmooth), arcCol = drawFbArc(fbSmooth);
+  document.getElementById('fb-score').textContent = hasReceivedData ? sc : '--';
+  document.getElementById('fb-score').style.color = arcCol;
+  document.getElementById('genre-name').textContent = genreNames[genre];
+  renderMetrics();
+
+  requestAnimationFrame(tick);
+}
+
+setTimeout(tick, 120);
