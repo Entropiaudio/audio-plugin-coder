@@ -29,21 +29,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout SNIPBridgeAudioProcessor::cr
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
-    // Target Genre: Choice 0-4
+    // Target Genre: Choice 0-11
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
         juce::ParameterID { "target_genre", 1 },
         "Target Genre",
         juce::StringArray { "Hip-Hop / Trap", "Pop", "EDM / Dance",
-                            "Rock", "Lo-Fi" },
+                            "Rock", "Lo-Fi", "R&B / Soul", "Latin",
+                            "Trance", "Bass", "House", "Techno",
+                            "Downtempo" },
         0));
-
-    // Analysis Window (Reaction Time): 0.5 - 10.0 seconds
-    params.push_back (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID { "analysis_window", 1 },
-        "Reaction Time",
-        juce::NormalisableRange<float> (0.5f, 10.0f, 0.1f),
-        3.0f,
-        juce::AudioParameterFloatAttributes().withLabel ("s")));
 
     return { params.begin(), params.end() };
 }
@@ -139,7 +133,6 @@ void SNIPBridgeAudioProcessor::prepareToPlay (double sampleRate, int /*samplesPe
     // Ring buffer
     ringBuffer.fill (0.0f);
     ringWritePos.store (0);
-    ringReadPos = 0;
 
     // Reset atomic outputs
     lufsShort.store (-60.0f);
@@ -212,19 +205,21 @@ void SNIPBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         //--------------------------------------------------------------
         // 2. RAW RMS
         //--------------------------------------------------------------
-        rawSquareSum += (double)(sL * sL + sR * sR) * 0.5;
+        float sL2 = sL * sL;
+        float sR2 = sR * sR;
+        rawSquareSum += (double)(sL2 + sR2) * 0.5;
 
         //--------------------------------------------------------------
         // 3. STEREO CORRELATION & WIDTH
         //--------------------------------------------------------------
         corrSumLR += (double)(sL * sR);
-        corrSumL2 += (double)(sL * sL);
-        corrSumR2 += (double)(sR * sR);
+        corrSumL2 += (double)sL2;
+        corrSumR2 += (double)sR2;
 
         //--------------------------------------------------------------
         // 4. FFT RING BUFFER (mono mix)
         //--------------------------------------------------------------
-        ringBuffer[ringPos] = (sL + sR) * 0.5f;
+        ringBuffer[(size_t)ringPos] = (sL + sR) * 0.5f;
         ringPos = (ringPos + 1) & (kRingSize - 1);
 
         //--------------------------------------------------------------
@@ -254,8 +249,6 @@ void SNIPBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 float corr = (denom > 1e-12) ? (float)(corrSumLR / denom) : 1.0f;
                 stereoCorrelation.store (juce::jlimit (-1.0f, 1.0f, corr));
 
-                // Width: 0 = mono, 1 = full stereo
-                // Using mid/side ratio approach
                 double mid2  = corrSumL2 + corrSumR2 + 2.0 * corrSumLR;
                 double side2 = corrSumL2 + corrSumR2 - 2.0 * corrSumLR;
                 float w = (mid2 > 1e-12) ? (float)(side2 / (mid2 + side2)) : 0.0f;
@@ -270,19 +263,6 @@ void SNIPBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     ringWritePos.store (ringPos, std::memory_order_release);
-
-    //------------------------------------------------------------------
-    // 6. SILENCE DETECTION
-    //------------------------------------------------------------------
-    // Check if the entire buffer was silent (all samples below threshold)
-    float peakLevel = 0.0f;
-    for (int i = 0; i < numSamples; ++i)
-    {
-        float absL = std::abs (dataL[i]);
-        float absR = std::abs (dataR[i]);
-        peakLevel = std::max (peakLevel, std::max (absL, absR));
-    }
-    isSilent.store (peakLevel < 1e-6f);  // ~-120 dBFS threshold
 }
 
 //==============================================================================
@@ -330,28 +310,19 @@ void SNIPBridgeAudioProcessor::finalizeLufsBlock()
 //==============================================================================
 bool SNIPBridgeAudioProcessor::computeSpectrum (float* output, int numBins)
 {
-    // Check if enough new data in ring buffer
+    // Always read the most recent kFFTSize samples from ring buffer
     int writePos = ringWritePos.load (std::memory_order_acquire);
-    int available = (writePos - ringReadPos + kRingSize) & (kRingSize - 1);
-
-    if (available < kFFTSize)
-        return false;  // Not enough new data
-
-    // Copy kFFTSize samples from ring buffer, apply window
-    // We read the most recent kFFTSize samples
     int readStart = (writePos - kFFTSize + kRingSize) & (kRingSize - 1);
 
-    // FFT input buffer (needs 2x size for JUCE FFT: real + imaginary interleaved)
-    std::array<float, kFFTSize * 2> fftData {};
+    // Fill reusable FFT work buffer (avoids 32KB stack alloc)
+    auto& fftData = fftWorkBuffer;
+    std::fill (fftData.begin(), fftData.end(), 0.0f);
 
     for (int i = 0; i < kFFTSize; ++i)
     {
         int idx = (readStart + i) & (kRingSize - 1);
-        fftData[i] = ringBuffer[idx] * fftWindow[i];
+        fftData[(size_t)i] = ringBuffer[(size_t)idx] * fftWindow[(size_t)i];
     }
-
-    // Update read position
-    ringReadPos = writePos;
 
     // Perform forward FFT (in-place, JUCE expects kFFTSize*2 array)
     fft.performFrequencyOnlyForwardTransform (fftData.data());
@@ -375,16 +346,39 @@ bool SNIPBridgeAudioProcessor::computeSpectrum (float* output, int numBins)
         int b0 = juce::jlimit (0, halfFFT - 1, (int)(f0 * kFFTSize / (float)currentSampleRate));
         int b1 = juce::jlimit (b0 + 1, halfFFT, (int)(f1 * kFFTSize / (float)currentSampleRate));
 
-        // Average magnitude in this range
-        float sum = 0;
-        int count = 0;
+        // Peak magnitude with parabolic interpolation for accurate 0 dBFS calibration
+        float mag = 0.0f;
+        int peakIdx = b0;
         for (int j = b0; j < b1; ++j)
         {
-            sum += fftData[j];
-            count++;
+            if (fftData[j] > mag)
+            {
+                mag = fftData[j];
+                peakIdx = j;
+            }
         }
 
-        float mag = (count > 0) ? (sum / (float)count) : 0.0f;
+        // Parabolic interpolation: recover true peak from 3 bins around detected peak
+        // Reduces Hann window scalloping loss from ~1.42 dB to ~0.1 dB
+        if (peakIdx > 0 && peakIdx < halfFFT - 1 && mag > 0.0f)
+        {
+            float alpha = fftData[peakIdx - 1];
+            float beta  = fftData[peakIdx];
+            float gamma = fftData[peakIdx + 1];
+
+            if (beta > alpha && beta > gamma)
+            {
+                float denom = alpha - 2.0f * beta + gamma;
+                if (std::abs (denom) > 1e-10f)
+                {
+                    float p = 0.5f * (alpha - gamma) / denom;
+                    mag = beta - 0.25f * (alpha - gamma) * p;
+                }
+            }
+        }
+
+        // Normalize FFT magnitude (Hann window coherent gain = 0.5, so factor = 2/(N/2) = 4/N)
+        mag *= 4.0f / (float)kFFTSize;
 
         // Convert to dB, normalize
         float db = 20.0f * std::log10 (mag + 1e-10f);
@@ -399,15 +393,13 @@ bool SNIPBridgeAudioProcessor::computeSpectrum (float* output, int numBins)
         int i0 = juce::jlimit (0, halfFFT - 1, (int)(bandEdges[b] * kFFTSize / (float)currentSampleRate));
         int i1 = juce::jlimit (i0 + 1, halfFFT, (int)(bandEdges[b + 1] * kFFTSize / (float)currentSampleRate));
 
-        float bSum = 0;
-        int bCount = 0;
+        float bMag = 0.0f;
         for (int j = i0; j < i1; ++j)
         {
-            bSum += fftData[j];
-            bCount++;
+            if (fftData[j] > bMag)
+                bMag = fftData[j];
         }
-
-        float bMag = (bCount > 0) ? (bSum / (float)bCount) : 0.0f;
+        bMag *= 4.0f / (float)kFFTSize;
         float bDb = 20.0f * std::log10 (bMag + 1e-10f);
         spectralBands[b].store (juce::jlimit (-100.0f, 0.0f, bDb));
     }
@@ -418,18 +410,32 @@ bool SNIPBridgeAudioProcessor::computeSpectrum (float* output, int numBins)
 //==============================================================================
 // GENRE PROFILES (matching JS genreData)
 //==============================================================================
-const SNIPBridgeAudioProcessor::GenreProfile SNIPBridgeAudioProcessor::genreProfiles[5] =
+const SNIPBridgeAudioProcessor::GenreProfile SNIPBridgeAudioProcessor::genreProfiles[kNumGenres] =
 {
-    // Hip-Hop / Trap
-    { -11.0f, -8.0f,  -13.0f, -10.0f, 0.25f, 0.50f, 0.3f },
-    // Pop
-    { -12.0f, -9.0f,  -14.0f, -11.0f, 0.35f, 0.62f, 0.4f },
-    // EDM / Dance
-    { -10.0f, -7.0f,  -12.0f,  -9.0f, 0.40f, 0.70f, 0.3f },
-    // Rock
-    { -14.0f, -10.0f, -16.0f, -12.0f, 0.28f, 0.55f, 0.4f },
-    // Lo-Fi
-    { -18.0f, -14.0f, -20.0f, -16.0f, 0.15f, 0.40f, 0.5f },
+    // Hip-Hop / Trap (158 tracks)
+    { -11.584f, -7.086f,  -12.602f, -7.782f,  0.000f, 0.110f, 0.781f },
+    // Pop (91 tracks)
+    { -11.005f, -8.060f,  -12.856f, -9.802f,  0.069f, 0.252f, 0.496f },
+    // EDM / Dance (40 tracks)
+    { -7.735f,  -5.715f,  -9.432f,  -7.689f,  0.060f, 0.176f, 0.648f },
+    // Rock (10 tracks)
+    { -17.185f, -10.665f, -19.058f, -12.512f, 0.093f, 0.172f, 0.656f },
+    // Lo-Fi (43 tracks)
+    { -15.049f, -11.062f, -16.511f, -12.268f, 0.053f, 0.161f, 0.679f },
+    // R&B / Soul (63 tracks)
+    { -10.126f, -7.754f,  -12.196f, -9.367f,  0.052f, 0.161f, 0.678f },
+    // Latin (22 tracks)
+    { -10.326f, -7.257f,  -11.866f, -8.210f,  0.000f, 0.049f, 0.901f },
+    // Trance (14 tracks)
+    { -9.244f,  -7.129f,  -10.176f, -8.063f,  0.002f, 0.124f, 0.752f },
+    // Bass (68 tracks)
+    { -10.819f, -6.990f,  -12.267f, -7.956f,  0.038f, 0.137f, 0.726f },
+    // House (24 tracks)
+    { -13.416f, -8.187f,  -14.628f, -9.370f,  0.064f, 0.262f, 0.476f },
+    // Techno (26 tracks)
+    { -11.304f, -8.123f,  -12.090f, -8.461f,  0.001f, 0.071f, 0.860f },
+    // Downtempo (42 tracks)
+    { -15.320f, -9.885f,  -17.095f, -10.902f, 0.064f, 0.262f, 0.476f },
 };
 
 //==============================================================================
@@ -441,7 +447,7 @@ SNIPBridgeAudioProcessor::FeedbackScores SNIPBridgeAudioProcessor::computeFeedba
     const float* spectrum, int numBins) const
 {
     FeedbackScores scores;
-    genreIndex = juce::jlimit (0, 4, genreIndex);
+    genreIndex = juce::jlimit (0, kNumGenres - 1, genreIndex);
     const auto& gp = genreProfiles[genreIndex];
 
     // --- DYNAMICS SCORE ---
@@ -547,8 +553,10 @@ juce::String SNIPBridgeAudioProcessor::buildAnalysisSnapshot (
     root->setProperty ("stereoWidth", (double) stereoWidth.load());
 
     // Genre
-    genreIndex = juce::jlimit (0, 4, genreIndex);
-    juce::StringArray genreNames { "Hip-Hop / Trap", "Pop", "EDM / Dance", "Rock", "Lo-Fi" };
+    genreIndex = juce::jlimit (0, kNumGenres - 1, genreIndex);
+    juce::StringArray genreNames { "Hip-Hop / Trap", "Pop", "EDM / Dance", "Rock", "Lo-Fi",
+                                   "R&B / Soul", "Latin", "Trance", "Bass", "House",
+                                   "Techno", "Downtempo" };
     root->setProperty ("genre", genreNames[genreIndex]);
     root->setProperty ("genreIndex", genreIndex);
 

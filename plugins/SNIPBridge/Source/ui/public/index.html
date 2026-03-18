@@ -69,23 +69,26 @@
 
     /* -- SPECTRUM -- */
     #spec-panel {
-      flex: 1.5; min-width: 0; background: #0d1018;
-      border-right: 1px solid rgba(255,255,255,0.06);
+      width: 50%; min-width: 120px; background: #0d1018;
       display: flex; flex-direction: column; padding: 10px 12px 8px;
+      flex-shrink: 0;
     }
 
-    /* -- RIGHT -- */
-    .right { flex: 1; display: flex; flex-direction: column; }
-    .rpanel { border-bottom: 1px solid rgba(255,255,255,0.06); background: #0d1018; overflow: hidden; }
-    .rpanel:last-child { border-bottom: none; }
+    /* -- SPLITTERS -- */
+    .splitter { background: rgba(255,255,255,0.04); flex-shrink: 0; position: relative; z-index: 10; }
+    .splitter:hover { background: rgba(233,30,140,0.25); }
+    .splitter:active, .splitter.dragging { background: rgba(233,30,140,0.4); }
+    .splitter-v { width: 5px; cursor: col-resize; }
+    .splitter-h { height: 5px; cursor: row-resize; }
 
-    /* -- TOP RIGHT: stereo + meters -- */
-    #top-right { display: flex; flex-direction: row; align-items: stretch; flex-shrink: 0; height: 210px; }
+    /* -- RIGHT PANEL -- */
+    #right-panel { flex: 1; display: flex; flex-direction: column; min-width: 120px; overflow: hidden; }
 
-    #vs-col {
-      flex: 1; display: flex; flex-direction: column; align-items: center;
-      justify-content: flex-start; padding: 8px 8px 8px 12px;
-      border-right: 1px solid rgba(255,255,255,0.05);
+    /* -- VECTORSCOPE PANEL -- */
+    #vs-panel {
+      display: flex; flex-direction: column; align-items: center;
+      padding: 8px 12px; background: #0d1018; min-height: 60px;
+      overflow: hidden; flex: 2; min-width: 0;
     }
     #vs-sub { display: flex; gap: 14px; justify-content: center; padding: 5px 4px 0; width: 100%; }
     .st-readout { display: flex; flex-direction: column; align-items: center; gap: 1px; }
@@ -99,19 +102,21 @@
     .wbar-lcr { display: flex; justify-content: space-between; margin-top: 2px; }
     .wbar-lcr span { font-size: 7px; color: rgba(140,190,220,0.28); }
 
-    #meters-col { flex: 1; display: flex; flex-direction: row; align-items: stretch; padding: 8px 10px 8px 8px; gap: 6px; }
-    .meter-track { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; }
-    .meter-num { font-size: 12px; font-weight: 600; letter-spacing: -0.5px; line-height: 1; }
-    .meter-lbl { font-size: 7px; letter-spacing: 1.5px; color: rgba(160,210,185,0.38); text-transform: uppercase; }
-    .meter-unit { font-size: 7px; color: rgba(160,210,185,0.28); }
+    /* -- METERS PANEL -- */
+    #meters-panel { display: flex; flex-direction: row; background: #0d1018; min-height: 60px; overflow: hidden; flex: 1; }
+    #lufs-readouts { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 10px 16px; min-width: 0; overflow: hidden; }
+    .lr-row { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 4px; flex: 1; min-height: 0; }
+    .lr-label { font-size: 13px; font-weight: 700; min-width: 30px; }
+    .lr-value { font-size: 20px; font-weight: 600; letter-spacing: -0.5px; margin-left: auto; color: rgba(230,240,250,0.85); }
+    .lr-unit { font-size: 9px; color: rgba(160,185,220,0.38); letter-spacing: 0.5px; }
 
     /* -- FEEDBACK -- */
-    #fb-panel { display: flex; flex-direction: row; gap: 10px; padding: 10px 14px; flex: 1; }
-    #fb-arc-area { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; flex-shrink: 0; }
+    #fb-panel { display: flex; flex-direction: row; gap: 10px; padding: 10px 14px; flex: 1; min-height: 0; overflow: hidden; background: #0d1018; align-items: stretch; }
+    #fb-arc-area { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 0; overflow: hidden; }
     .fb-score { font-size: 20px; font-weight: 600; letter-spacing: -0.5px; margin-top: -4px; }
     .fb-match-lbl { font-size: 7px; letter-spacing: 1.5px; color: rgba(160,185,220,0.35); text-transform: uppercase; }
-    #fb-right { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6px; }
-    #genre-name { font-size: 11px; font-weight: 600; color: rgba(200,215,240,0.8); margin-bottom: 2px; }
+    #fb-right { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; gap: 4px; min-width: 0; min-height: 0; overflow: hidden; }
+    #genre-name { font-size: 11px; font-weight: 600; color: rgba(200,215,240,0.8); margin-bottom: 2px; flex-shrink: 0; }
     .mrow { display: flex; flex-direction: column; gap: 2px; }
     .mtop { display: flex; align-items: center; gap: 5px; }
     .micon { font-size: 9px; width: 12px; text-align: center; font-weight: 700; }
@@ -119,7 +124,7 @@
     .mbarw { flex: 1; height: 3px; background: rgba(0,0,0,0.5); border-radius: 2px; overflow: hidden; }
     .mbar { height: 100%; border-radius: 2px; transition: width 400ms ease; }
     .mpct { font-size: 9px; font-weight: 600; min-width: 28px; text-align: right; }
-    .mmsg { padding-left: 17px; font-size: 8px; color: rgba(140,160,195,0.5); line-height: 1.4; }
+    .mmsg { padding-left: 17px; font-size: 8px; color: rgba(140,160,195,0.5); line-height: 1.4; word-wrap: break-word; overflow-wrap: break-word; }
   </style>
 </head>
 <body>
@@ -127,7 +132,10 @@
 
   <!-- HEADER -->
   <div class="header">
-    <div class="logo">SNIP <span>BRIDGE</span></div>
+    <div style="display:flex;flex-direction:column;gap:0;">
+      <div class="logo">SNIP <span>BRIDGE</span></div>
+      <span style="font-size:7px;letter-spacing:1.5px;color:rgba(160,185,220,0.28);margin-top:-2px;">v0.1.0</span>
+    </div>
     <div style="display:flex;align-items:center;gap:6px;margin-left:12px;">
       <span class="plbl">Genre</span>
       <select class="hsel" id="main-genre">
@@ -136,16 +144,22 @@
         <option value="2">EDM / Dance</option>
         <option value="3">Rock</option>
         <option value="4">Lo-Fi</option>
+        <option value="5">R&B / Soul</option>
+        <option value="6">Latin</option>
+        <option value="7">Trance</option>
+        <option value="8">Bass</option>
+        <option value="9">House</option>
+        <option value="10">Techno</option>
+        <option value="11">Downtempo</option>
       </select>
     </div>
     <div style="display:flex;align-items:center;gap:6px;">
-      <span class="plbl">React</span>
-      <input type="range" min="0.5" max="10" step="0.1" value="3" id="react-sl"
+      <span class="plbl">Speed</span>
+      <input type="range" min="0" max="100" step="1" value="85" id="speed-sl"
         style="-webkit-appearance:none;width:70px;height:3px;background:#1a1e2e;border-radius:2px;outline:none;">
-      <span id="react-val" style="font-size:9px;color:#00d4ff;min-width:28px;">3.0s</span>
+      <span id="speed-val" style="font-size:9px;color:#00d4ff;min-width:38px;">Fast</span>
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
-      <div id="silence-badge" style="display:none;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:3px;padding:2px 8px;font-size:8px;letter-spacing:1.5px;color:rgba(160,185,220,0.4);text-transform:uppercase;">Silent</div>
       <div id="status-led" style="width:6px;height:6px;border-radius:50%;background:#00e676;box-shadow:0 0 6px rgba(0,230,118,0.6);"></div>
       <span id="status-text" style="font-size:9px;color:rgba(160,185,220,0.4);">Ready</span>
     </div>
@@ -161,76 +175,84 @@
         <span class="plbl">Spectrum</span>
         <div style="display:flex;align-items:center;gap:10px;margin-left:auto;">
           <div style="display:flex;align-items:center;gap:4px;">
-            <div style="width:14px;height:2px;background:linear-gradient(90deg,#90e860,#00ffd0,#3080ff);border-radius:1px;"></div>
+            <div style="width:14px;height:2px;background:linear-gradient(90deg,#ff6030,#ffd028,#50e650,#00dcc8,#1e96ff,#b450ff);border-radius:1px;"></div>
             <span style="font-size:8px;color:rgba(160,205,190,0.45);">Signal</span>
           </div>
           <div style="display:flex;align-items:center;gap:4px;">
             <div style="width:14px;height:2px;background:rgba(255,175,50,0.8);border-radius:1px;"></div>
             <span style="font-size:8px;color:rgba(255,185,80,0.55);">Target</span>
           </div>
+          <button id="shape-toggle" style="background:rgba(0,212,255,0.15);border:1px solid rgba(0,212,255,0.3);color:rgba(0,212,255,0.8);font-family:monospace;font-size:7px;padding:2px 7px;border-radius:3px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;">SHAPE</button>
         </div>
       </div>
       <canvas id="spec-cv" style="flex:1;display:block;width:100%;min-height:0;"></canvas>
     </div>
 
+    <!-- VERTICAL SPLITTER -->
+    <div class="splitter splitter-v" id="split-v"></div>
+
     <!-- RIGHT -->
-    <div class="right">
+    <div id="right-panel">
 
-      <!-- TOP: stereo + meters -->
-      <div class="rpanel" id="top-right">
-        <div id="vs-col">
-          <span class="plbl" style="align-self:flex-start;margin-bottom:5px;">Stereo</span>
-          <canvas id="vs-cv" style="display:block;"></canvas>
-          <div id="vs-sub">
-            <div class="st-readout">
-              <span class="st-lbl">Corr</span>
-              <span class="st-val" id="corr-val">---</span>
-            </div>
-            <div class="st-readout" style="flex:1;min-width:80px;">
-              <span class="st-lbl">Width</span>
-              <span class="st-val" id="width-val">---</span>
-              <div style="width:100%;margin-top:3px;">
-                <div class="wbar-wrap">
-                  <div class="wbar-tgt" id="wbar-tgt"></div>
-                  <div class="wbar-l" id="wbar-l"></div>
-                  <div class="wbar-r" id="wbar-r"></div>
-                  <div class="wbar-c"></div>
-                </div>
-                <div class="wbar-lcr"><span>L</span><span>C</span><span>R</span></div>
+      <!-- VECTORSCOPE -->
+      <div id="vs-panel">
+        <span class="plbl" style="align-self:flex-start;margin-bottom:5px;">Stereo</span>
+        <canvas id="vs-cv" style="display:block;"></canvas>
+        <div id="vs-sub">
+          <div class="st-readout">
+            <span class="st-lbl">Corr</span>
+            <span class="st-val" id="corr-val">---</span>
+          </div>
+          <div class="st-readout" style="flex:1;min-width:80px;">
+            <span class="st-lbl">Width</span>
+            <span class="st-val" id="width-val">---</span>
+            <div style="width:100%;margin-top:3px;">
+              <div class="wbar-wrap">
+                <div class="wbar-tgt" id="wbar-tgt"></div>
+                <div class="wbar-l" id="wbar-l"></div>
+                <div class="wbar-r" id="wbar-r"></div>
+                <div class="wbar-c"></div>
               </div>
+              <div class="wbar-lcr"><span>L</span><span>C</span><span>R</span></div>
             </div>
-          </div>
-        </div>
-
-        <div id="meters-col">
-          <canvas id="dscale" style="display:block;width:18px;flex-shrink:0;"></canvas>
-          <div class="meter-track">
-            <canvas id="lufs-cv" style="display:block;flex:1;width:100%;min-height:0;"></canvas>
-            <div style="text-align:center;">
-              <div class="meter-lbl">LUFS</div>
-              <div id="lufs-val" class="meter-num" style="color:#555;">---</div>
-              <div class="meter-unit">S-term</div>
-            </div>
-          </div>
-          <div class="meter-track">
-            <canvas id="rms-cv" style="display:block;flex:1;width:100%;min-height:0;"></canvas>
-            <div style="text-align:center;">
-              <div class="meter-lbl">RMS</div>
-              <div id="rms-val" class="meter-num" style="color:#555;">---</div>
-              <div class="meter-unit">dBFS</div>
-            </div>
-          </div>
-          <div style="display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding-bottom:18px;gap:1px;">
-            <span style="font-size:7px;color:rgba(160,210,185,0.3);">INT</span>
-            <span id="int-val" style="font-size:11px;font-weight:600;color:#00c878;text-shadow:0 0 6px rgba(0,190,110,0.35);">---</span>
-            <span style="font-size:7px;color:rgba(160,210,185,0.26);">LUFS</span>
-            <button id="btn-reset-lufs" style="margin-top:4px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:3px;color:rgba(160,210,185,0.5);font-family:monospace;font-size:7px;letter-spacing:1px;padding:2px 6px;cursor:pointer;text-transform:uppercase;" title="Reset Integrated LUFS">RST</button>
           </div>
         </div>
       </div>
 
+      <!-- SPLITTER H1 -->
+      <div class="splitter splitter-h" id="split-h1"></div>
+
+      <!-- READOUTS -->
+      <div id="meters-panel">
+        <div id="lufs-readouts">
+          <div class="lr-row">
+            <span class="lr-label" style="color:#ffd020;">S</span>
+            <span class="lr-value" id="lr-short">---</span>
+            <span class="lr-unit">LUFS</span>
+          </div>
+          <div class="lr-row">
+            <span class="lr-label" style="color:#E91E8C;">I</span>
+            <span class="lr-value" id="lr-int">---</span>
+            <span class="lr-unit">LUFS</span>
+          </div>
+          <div class="lr-row">
+            <span class="lr-label" style="color:#00e090;">Pk</span>
+            <span class="lr-value" id="lr-peak">---</span>
+            <span class="lr-unit">LUFS</span>
+          </div>
+          <div class="lr-row">
+            <span class="lr-label" style="color:#00d4ff;">RMS</span>
+            <span class="lr-value" id="lr-rms">---</span>
+            <span class="lr-unit">dBFS</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- SPLITTER H2 -->
+      <div class="splitter splitter-h" id="split-h2"></div>
+
       <!-- FEEDBACK -->
-      <div class="rpanel" id="fb-panel" style="flex:1;">
+      <div id="fb-panel">
         <div id="fb-arc-area">
           <canvas id="fb-arc-cv" width="80" height="80" style="display:block;"></canvas>
           <div class="fb-score" id="fb-score">--</div>
@@ -238,7 +260,7 @@
         </div>
         <div id="fb-right">
           <div id="genre-name">Hip-Hop / Trap</div>
-          <div id="metrics-container" style="display:flex;flex-direction:column;gap:6px;"></div>
+          <div id="metrics-container" style="display:flex;flex-direction:column;gap:6px;flex:1;min-height:0;overflow:hidden;"></div>
         </div>
       </div>
 
@@ -277,16 +299,23 @@
   }
 
   var genreState = getSliderState("target_genre");
-  var reactState = getSliderState("analysis_window");
 
   // -- Genre Data --
-  var genreNames = ['Hip-Hop / Trap','Pop','EDM / Dance','Rock','Lo-Fi'];
+  var genreNames = ['Hip-Hop / Trap','Pop','EDM / Dance','Rock','Lo-Fi',
+                     'R&B / Soul','Latin','Trance','Bass','House','Techno','Downtempo'];
   var genreData = [
-    {lufsLo:-11,lufsHi:-8, rmsLo:-13,rmsHi:-10, spread:0.42, wlo:0.25, whi:0.50},
-    {lufsLo:-12,lufsHi:-9, rmsLo:-14,rmsHi:-11, spread:0.55, wlo:0.35, whi:0.62},
-    {lufsLo:-10,lufsHi:-7, rmsLo:-12,rmsHi:-9,  spread:0.65, wlo:0.40, whi:0.70},
-    {lufsLo:-14,lufsHi:-10,rmsLo:-16,rmsHi:-12, spread:0.48, wlo:0.28, whi:0.55},
-    {lufsLo:-18,lufsHi:-14,rmsLo:-20,rmsHi:-16, spread:0.30, wlo:0.15, whi:0.40},
+    {lufsLo:-11.584,lufsHi:-7.086, rmsLo:-12.602,rmsHi:-7.782,  spread:0.28, wlo:0.000, whi:0.110},
+    {lufsLo:-11.005,lufsHi:-8.060, rmsLo:-12.856,rmsHi:-9.802,  spread:0.66, wlo:0.069, whi:0.252},
+    {lufsLo:-7.735, lufsHi:-5.715, rmsLo:-9.432, rmsHi:-7.689,  spread:0.51, wlo:0.060, whi:0.176},
+    {lufsLo:-17.185,lufsHi:-10.665,rmsLo:-19.058,rmsHi:-12.512, spread:0.57, wlo:0.093, whi:0.172},
+    {lufsLo:-15.049,lufsHi:-11.062,rmsLo:-16.511,rmsHi:-12.268, spread:0.47, wlo:0.053, whi:0.161},
+    {lufsLo:-10.126,lufsHi:-7.754, rmsLo:-12.196,rmsHi:-9.367,  spread:0.39, wlo:0.052, whi:0.161},
+    {lufsLo:-10.326,lufsHi:-7.257, rmsLo:-11.866,rmsHi:-8.210,  spread:0.18, wlo:0.000, whi:0.049},
+    {lufsLo:-9.244, lufsHi:-7.129, rmsLo:-10.176,rmsHi:-8.063,  spread:0.32, wlo:0.002, whi:0.124},
+    {lufsLo:-10.819,lufsHi:-6.990, rmsLo:-12.267,rmsHi:-7.956,  spread:0.41, wlo:0.038, whi:0.137},
+    {lufsLo:-13.416,lufsHi:-8.187, rmsLo:-14.628,rmsHi:-9.370,  spread:0.67, wlo:0.064, whi:0.262},
+    {lufsLo:-11.304,lufsHi:-8.123, rmsLo:-12.090,rmsHi:-8.461,  spread:0.23, wlo:0.001, whi:0.071},
+    {lufsLo:-15.320,lufsHi:-9.885, rmsLo:-17.095,rmsHi:-10.902, spread:0.67, wlo:0.064, whi:0.262},
   ];
 
   // -- Analysis State --
@@ -297,46 +326,78 @@
   var fbScores = {dynamics:0, tonality:0, width:0, correlation:0};
   var fbTgts = {dynamics:0, tonality:0, width:0, correlation:0};
   var fbSmooth = 0;
+  var lufsMomMax = -60;
   var hasReceivedData = false;
+  var fbScale = 1;
+  var shapeMode = true;
+  var SHAPE_REF = -40;
 
   // -- Spectrum Data --
+  var specSpeed = 0.85; // 0 = frozen, 1 = instant
   var FMIN = 10, FMAX = 20000, N = 300;
   var specSig = new Float32Array(N);
   var specSmth = new Float32Array(N);
   var specTLo = new Float32Array(N);
   var specTHi = new Float32Array(N);
 
+  // specKP: spectral keypoints [freq, meanDb, stdDevDb] from SNIP Reference Analyzer
+  // Band centers: Sub~40Hz, Low~160Hz, LMid~500Hz, Mid~2kHz, HMid~6kHz, High~14kHz
   var specKP = [
-    [[10,-34,5],[60,-30,5],[120,-32,5],[300,-40,5],[800,-46,5],[3000,-52,5],[10000,-60,5],[20000,-68,5]],
-    [[10,-44,4],[80,-40,4],[200,-37,4],[800,-38,4],[3000,-40,4],[8000,-44,4],[20000,-52,4]],
-    [[10,-30,6],[80,-27,6],[200,-33,6],[600,-40,6],[2000,-44,6],[8000,-50,6],[20000,-58,6]],
-    [[10,-48,5],[100,-44,5],[400,-36,5],[1500,-37,5],[5000,-42,5],[12000,-50,5],[20000,-58,5]],
-    [[10,-46,4],[200,-44,4],[800,-46,4],[3000,-56,4],[8000,-68,4],[20000,-80,4]],
+    // Hip-Hop / Trap
+    [[10,-0.2,9.4],[40,-0.2,9.4],[160,-1.0,5.1],[500,-6.1,3.7],[2000,-17.2,4.7],[6000,-25.3,5.5],[14000,-35.0,5.9],[20000,-35.0,5.9]],
+    // Pop
+    [[10,-4.1,8.0],[40,-4.1,8.0],[160,0.3,4.1],[500,-5.6,2.9],[2000,-19.1,5.0],[6000,-29.8,6.0],[14000,-39.0,5.7],[20000,-39.0,5.7]],
+    // EDM / Dance
+    [[10,2.3,4.9],[40,2.3,4.9],[160,1.0,2.9],[500,-4.3,2.1],[2000,-12.2,3.1],[6000,-20.3,4.9],[14000,-30.2,6.5],[20000,-30.2,6.5]],
+    // Rock
+    [[10,-12.5,16.9],[40,-12.5,16.9],[160,-5.1,9.7],[500,-15.0,4.8],[2000,-24.5,8.7],[6000,-39.3,14.4],[14000,-58.1,13.5],[20000,-58.1,13.5]],
+    // Lo-Fi
+    [[10,-13.8,7.9],[40,-13.8,7.9],[160,-3.4,3.8],[500,-10.5,2.9],[2000,-31.8,3.7],[6000,-44.0,4.9],[14000,-57.3,5.8],[20000,-57.3,5.8]],
+    // R&B / Soul
+    [[10,-3.8,8.1],[40,-3.8,8.1],[160,1.8,3.7],[500,-4.7,1.8],[2000,-17.5,3.1],[6000,-28.4,4.3],[14000,-40.0,5.6],[20000,-40.0,5.6]],
+    // Latin
+    [[10,-8.4,9.3],[40,-8.4,9.3],[160,-1.0,2.7],[500,-6.1,2.7],[2000,-17.3,2.4],[6000,-28.0,3.2],[14000,-36.8,6.0],[20000,-36.8,6.0]],
+    // Trance
+    [[10,0.8,5.1],[40,0.8,5.1],[160,2.9,3.1],[500,-6.6,2.5],[2000,-18.1,3.1],[6000,-28.4,4.6],[14000,-39.2,6.8],[20000,-39.2,6.8]],
+    // Bass
+    [[10,-1.4,9.7],[40,-1.4,9.7],[160,-3.7,3.9],[500,-7.8,2.8],[2000,-16.5,4.0],[6000,-25.2,5.1],[14000,-36.7,5.9],[20000,-36.7,5.9]],
+    // House
+    [[10,-3.9,6.8],[40,-3.9,6.8],[160,-3.2,4.2],[500,-14.3,3.7],[2000,-21.0,5.6],[6000,-26.3,7.1],[14000,-38.0,8.4],[20000,-38.0,8.4]],
+    // Techno
+    [[10,5.5,6.0],[40,5.5,6.0],[160,2.3,5.0],[500,-10.3,3.5],[2000,-22.1,4.1],[6000,-27.9,4.7],[14000,-39.0,5.5],[20000,-39.0,5.5]],
+    // Downtempo
+    [[10,-7.4,9.2],[40,-7.4,9.2],[160,-1.3,5.7],[500,-7.5,4.2],[2000,-22.1,4.4],[6000,-35.1,8.6],[14000,-48.4,10.8],[20000,-48.4,10.8]],
   ];
 
+  var SPEC_BAND_MAX = 6.0; // max half-width in dB for target band display
   function interpKP(kp, f) {
-    if (f <= kp[0][0]) return [kp[0][1]-kp[0][2], kp[0][1]+kp[0][2]];
-    if (f >= kp[kp.length-1][0]) { var l = kp[kp.length-1]; return [l[1]-l[2], l[1]+l[2]]; }
+    if (f <= kp[0][0]) { var hw0 = Math.min(kp[0][2], SPEC_BAND_MAX); return [kp[0][1]-hw0, kp[0][1]+hw0]; }
+    if (f >= kp[kp.length-1][0]) { var l = kp[kp.length-1]; var hwL = Math.min(l[2], SPEC_BAND_MAX); return [l[1]-hwL, l[1]+hwL]; }
     for (var i = 1; i < kp.length; i++) {
       if (f <= kp[i][0]) {
         var t = (Math.log(f)-Math.log(kp[i-1][0]))/(Math.log(kp[i][0])-Math.log(kp[i-1][0]));
         var c = kp[i-1][1]+(kp[i][1]-kp[i-1][1])*t;
-        var hw = kp[i-1][2]+(kp[i][2]-kp[i-1][2])*t;
+        var hw = Math.min(kp[i-1][2]+(kp[i][2]-kp[i-1][2])*t, SPEC_BAND_MAX);
         return [c-hw, c+hw];
       }
     }
   }
 
+  var _gsWorkBuf = new Float32Array(N); // reusable buffer for gaussSmooth
   function gaussSmooth(arr, s) {
     s = s || 8;
-    var out = new Float32Array(arr.length), r = Math.ceil(s*2.5);
-    for (var i = 0; i < arr.length; i++) {
+    var len = arr.length, r = Math.ceil(s*2.5);
+    var out = (len <= _gsWorkBuf.length) ? _gsWorkBuf : new Float32Array(len);
+    for (var i = 0; i < len; i++) {
       var sum = 0, w = 0;
-      for (var j = Math.max(0,i-r); j <= Math.min(arr.length-1,i+r); j++) {
-        var wj = Math.exp(-.5*((i-j)/s)*((i-j)/s));
-        sum += arr[j]*wj; w += wj;
+      var jMin = i - r; if (jMin < 0) jMin = 0;
+      var jMax = i + r; if (jMax >= len) jMax = len - 1;
+      for (var j = jMin; j <= jMax; j++) {
+        var d = (i - j) / s;
+        var wj = Math.exp(-0.5 * d * d);
+        sum += arr[j] * wj; w += wj;
       }
-      out[i] = sum/w;
+      out[i] = sum / w;
     }
     return out;
   }
@@ -350,8 +411,8 @@
       var r = interpKP(kp, f);
       rL[i] = r[0]; rH[i] = r[1];
     }
-    specTLo = gaussSmooth(rL);
-    specTHi = gaussSmooth(rH);
+    specTLo = new Float32Array(gaussSmooth(rL));
+    specTHi = new Float32Array(gaussSmooth(rH));
   }
 
   for (var i = 0; i < N; i++) { specSig[i] = -100; specSmth[i] = -100; }
@@ -386,27 +447,60 @@
     if (!w || !h) return;
     var pL = 36, pT = 6, pB = 20, gw = w-pL-6, gh = h-pT-pB, bottom = pT+gh;
     var fToX = function(f) { return pL+Math.log(f/FMIN)/Math.log(FMAX/FMIN)*gw; };
-    var dToY = function(d) { return pT+(0-d)/120*gh; };
+    // Shape mode: normalize both signal and target to SHAPE_REF
+    var sigShift = 0, tgtShift = 0, DMAX = 0, DMIN = -120;
+    if (shapeMode) {
+      DMAX = -8; DMIN = -72;
+      var sigMean = 0;
+      for (var mi = 0; mi < N; mi++) sigMean += specSmth[mi];
+      sigMean /= N;
+      if (sigMean > -90) sigShift = SHAPE_REF - sigMean;
+      // Shift target so its center line aligns with SHAPE_REF
+      var tgtCenterMean = 0;
+      for (var ti = 0; ti < N; ti++) tgtCenterMean += (specTHi[ti] + specTLo[ti]) * 0.5;
+      tgtCenterMean /= N;
+      tgtShift = SHAPE_REF - tgtCenterMean;
+    }
+    var dRange = DMAX - DMIN;
+    var dToY = function(d) { return pT + (DMAX - d) / dRange * gh; };
 
     specCtx.clearRect(0,0,w,h);
     specCtx.fillStyle = '#0d1018'; specCtx.fillRect(0,0,w,h);
 
-    var gridMinor = [-10,-30,-50,-70,-90,-110];
-    for (var gi = 0; gi < gridMinor.length; gi++) {
-      var d = gridMinor[gi], y = dToY(d);
-      if (y < pT || y > bottom) continue;
-      specCtx.strokeStyle = 'rgba(255,255,255,0.04)'; specCtx.lineWidth = 0.4;
-      specCtx.beginPath(); specCtx.moveTo(pL,y); specCtx.lineTo(pL+gw,y); specCtx.stroke();
-    }
-    var gridMajor = [0,-20,-40,-60,-80,-100,-120];
-    for (var gi2 = 0; gi2 < gridMajor.length; gi2++) {
-      var d2 = gridMajor[gi2], y2 = dToY(d2);
-      if (y2 < pT || y2 > bottom) continue;
-      specCtx.strokeStyle = d2 === 0 ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)';
-      specCtx.lineWidth = 0.5;
-      specCtx.beginPath(); specCtx.moveTo(pL,y2); specCtx.lineTo(pL+gw,y2); specCtx.stroke();
-      specCtx.fillStyle = 'rgba(175,215,200,0.45)'; specCtx.font = '8px monospace'; specCtx.textAlign = 'right';
-      specCtx.fillText(d2, pL-4, y2+3);
+    if (shapeMode) {
+      for (var gd = Math.ceil(DMIN/4)*4; gd <= DMAX; gd += 4) {
+        var gy = dToY(gd);
+        if (gy < pT || gy > bottom) continue;
+        var relDb = gd - SHAPE_REF;
+        var isRef = (gd === SHAPE_REF);
+        var isMaj = (Math.abs(relDb) % 8 === 0);
+        specCtx.strokeStyle = isRef ? 'rgba(255,255,255,0.15)' : isMaj ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)';
+        specCtx.lineWidth = isRef ? 0.7 : isMaj ? 0.5 : 0.4;
+        specCtx.beginPath(); specCtx.moveTo(pL,gy); specCtx.lineTo(pL+gw,gy); specCtx.stroke();
+        if (isMaj || isRef) {
+          specCtx.fillStyle = 'rgba(175,215,200,0.45)'; specCtx.font = '8px monospace'; specCtx.textAlign = 'right';
+          var lbl = relDb > 0 ? '+' + relDb : '' + relDb;
+          specCtx.fillText(lbl, pL-4, gy+3);
+        }
+      }
+    } else {
+      var gridMinor = [-10,-30,-50,-70,-90,-110];
+      for (var gi = 0; gi < gridMinor.length; gi++) {
+        var d = gridMinor[gi], y = dToY(d);
+        if (y < pT || y > bottom) continue;
+        specCtx.strokeStyle = 'rgba(255,255,255,0.04)'; specCtx.lineWidth = 0.4;
+        specCtx.beginPath(); specCtx.moveTo(pL,y); specCtx.lineTo(pL+gw,y); specCtx.stroke();
+      }
+      var gridMajor = [0,-20,-40,-60,-80,-100,-120];
+      for (var gi2 = 0; gi2 < gridMajor.length; gi2++) {
+        var d2 = gridMajor[gi2], y2 = dToY(d2);
+        if (y2 < pT || y2 > bottom) continue;
+        specCtx.strokeStyle = d2 === 0 ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)';
+        specCtx.lineWidth = 0.5;
+        specCtx.beginPath(); specCtx.moveTo(pL,y2); specCtx.lineTo(pL+gw,y2); specCtx.stroke();
+        specCtx.fillStyle = 'rgba(175,215,200,0.45)'; specCtx.font = '8px monospace'; specCtx.textAlign = 'right';
+        specCtx.fillText(d2, pL-4, y2+3);
+      }
     }
     specCtx.setLineDash([3,5]);
     var freqLines = [10,20,50,100,200,500,1000,2000,5000,10000,20000];
@@ -421,18 +515,66 @@
     }
     specCtx.setLineDash([]);
 
+    // Reference line in shape mode
+    if (shapeMode) {
+      var refY = dToY(SHAPE_REF);
+      specCtx.setLineDash([6,4]);
+      specCtx.beginPath(); specCtx.moveTo(pL, refY); specCtx.lineTo(pL+gw, refY);
+      specCtx.strokeStyle = 'rgba(0,212,255,0.35)'; specCtx.lineWidth = 1; specCtx.stroke();
+      specCtx.setLineDash([]);
+    }
+
     var spts = [], tup = [], tdn = [];
     for (var si = 0; si < N; si++) {
       var sf = Math.pow(FMAX/FMIN, si/(N-1))*FMIN, sx = fToX(sf);
-      spts.push([sx, dToY(specSmth[si])]);
-      tup.push([sx, dToY(specTHi[si])]);
-      tdn.push([sx, dToY(specTLo[si])]);
+      spts.push([sx, dToY(specSmth[si] + sigShift)]);
+      tup.push([sx, Math.max(pT, Math.min(bottom, dToY(specTHi[si] + tgtShift)))]);
+      tdn.push([sx, Math.max(pT, Math.min(bottom, dToY(specTLo[si] + tgtShift)))]);
     }
 
     function ct(pts) { for (var ci = 1; ci < pts.length; ci++) { var mx = (pts[ci-1][0]+pts[ci][0])*.5; specCtx.bezierCurveTo(mx,pts[ci-1][1],mx,pts[ci][1],pts[ci][0],pts[ci][1]); } }
     function cr(pts) { for (var ci = pts.length-2; ci >= 0; ci--) { var mx = (pts[ci+1][0]+pts[ci][0])*.5; specCtx.bezierCurveTo(mx,pts[ci+1][1],mx,pts[ci][1],pts[ci][0],pts[ci][1]); } }
 
-    // Target band
+    // Clip all spectrum graphics to graph area (prevents glow bleeding into freq labels)
+    specCtx.save();
+    specCtx.beginPath(); specCtx.rect(pL, pT, gw, gh); specCtx.clip();
+
+    // Signal fill — frequency-dependent coloring (warm lows → cool highs)
+    specCtx.beginPath();
+    specCtx.moveTo(spts[0][0], bottom); specCtx.lineTo(spts[0][0], spts[0][1]);
+    ct(spts); specCtx.lineTo(spts[N-1][0], bottom); specCtx.closePath();
+    var sfg = specCtx.createLinearGradient(pL,0,pL+gw,0);
+    sfg.addColorStop(0,   'rgba(255,60,30,0.78)');   // Sub: red
+    sfg.addColorStop(0.12,'rgba(255,140,30,0.78)');   // Bass: orange
+    sfg.addColorStop(0.25,'rgba(255,210,40,0.75)');   // Low-mid: yellow
+    sfg.addColorStop(0.40,'rgba(80,230,80,0.75)');    // Mid: green
+    sfg.addColorStop(0.55,'rgba(0,220,200,0.75)');    // Mid: cyan
+    sfg.addColorStop(0.72,'rgba(30,150,255,0.72)');   // High-mid: blue
+    sfg.addColorStop(0.88,'rgba(120,80,255,0.65)');   // High: purple
+    sfg.addColorStop(1,   'rgba(180,60,255,0.50)');   // Air: violet
+    specCtx.fillStyle = sfg; specCtx.fill();
+    specCtx.save(); specCtx.beginPath(); specCtx.rect(pL,pT,gw,gh); specCtx.clip();
+    var fd = specCtx.createLinearGradient(0,pT,0,bottom);
+    fd.addColorStop(.5,'rgba(0,0,0,0)'); fd.addColorStop(1,'rgba(8,12,20,0.85)');
+    specCtx.fillStyle = fd; specCtx.fillRect(pL,pT,gw,gh); specCtx.restore();
+
+    // Signal stroke — matching frequency gradient
+    var eg = specCtx.createLinearGradient(pL,0,pL+gw,0);
+    eg.addColorStop(0,   'rgba(255,100,60,0.95)');
+    eg.addColorStop(0.12,'rgba(255,180,50,0.95)');
+    eg.addColorStop(0.25,'rgba(255,240,80,0.95)');
+    eg.addColorStop(0.40,'rgba(100,255,100,0.95)');
+    eg.addColorStop(0.55,'rgba(0,255,230,0.95)');
+    eg.addColorStop(0.72,'rgba(50,170,255,0.92)');
+    eg.addColorStop(0.88,'rgba(150,100,255,0.85)');
+    eg.addColorStop(1,   'rgba(200,80,255,0.70)');
+    specCtx.beginPath(); specCtx.moveTo(spts[0][0],spts[0][1]); ct(spts);
+    specCtx.shadowColor = 'rgba(0,200,255,0.35)'; specCtx.shadowBlur = 5;
+    specCtx.strokeStyle = eg; specCtx.lineWidth = 2; specCtx.stroke(); specCtx.shadowBlur = 0;
+    specCtx.beginPath(); specCtx.moveTo(spts[0][0],spts[0][1]); ct(spts);
+    specCtx.strokeStyle = 'rgba(255,255,255,0.2)'; specCtx.lineWidth = 0.8; specCtx.stroke();
+
+    // Target band (drawn on top of signal so it's always visible)
     specCtx.beginPath(); specCtx.moveTo(tup[0][0],tup[0][1]); ct(tup); cr(tdn); specCtx.closePath();
     var tbf = specCtx.createLinearGradient(pL,0,pL+gw,0);
     tbf.addColorStop(0,'rgba(255,140,30,0.13)'); tbf.addColorStop(.5,'rgba(255,165,45,0.16)'); tbf.addColorStop(1,'rgba(255,120,80,0.09)');
@@ -443,113 +585,36 @@
     specCtx.beginPath(); specCtx.moveTo(tdn[0][0],tdn[0][1]); ct(tdn);
     specCtx.strokeStyle = 'rgba(220,130,40,0.35)'; specCtx.lineWidth = 0.9; specCtx.stroke();
 
-    // Signal fill
-    specCtx.beginPath();
-    specCtx.moveTo(spts[0][0], bottom); specCtx.lineTo(spts[0][0], spts[0][1]);
-    ct(spts); specCtx.lineTo(spts[N-1][0], bottom); specCtx.closePath();
-    var sfg = specCtx.createLinearGradient(pL,0,pL+gw,0);
-    sfg.addColorStop(0,'rgba(110,195,75,0.68)'); sfg.addColorStop(.2,'rgba(35,205,135,0.74)');
-    sfg.addColorStop(.45,'rgba(0,218,198,0.76)'); sfg.addColorStop(.72,'rgba(0,182,232,0.70)');
-    sfg.addColorStop(1,'rgba(65,90,200,0.48)');
-    specCtx.fillStyle = sfg; specCtx.fill();
-    specCtx.save(); specCtx.beginPath(); specCtx.rect(pL,pT,gw,gh); specCtx.clip();
-    var fd = specCtx.createLinearGradient(0,pT,0,bottom);
-    fd.addColorStop(.45,'rgba(0,0,0,0)'); fd.addColorStop(1,'rgba(8,12,20,0.96)');
-    specCtx.fillStyle = fd; specCtx.fillRect(pL,pT,gw,gh); specCtx.restore();
+    specCtx.restore(); // End graph area clip
 
-    var eg = specCtx.createLinearGradient(pL,0,pL+gw,0);
-    eg.addColorStop(0,'rgba(155,242,115,0.85)'); eg.addColorStop(.4,'rgba(0,255,218,0.95)');
-    eg.addColorStop(.72,'rgba(0,202,252,0.9)'); eg.addColorStop(1,'rgba(95,110,252,0.62)');
-    specCtx.beginPath(); specCtx.moveTo(spts[0][0],spts[0][1]); ct(spts);
-    specCtx.shadowColor = 'rgba(0,228,192,0.45)'; specCtx.shadowBlur = 7;
-    specCtx.strokeStyle = eg; specCtx.lineWidth = 2; specCtx.stroke(); specCtx.shadowBlur = 0;
-    specCtx.beginPath(); specCtx.moveTo(spts[0][0],spts[0][1]); ct(spts);
-    specCtx.strokeStyle = 'rgba(222,255,238,0.35)'; specCtx.lineWidth = 1; specCtx.stroke();
     specCtx.strokeStyle = 'rgba(255,255,255,0.05)'; specCtx.lineWidth = 1;
     specCtx.strokeRect(pL+.5,pT+.5,gw-1,gh-1);
   }
 
-  // -- Dynamics (Meters) --
-  var lufsCv = document.getElementById('lufs-cv'), lufsCtx = lufsCv.getContext('2d');
-  var rmsCv = document.getElementById('rms-cv'), rmsCtx = rmsCv.getContext('2d');
-  var dscaleCv = document.getElementById('dscale'), dscaleCtx = dscaleCv.getContext('2d');
+  // -- Dynamics --
   var DB_TOP = 0, DB_BOT = -36;
-  var dToY3 = function(d) { return (DB_TOP-d)/(DB_TOP-DB_BOT); };
-
-  function setupMeter(cv, ctx) {
-    if (!cv.offsetWidth || !cv.offsetHeight) return;
-    cv.width = cv.offsetWidth*DPR; cv.height = cv.offsetHeight*DPR;
-    ctx.setTransform(DPR,0,0,DPR,0,0);
-  }
-
-  function setupDscale() {
-    var h = lufsCv.offsetHeight; if (!h) return;
-    dscaleCv.width = 18*DPR; dscaleCv.height = h*DPR; dscaleCv.style.height = h+'px';
-    dscaleCtx.setTransform(DPR,0,0,DPR,0,0); dscaleCtx.clearRect(0,0,18,h);
-    var marks = [0,-3,-6,-9,-12,-18,-24,-30,-36];
-    for (var mi = 0; mi < marks.length; mi++) {
-      var d = marks[mi], y = dToY3(d)*h;
-      dscaleCtx.fillStyle = d === 0 ? 'rgba(255,255,255,0.45)' : d >= -9 ? 'rgba(160,210,185,0.48)' : 'rgba(160,210,185,0.26)';
-      dscaleCtx.font = '7px monospace'; dscaleCtx.textAlign = 'right';
-      dscaleCtx.fillText(d, 16, y+3);
-    }
-  }
-
-  function drawMeter(ctx, db, peak, tLo, tHi) {
-    var w = ctx.canvas.offsetWidth, h = ctx.canvas.offsetHeight;
-    if (!w || !h) return;
-    ctx.clearRect(0,0,w,h);
-    ctx.fillStyle = '#060e0a'; ctx.beginPath(); ctx.roundRect(0,0,w,h,3); ctx.fill();
-
-    if (tLo !== null) {
-      var ty1 = dToY3(tHi)*h, ty2 = dToY3(tLo)*h;
-      ctx.fillStyle = 'rgba(255,168,40,0.1)'; ctx.fillRect(0,ty1,w,ty2-ty1);
-      ctx.strokeStyle = 'rgba(255,185,55,0.7)'; ctx.lineWidth = 1;
-      ctx.shadowColor = 'rgba(255,165,30,0.38)'; ctx.shadowBlur = 4;
-      ctx.beginPath(); ctx.moveTo(0,ty1); ctx.lineTo(w,ty1); ctx.stroke(); ctx.shadowBlur = 0;
-      ctx.strokeStyle = 'rgba(255,168,40,0.28)'; ctx.lineWidth = 0.7;
-      ctx.beginPath(); ctx.moveTo(0,ty2); ctx.lineTo(w,ty2); ctx.stroke();
-    }
-
-    var marks = [0,-3,-6,-9,-12,-18,-24,-30,-36];
-    for (var mi = 0; mi < marks.length; mi++) {
-      var d = marks[mi], y = dToY3(d)*h;
-      ctx.strokeStyle = d%6 === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)';
-      ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
-    }
-
-    var fH = (1-dToY3(db))*h, fY = h-fH;
-    if (fH > 0) {
-      var gr = ctx.createLinearGradient(0,h,0,0);
-      gr.addColorStop(0,'rgba(0,200,100,0.88)'); gr.addColorStop(.58,'rgba(0,235,120,0.9)');
-      gr.addColorStop(.78,'rgba(180,235,50,0.9)'); gr.addColorStop(.9,'rgba(255,205,0,0.9)');
-      gr.addColorStop(1,'rgba(255,55,25,0.95)');
-      ctx.fillStyle = gr; ctx.fillRect(0,fY,w,fH);
-      ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(0,fY,w,1.5);
-    }
-
-    if (peak > DB_BOT) {
-      var py = dToY3(peak)*h;
-      var pc = peak > -3 ? 'rgba(255,70,30,0.95)' : peak > -9 ? 'rgba(255,210,0,0.95)' : 'rgba(0,240,120,0.95)';
-      ctx.strokeStyle = pc; ctx.lineWidth = 2; ctx.shadowColor = pc; ctx.shadowBlur = 5;
-      ctx.beginPath(); ctx.moveTo(1,py); ctx.lineTo(w-1,py); ctx.stroke(); ctx.shadowBlur = 0;
-    }
-
-    ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 0.7;
-    ctx.beginPath(); ctx.roundRect(.5,.5,w-1,h-1,3); ctx.stroke();
-  }
 
   // -- Stereo Vectorscope --
   var vsCv = document.getElementById('vs-cv'), vsCtx = vsCv.getContext('2d');
 
   function setupVS() {
-    var col = document.getElementById('vs-col');
-    var availW = col.offsetWidth-20, availH = 170;
-    var sz = Math.min(availW, availH*2);
-    var ch = Math.round(sz/2)+12;
-    vsCv.width = sz*DPR; vsCv.height = ch*DPR;
-    vsCv.style.width = sz+'px'; vsCv.style.height = ch+'px';
-    vsCtx.setTransform(DPR,0,0,DPR,0,0);
+    var col = document.getElementById('vs-panel');
+    var sub = document.getElementById('vs-sub');
+    var lbl = col.querySelector('.plbl');
+    var padV = 16; // 8px top + 8px bottom padding
+    var lblH = lbl ? lbl.offsetHeight + 5 : 0;
+    var subH = sub ? sub.offsetHeight + 5 : 0;
+    var availW = col.offsetWidth - 24;
+    var availH = col.offsetHeight - padV - lblH - subH;
+    if (availW < 20) availW = 20;
+    if (availH < 20) availH = 20;
+    // Semicircle: width=sz, visual height=sz/2
+    var sz = Math.min(availW, availH * 2);
+    if (sz < 20) sz = 20;
+    var ch = Math.min(Math.round(sz / 2) + 12, availH);
+    vsCv.width = sz * DPR; vsCv.height = ch * DPR;
+    vsCv.style.width = sz + 'px'; vsCv.style.height = ch + 'px';
+    vsCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
   }
 
   function freqCol(f, a) {
@@ -658,8 +723,9 @@
   var fbArcCv = document.getElementById('fb-arc-cv'), fbArcCtx = fbArcCv.getContext('2d');
 
   function drawFbArc(score) {
-    fbArcCtx.clearRect(0,0,80,80);
-    var cx = 40, cy = 44, R = 28;
+    var sz = fbArcCv.width;
+    fbArcCtx.clearRect(0,0,sz,sz);
+    var cx = sz/2, cy = sz*0.55, R = sz*0.35;
     fbArcCtx.beginPath(); fbArcCtx.arc(cx,cy,R,Math.PI*.72,Math.PI*2.28);
     fbArcCtx.strokeStyle = 'rgba(255,255,255,0.07)'; fbArcCtx.lineWidth = 5; fbArcCtx.lineCap = 'round'; fbArcCtx.stroke();
     var aEnd = Math.PI*.72+(score/100)*Math.PI*1.56;
@@ -673,31 +739,60 @@
     return col;
   }
 
-  function renderMetrics() {
-    var defs = [
-      {key:'dynamics',    label:'Dynamics',    msgs:['Loudness on target.','Slightly off target.','Loudness mismatch.']},
-      {key:'tonality',    label:'Tonality',    msgs:['Spectral balance good.','Tonal balance off.','Significant mismatch.']},
-      {key:'width',       label:'Width',       msgs:['Width ideal.','Width off target.','Width mismatch.']},
-      {key:'correlation', label:'Correlation', msgs:['Good mono compat.','Moderate compat.','Phase issues!']},
-    ];
+  // Pre-build metrics DOM once, update values each frame (no innerHTML thrashing)
+  var metricDefs = [
+    {key:'dynamics',    label:'Dynamics',    msgs:['Loudness on target.','Slightly off target.','Loudness mismatch.']},
+    {key:'tonality',    label:'Tonality',    msgs:['Spectral balance good.','Tonal balance off.','Significant mismatch.']},
+    {key:'width',       label:'Width',       msgs:['Width ideal.','Width off target.','Width mismatch.']},
+    {key:'correlation', label:'Correlation', msgs:['Good mono compat.','Moderate compat.','Phase issues!']},
+  ];
+  var metricEls = null;
+
+  function initMetrics() {
     var el = document.getElementById('metrics-container');
     el.innerHTML = '';
-    for (var di = 0; di < defs.length; di++) {
-      var def = defs[di], s = fbScores[def.key];
+    metricEls = [];
+    for (var di = 0; di < metricDefs.length; di++) {
+      var def = metricDefs[di];
+      var row = document.createElement('div');
+      row.className = 'mrow';
+      row.innerHTML = '<div class="mtop">' +
+        '<span class="micon"></span>' +
+        '<span class="mname">'+def.label+'</span>' +
+        '<div class="mbarw"><div class="mbar"></div></div>' +
+        '<span class="mpct"></span>' +
+        '</div>' +
+        '<div class="mmsg"></div>';
+      el.appendChild(row);
+      metricEls.push({
+        icon: row.querySelector('.micon'),
+        name: row.querySelector('.mname'),
+        barW: row.querySelector('.mbarw'),
+        bar:  row.querySelector('.mbar'),
+        pct:  row.querySelector('.mpct'),
+        msg:  row.querySelector('.mmsg'),
+      });
+    }
+  }
+
+  function renderMetrics() {
+    if (!metricEls) initMetrics();
+    var fs = fbScale;
+    var iconSz = Math.round(9*fs)+'px', nameSz = Math.round(9*fs)+'px', pctSz = Math.round(9*fs)+'px';
+    var msgSz = Math.round(8*fs)+'px', barH = Math.max(3,Math.round(3*fs))+'px';
+    var nameW = Math.round(62*fs)+'px', padL = Math.round(17*fs)+'px', iconW = Math.round(12*fs)+'px';
+    for (var di = 0; di < metricDefs.length; di++) {
+      var def = metricDefs[di], s = fbScores[def.key], e = metricEls[di];
       var col = s > 75 ? 'rgba(0,220,120,0.88)' : s > 50 ? 'rgba(255,190,40,0.88)' : 'rgba(255,60,40,0.88)';
       var bc = s > 75 ? 'rgba(0,215,110,0.8)' : s > 50 ? 'rgba(255,185,35,0.8)' : 'rgba(255,55,35,0.8)';
       var ic = s > 75 ? '\u2713' : s > 50 ? '\u25B2' : '\u2715';
       var msg = s > 75 ? def.msgs[0] : s > 50 ? def.msgs[1] : def.msgs[2];
-      var row = document.createElement('div');
-      row.className = 'mrow';
-      row.innerHTML = '<div class="mtop">' +
-        '<span class="micon" style="color:'+col+';">'+ic+'</span>' +
-        '<span class="mname">'+def.label+'</span>' +
-        '<div class="mbarw"><div class="mbar" style="width:'+s+'%;background:'+bc+';"></div></div>' +
-        '<span class="mpct" style="color:'+col+';">'+Math.round(s)+'%</span>' +
-        '</div>' +
-        '<div class="mmsg">'+msg+'</div>';
-      el.appendChild(row);
+      e.icon.textContent = ic; e.icon.style.color = col; e.icon.style.fontSize = iconSz; e.icon.style.width = iconW;
+      e.name.style.fontSize = nameSz; e.name.style.width = nameW;
+      e.barW.style.height = barH;
+      e.bar.style.width = s+'%'; e.bar.style.background = bc;
+      e.pct.textContent = Math.round(s)+'%'; e.pct.style.color = col; e.pct.style.fontSize = pctSz;
+      e.msg.textContent = msg; e.msg.style.fontSize = msgSz; e.msg.style.paddingLeft = padL;
     }
   }
 
@@ -707,47 +802,42 @@
   var genreSelect = document.getElementById('main-genre');
   genreSelect.addEventListener('change', function(e) {
     genre = +e.target.value;
-    if (genreState) genreState.setNormalisedValue(genre / 4);
+    if (genreState) genreState.setNormalisedValue(genre / 11);
   });
 
   if (genreState && genreState.valueChangedEvent) {
     genreState.valueChangedEvent.addListener(function() {
-      var idx = Math.round(genreState.getNormalisedValue() * 4);
-      genre = Math.max(0, Math.min(4, idx));
+      var idx = Math.round(genreState.getNormalisedValue() * 11);
+      genre = Math.max(0, Math.min(11, idx));
       genreSelect.value = genre;
     });
   }
 
-  // Reaction time slider: bidirectional binding
-  var reactSlider = document.getElementById('react-sl');
-  var reactVal = document.getElementById('react-val');
-  reactSlider.addEventListener('input', function(e) {
-    var val = parseFloat(e.target.value);
-    reactVal.textContent = val.toFixed(1) + 's';
-    if (reactState) reactState.setNormalisedValue((val - 0.5) / 9.5);
-  });
-
-  if (reactState && reactState.valueChangedEvent) {
-    reactState.valueChangedEvent.addListener(function() {
-      var val = 0.5 + reactState.getNormalisedValue() * 9.5;
-      reactSlider.value = val;
-      reactVal.textContent = val.toFixed(1) + 's';
-    });
+  // Spectrum speed slider (UI-only, no DAW parameter)
+  var speedSlider = document.getElementById('speed-sl');
+  var speedVal = document.getElementById('speed-val');
+  function updateSpeedLabel(val) {
+    specSpeed = val / 100.0;
+    if (val >= 95) speedVal.textContent = 'Instant';
+    else if (val >= 70) speedVal.textContent = 'Fast';
+    else if (val >= 40) speedVal.textContent = 'Medium';
+    else if (val >= 15) speedVal.textContent = 'Slow';
+    else speedVal.textContent = 'Hold';
   }
-
-  // Reset LUFS button
-  var resetBtn = document.getElementById('btn-reset-lufs');
-  resetBtn.addEventListener('click', function() {
-    intV = -60;
-    document.getElementById('int-val').textContent = '---';
-    if (juceAvailable) {
-      try { window.__JUCE__.backend.emitEvent("resetLufs", {}); }
-      catch(e) {}
-    }
+  speedSlider.addEventListener('input', function(e) {
+    updateSpeedLabel(parseInt(e.target.value));
   });
+  updateSpeedLabel(parseInt(speedSlider.value));
 
-  // Silence badge
-  var silenceBadge = document.getElementById('silence-badge');
+  // Shape/Level toggle
+  var shapeToggleBtn = document.getElementById('shape-toggle');
+  shapeToggleBtn.addEventListener('click', function() {
+    shapeMode = !shapeMode;
+    shapeToggleBtn.textContent = shapeMode ? 'SHAPE' : 'LEVEL';
+    shapeToggleBtn.style.background = shapeMode ? 'rgba(0,212,255,0.15)' : 'rgba(255,255,255,0.06)';
+    shapeToggleBtn.style.borderColor = shapeMode ? 'rgba(0,212,255,0.3)' : 'rgba(255,255,255,0.1)';
+    shapeToggleBtn.style.color = shapeMode ? 'rgba(0,212,255,0.8)' : 'rgba(160,185,220,0.4)';
+  });
 
   // Send button
   var sendBtn = document.getElementById('btn_send_snip');
@@ -797,12 +887,11 @@
   // Listen for C++ events (guarded)
   if (juceAvailable && window.__JUCE__.backend) {
     try {
-      window.__JUCE__.backend.addEventListener("sendResult", function(event) {
-        handleSendResult(event.detail);
+      window.__JUCE__.backend.addEventListener("sendResult", function(data) {
+        handleSendResult(data);
       });
 
-      window.__JUCE__.backend.addEventListener("analysisUpdate", function(event) {
-        var d = event.detail;
+      window.__JUCE__.backend.addEventListener("analysisUpdate", function(d) {
         if (!d) return;
         hasReceivedData = true;
 
@@ -823,10 +912,6 @@
           if (d.feedback.correlation !== undefined) fbTgts.correlation = d.feedback.correlation;
         }
 
-        // Silence indicator
-        if (d.isSilent !== undefined) {
-          silenceBadge.style.display = d.isSilent ? 'block' : 'none';
-        }
       });
     } catch(e) {
       console.warn("SNIP Bridge: Failed to set up JUCE event listeners:", e);
@@ -835,10 +920,40 @@
 
   // ===== SETUP & MAIN LOOP =====
 
+  function updateFbScale() {
+    var fb = document.getElementById('fb-panel');
+    if (!fb) return;
+    var h = fb.offsetHeight, w = fb.offsetWidth;
+    fbScale = Math.min(h / 120, w / 300);
+    fbScale = Math.max(0.5, Math.min(2.5, fbScale));
+    // Scale padding based on available height
+    var pad = Math.max(4, Math.round(10 * fbScale));
+    fb.style.padding = pad + 'px ' + Math.round(14 * Math.min(1, fbScale)) + 'px';
+    fb.style.gap = Math.max(4, Math.round(10 * fbScale)) + 'px';
+    // Constrain arc to available content height (panel height minus padding)
+    var contentH = h - pad * 2;
+    var arcSz = Math.round(80 * fbScale);
+    // Arc + score (~14px) + label (~7px) + gaps must fit in contentH
+    var maxArc = Math.max(20, contentH - Math.round(24 * fbScale));
+    arcSz = Math.min(arcSz, maxArc);
+    fbArcCv.width = arcSz; fbArcCv.height = arcSz;
+    fbArcCv.style.width = arcSz + 'px'; fbArcCv.style.height = arcSz + 'px';
+    // Scale score text
+    var scoreEl = document.getElementById('fb-score');
+    if (scoreEl) scoreEl.style.fontSize = Math.round(20 * fbScale) + 'px';
+    // Scale/hide match label at tiny sizes
+    var matchLbl = fb.querySelector('.fb-match-lbl');
+    if (matchLbl) {
+      if (contentH < 50) { matchLbl.style.display = 'none'; }
+      else { matchLbl.style.display = ''; matchLbl.style.fontSize = Math.round(7 * fbScale) + 'px'; }
+    }
+    // Hide score text at very tiny sizes
+    if (scoreEl) { scoreEl.style.display = contentH < 35 ? 'none' : ''; }
+  }
+
   function setupAll() {
     setupSpec(); setupVS();
-    setupMeter(lufsCv, lufsCtx); setupMeter(rmsCv, rmsCtx);
-    setTimeout(setupDscale, 20);
+    updateFbScale();
   }
 
   var setupRetries = 0;
@@ -856,9 +971,10 @@
   function tick() {
     if (genre !== lastGenre) { buildSpecTargets(); lastGenre = genre; }
 
-    // Smooth spectrum toward signal
+    // Smooth spectrum toward signal (temporal) — specSpeed: 0=frozen, 1=instant
+    var alpha = specSpeed;
     for (var ti = 0; ti < N; ti++) {
-      specSmth[ti] += (specSig[ti]-specSmth[ti])*.1;
+      specSmth[ti] += (specSig[ti]-specSmth[ti]) * alpha;
     }
     drawSpec();
 
@@ -871,19 +987,23 @@
     else if (--rmsPkT <= 0) rmsPk -= .05;
 
     var tgt = genreData[genre];
-    setupMeter(lufsCv, lufsCtx);
-    drawMeter(lufsCtx, lufsV, lufsPk, tgt.lufsLo, tgt.lufsHi);
-    setupMeter(rmsCv, rmsCtx);
-    drawMeter(rmsCtx, rmsV, rmsPk, tgt.rmsLo, tgt.rmsHi);
-
     var inL = lufsV >= tgt.lufsLo && lufsV <= tgt.lufsHi;
     var inR = rmsV >= tgt.rmsLo && rmsV <= tgt.rmsHi;
-    document.getElementById('lufs-val').textContent = lufsV > -55 ? lufsV.toFixed(1) : '---';
-    document.getElementById('lufs-val').style.color = lufsV <= -55 ? '#555' : inL ? '#00e090' : lufsV > tgt.lufsHi ? '#ff4422' : '#ffd020';
-    document.getElementById('rms-val').textContent = rmsV > -55 ? rmsV.toFixed(1) : '---';
-    document.getElementById('rms-val').style.color = rmsV <= -55 ? '#555' : inR ? '#00e090' : rmsV > tgt.rmsHi ? '#ff4422' : '#ffd020';
-    document.getElementById('int-val').textContent = intV > -55 ? intV.toFixed(1) : '---';
 
+    /* ── LUFS readouts ── */
+    if (lufsV > lufsMomMax && lufsV > -55) lufsMomMax = lufsV;
+    var lrS = document.getElementById('lr-short');
+    var lrI = document.getElementById('lr-int');
+    var lrP = document.getElementById('lr-peak');
+    var lrR = document.getElementById('lr-rms');
+    lrS.textContent = lufsV > -55 ? lufsV.toFixed(1) : '---';
+    lrS.style.color = lufsV <= -55 ? '#555' : inL ? '#00e090' : lufsV > tgt.lufsHi ? '#ff4422' : '#ffd020';
+    lrI.textContent = intV > -55 ? intV.toFixed(1) : '---';
+    lrI.style.color = intV <= -55 ? '#555' : '#E91E8C';
+    lrP.textContent = lufsMomMax > -55 ? lufsMomMax.toFixed(1) : '---';
+    lrP.style.color = lufsMomMax <= -55 ? '#555' : lufsMomMax > tgt.lufsHi ? '#ff4422' : '#00e090';
+    lrR.textContent = rmsV > -55 ? rmsV.toFixed(1) : '---';
+    lrR.style.color = rmsV <= -55 ? '#555' : inR ? '#00e090' : rmsV > tgt.rmsHi ? '#ff4422' : '#00d4ff';
     // Stereo: smooth toward targets
     corrV += (corrT-corrV)*.05;
     widthV += (widthT-widthV)*.05;
@@ -904,13 +1024,88 @@
     var overall = Math.round((fbScores.dynamics+fbScores.tonality+fbScores.width+fbScores.correlation)/4);
     fbSmooth += (overall-fbSmooth)*.04;
     var sc = Math.round(fbSmooth), arcCol = drawFbArc(fbSmooth);
-    document.getElementById('fb-score').textContent = hasReceivedData ? sc : '--';
-    document.getElementById('fb-score').style.color = arcCol;
-    document.getElementById('genre-name').textContent = genreNames[genre];
+    var fbScoreEl = document.getElementById('fb-score');
+    fbScoreEl.textContent = hasReceivedData ? sc : '--';
+    fbScoreEl.style.color = arcCol;
+    fbScoreEl.style.fontSize = Math.round(20 * fbScale) + 'px';
+    var genreNameEl = document.getElementById('genre-name');
+    genreNameEl.textContent = genreNames[genre];
+    genreNameEl.style.fontSize = Math.round(11 * fbScale) + 'px';
     renderMetrics();
 
     requestAnimationFrame(tick);
   }
+
+  // ===== RESIZABLE SPLITTERS =====
+  var splitV = document.getElementById('split-v');
+  var splitH1 = document.getElementById('split-h1');
+  var splitH2 = document.getElementById('split-h2');
+  var bodyEl = document.querySelector('.body');
+  var specPanel = document.getElementById('spec-panel');
+  var rightPanel = document.getElementById('right-panel');
+  var vsPanelEl = document.getElementById('vs-panel');
+  var metersPanelEl = document.getElementById('meters-panel');
+  var fbPanelEl = document.getElementById('fb-panel');
+  var draggingSplit = null;
+  var rafPending = false;
+
+  function startDrag(e) {
+    e.preventDefault();
+    draggingSplit = e.currentTarget.id;
+    e.currentTarget.classList.add('dragging');
+    document.body.style.cursor = draggingSplit === 'split-v' ? 'col-resize' : 'row-resize';
+    document.body.style.userSelect = 'none';
+    document.body.style.webkitUserSelect = 'none';
+  }
+
+  splitV.addEventListener('mousedown', startDrag);
+  splitH1.addEventListener('mousedown', startDrag);
+  splitH2.addEventListener('mousedown', startDrag);
+
+  document.addEventListener('mousemove', function(e) {
+    if (!draggingSplit) return;
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(function() {
+      rafPending = false;
+      if (!draggingSplit) return;
+      if (draggingSplit === 'split-v') {
+        var rect = bodyEl.getBoundingClientRect();
+        var totalW = rect.width;
+        var pct = ((e.clientX - rect.left) / totalW) * 100;
+        var minPct = Math.max(15, (120 / totalW) * 100);
+        var maxPct = Math.min(85, ((totalW - 125) / totalW) * 100);
+        pct = Math.max(minPct, Math.min(maxPct, pct));
+        specPanel.style.width = pct + '%';
+      } else if (draggingSplit === 'split-h1') {
+        // Between vectorscope and meters
+        var rect = rightPanel.getBoundingClientRect();
+        var y = e.clientY - rect.top;
+        y = Math.max(60, Math.min(rect.height - 135, y));
+        vsPanelEl.style.flex = 'none';
+        vsPanelEl.style.height = y + 'px';
+      } else if (draggingSplit === 'split-h2') {
+        // Between meters and feedback
+        var rect = rightPanel.getBoundingClientRect();
+        var fbH = rect.height - (e.clientY - rect.top);
+        fbH = Math.max(60, Math.min(rect.height - 135, fbH));
+        fbPanelEl.style.flex = 'none';
+        fbPanelEl.style.height = fbH + 'px';
+      }
+      setupAll();
+    });
+  });
+
+  document.addEventListener('mouseup', function() {
+    if (!draggingSplit) return;
+    var el = document.getElementById(draggingSplit);
+    if (el) el.classList.remove('dragging');
+    draggingSplit = null;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    document.body.style.webkitUserSelect = '';
+    setupAll();
+  });
 
   setTimeout(tick, 120);
 })();
