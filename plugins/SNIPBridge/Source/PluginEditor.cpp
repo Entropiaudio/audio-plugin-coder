@@ -21,9 +21,6 @@ SNIPBridgeAudioProcessorEditor::SNIPBridgeAudioProcessorEditor (SNIPBridgeAudioP
     genreAttachment = std::make_unique<juce::WebSliderParameterAttachment>(
         *audioProcessor.apvts.getParameter("target_genre"), genreRelay);
 
-    windowAttachment = std::make_unique<juce::WebSliderParameterAttachment>(
-        *audioProcessor.apvts.getParameter("analysis_window"), windowRelay);
-
     // Create WebBrowserComponent with JUCE 8 API
     DBG("SNIPBridge: Creating WebView");
     webView = std::make_unique<juce::WebBrowserComponent>(
@@ -36,7 +33,6 @@ SNIPBridgeAudioProcessorEditor::SNIPBridgeAudioProcessorEditor (SNIPBridgeAudioP
             .withNativeIntegrationEnabled()
             .withResourceProvider([this](const auto& url) { return getResource(url); })
             .withOptionsFrom(genreRelay)
-            .withOptionsFrom(windowRelay)
             .withEventListener("sendToSnip", [this](const juce::var& /*event*/) {
                 DBG("SNIPBridge: sendToSnip event received");
                 sendAnalysisToSnip();
@@ -55,7 +51,11 @@ SNIPBridgeAudioProcessorEditor::SNIPBridgeAudioProcessorEditor (SNIPBridgeAudioP
     DBG("SNIPBridge: Loading web content");
     webView->goToURL(juce::WebBrowserComponent::getResourceProviderRoot());
 
-    // Set editor size to match WebView UI design (1000x500)
+    // Set editor size and make resizable with fixed aspect ratio (2:1)
+    constrainer.setFixedAspectRatio(2.0);
+    constrainer.setSizeLimits(600, 300, 1600, 800);
+    setConstrainer(&constrainer);
+    setResizable(true, true);
     setSize(1000, 500);
 
     // Start timer for analysis updates (30 Hz)
@@ -147,9 +147,6 @@ void SNIPBridgeAudioProcessorEditor::timerCallback()
     fbObj->setProperty("correlation", fb.correlation);
     obj->setProperty("feedback", juce::var(fbObj));
 
-    // Silence state
-    obj->setProperty("isSilent", audioProcessor.isSilent.load());
-
     // Send to WebView via JUCE event system
     webView->emitEventIfBrowserIsVisible("analysisUpdate", juce::var(obj));
 }
@@ -184,8 +181,12 @@ void SNIPBridgeAudioProcessorEditor::sendAnalysisToSnip()
         hasSpectrum ? spectrumData : nullptr,
         hasSpectrum ? SNIPBridgeAudioProcessor::kSpectrumBins : 0);
 
-    // Post on background thread
-    juce::Thread::launch ([this, jsonPayload]()
+    // Post on background thread.
+    // Use SafePointer so the callAsync callback is safe if the editor is destroyed
+    // while the HTTP request is in flight.
+    auto safeThis = juce::Component::SafePointer<SNIPBridgeAudioProcessorEditor> (this);
+
+    juce::Thread::launch ([safeThis, jsonPayload]() mutable
     {
         bool success = false;
         juce::String errorMsg;
@@ -212,21 +213,26 @@ void SNIPBridgeAudioProcessorEditor::sendAnalysisToSnip()
             errorMsg = "Connection failed";
         }
 
-        // Report result back on message thread
-        juce::MessageManager::callAsync ([this, success, errorMsg]()
+        juce::MessageManager::callAsync ([safeThis, success, errorMsg]()
         {
-            isSending.store (false);
-
-            if (webView != nullptr)
-            {
-                auto* resultObj = new juce::DynamicObject();
-                resultObj->setProperty ("success", success);
-                if (! success)
-                    resultObj->setProperty ("error", errorMsg);
-                webView->emitEventIfBrowserIsVisible ("sendResult", juce::var (resultObj));
-            }
+            if (auto* self = safeThis.getComponent())
+                self->handleSendResult (success, errorMsg);
         });
     });
+}
+
+void SNIPBridgeAudioProcessorEditor::handleSendResult (bool success, const juce::String& errorMsg)
+{
+    isSending.store (false);
+
+    if (webView != nullptr)
+    {
+        auto* resultObj = new juce::DynamicObject();
+        resultObj->setProperty ("success", success);
+        if (! success)
+            resultObj->setProperty ("error", errorMsg);
+        webView->emitEventIfBrowserIsVisible ("sendResult", juce::var (resultObj));
+    }
 }
 
 //==============================================================================

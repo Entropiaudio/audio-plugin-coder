@@ -99,7 +99,8 @@ public:
         float correlation = 0.0f;
     };
 
-    static const GenreProfile genreProfiles[5];
+    static constexpr int kNumGenres = 12;
+    static const GenreProfile genreProfiles[kNumGenres];
 
     // Compute feedback scores from current analysis values (timer thread)
     FeedbackScores computeFeedback (int genreIndex, float currentLufs, float currentRms,
@@ -112,9 +113,6 @@ public:
 
     // Reset integrated LUFS measurement
     void resetIntegratedLufs();
-
-    // Silence detection
-    std::atomic<bool> isSilent { true };
 
 private:
     //==============================================================================
@@ -203,7 +201,9 @@ private:
     static constexpr int kRingSize = kFFTSize * 4;  // 16384
     std::array<float, kRingSize> ringBuffer {};
     std::atomic<int> ringWritePos { 0 };
-    int ringReadPos = 0;  // Only read by timer thread
+
+    // Reusable FFT work buffer (avoids 32KB stack alloc per computeSpectrum call)
+    std::array<float, kFFTSize * 2> fftWorkBuffer {};
 
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SNIPBridgeAudioProcessor)

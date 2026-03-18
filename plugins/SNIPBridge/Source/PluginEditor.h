@@ -38,14 +38,12 @@ private:
 
     // 1. PARAMETER RELAYS (Destroyed last)
     juce::WebSliderRelay genreRelay { "target_genre" };
-    juce::WebSliderRelay windowRelay { "analysis_window" };
 
     // 2. WEBBROWSERCOMPONENT (Destroyed middle)
     std::unique_ptr<juce::WebBrowserComponent> webView;
 
     // 3. PARAMETER ATTACHMENTS (Destroyed first)
     std::unique_ptr<juce::WebSliderParameterAttachment> genreAttachment;
-    std::unique_ptr<juce::WebSliderParameterAttachment> windowAttachment;
 
     //==============================================================================
     // Resource provider for embedded web files
@@ -53,10 +51,14 @@ private:
 
     // Async HTTP POST to meetsnip.com
     void sendAnalysisToSnip();
+    void handleSendResult (bool success, const juce::String& errorMsg);
 
     // Helper functions
     static const char* getMimeForExtension (const juce::String& extension);
     static juce::String getExtension (juce::String filename);
+
+    // Aspect-ratio constrainer for proportional resizing
+    juce::ComponentBoundsConstrainer constrainer;
 
     // Reference to processor
     SNIPBridgeAudioProcessor& audioProcessor;
