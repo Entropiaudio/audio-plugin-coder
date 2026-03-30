@@ -493,8 +493,7 @@ SNIPBridgeAudioProcessor::FeedbackScores SNIPBridgeAudioProcessor::computeFeedba
     genreIndex = juce::jlimit (0, kNumGenres - 1, genreIndex);
     const auto& gp = genreProfiles[genreIndex];
 
-    // --- DYNAMICS SCORE ---
-    // How well LUFS and RMS fit the genre's target range
+    // --- DYNAMICS SCORE + DIRECTION ---
     auto rangeScore = [](float val, float lo, float hi) -> float
     {
         if (val >= lo && val <= hi)
@@ -502,64 +501,125 @@ SNIPBridgeAudioProcessor::FeedbackScores SNIPBridgeAudioProcessor::computeFeedba
 
         float dist = (val < lo) ? (lo - val) : (val - hi);
         float range = hi - lo;
-        float tolerance = range * 0.5f;  // Half-range tolerance outside
+        float tolerance = range * 0.5f;
         return juce::jlimit (0.0f, 100.0f, 100.0f * (1.0f - dist / (tolerance + 1.0f)));
     };
 
     float lufsScore = rangeScore (currentLufs, gp.lufsLo, gp.lufsHi);
     float rmsScore  = rangeScore (currentRms, gp.rmsLo, gp.rmsHi);
 
-    // If signal is silent, don't penalize
     if (currentLufs <= -55.0f) lufsScore = 0.0f;
     if (currentRms <= -55.0f) rmsScore = 0.0f;
 
     scores.dynamics = (lufsScore + rmsScore) * 0.5f;
 
-    // --- TONALITY SCORE ---
-    // How well the spectrum fits within the genre target band
-    // Uses the 6 spectral bands from the atomic bridge
-    if (spectrum != nullptr && numBins > 0)
+    // Direction: based on LUFS position relative to genre range
+    if (currentLufs > -55.0f)
     {
-        float avgLevel = 0;
-        for (int i = 0; i < numBins; ++i)
-            avgLevel += spectrum[i];
-        avgLevel /= (float)numBins;
-
-        // Score based on how consistent the spectrum shape is
-        // (deviation from smooth curve = worse tonality)
-        float deviationSum = 0;
-        for (int i = 1; i < numBins - 1; ++i)
-        {
-            float expected = (spectrum[i - 1] + spectrum[i + 1]) * 0.5f;
-            float dev = std::abs (spectrum[i] - expected);
-            deviationSum += dev;
-        }
-
-        float avgDeviation = deviationSum / (float)(numBins - 2);
-
-        // Lower deviation = smoother = better tonal balance
-        // Typical deviation range: 0-10 dB
-        scores.tonality = juce::jlimit (0.0f, 100.0f, 100.0f * (1.0f - avgDeviation / 8.0f));
-
-        // If silent, zero score
-        if (avgLevel <= -90.0f)
-            scores.tonality = 0.0f;
+        if (currentLufs > gp.lufsHi)
+            scores.dynamicsDir = 1;   // too loud
+        else if (currentLufs < gp.lufsLo)
+            scores.dynamicsDir = -1;  // too quiet
+        else
+            scores.dynamicsDir = 0;   // on target
     }
 
-    // --- WIDTH SCORE ---
-    float widthScore = rangeScore (currentWidth, gp.widthLo, gp.widthHi);
-    scores.width = widthScore;
+    // --- TONALITY SCORE + DIRECTION (genre-comparative) ---
+    // Compare 6 spectral bands against genre bandMeans/bandStdDevs
+    {
+        float bandScoreSum = 0.0f;
+        float worstDeviation = 0.0f;
+        int worstBand = -1;
+        float worstBandDelta = 0.0f;  // positive = above mean, negative = below
 
-    // --- CORRELATION SCORE ---
-    // Higher correlation = better mono compatibility
+        // Read current 6-band levels from atomic bridge
+        float currentBands[6];
+        for (int b = 0; b < 6; ++b)
+            currentBands[b] = spectralBands[b].load (std::memory_order_relaxed);
+
+        bool hasBandData = false;
+        for (int b = 0; b < 6; ++b)
+        {
+            if (currentBands[b] > -95.0f)
+            {
+                hasBandData = true;
+                break;
+            }
+        }
+
+        if (hasBandData)
+        {
+            for (int b = 0; b < 6; ++b)
+            {
+                float delta = currentBands[b] - gp.bandMeans[b];
+                float stdDev = gp.bandStdDevs[b];
+                float deviation = std::abs (delta) / (stdDev + 0.01f);
+
+                // Score: within 1 stddev = 67-100%, within 2 = 33-67%, beyond 3 = 0%
+                float bandScore = juce::jlimit (0.0f, 100.0f, 100.0f * (1.0f - deviation / 3.0f));
+                bandScoreSum += bandScore;
+
+                if (deviation > worstDeviation)
+                {
+                    worstDeviation = deviation;
+                    worstBand = b;
+                    worstBandDelta = delta;
+                }
+            }
+
+            scores.tonality = bandScoreSum / 6.0f;
+            scores.tonalityWorstBand = worstBand;
+
+            // Direction based on worst band location and whether energy is above/below mean
+            if (worstBand >= 0)
+            {
+                if (worstBand <= 1)  // Sub or Low
+                {
+                    // Above mean = bass-heavy (dark), below mean = thin (bright-leaning)
+                    scores.tonalityDir = (worstBandDelta > 0) ? -1 : 1;
+                }
+                else if (worstBand >= 4)  // HMid or High
+                {
+                    // Above mean = too bright, below mean = dark/dull
+                    scores.tonalityDir = (worstBandDelta > 0) ? 1 : -1;
+                }
+                else  // LMid or Mid (bands 2-3)
+                {
+                    // Above mean = boxy/muddy, below mean = scooped/thin
+                    scores.tonalityDir = (worstBandDelta > 0) ? -1 : 1;
+                }
+            }
+        }
+        else
+        {
+            scores.tonality = 0.0f;
+        }
+    }
+
+    // --- WIDTH SCORE + DIRECTION ---
+    scores.width = rangeScore (currentWidth, gp.widthLo, gp.widthHi);
+
+    if (currentWidth > gp.widthHi)
+        scores.widthDir = 1;   // too wide
+    else if (currentWidth < gp.widthLo)
+        scores.widthDir = -1;  // too narrow
+    else
+        scores.widthDir = 0;   // on target
+
+    // --- CORRELATION SCORE + DIRECTION ---
     if (currentCorr >= gp.corrMin)
         scores.correlation = juce::jlimit (50.0f, 100.0f, 50.0f + 50.0f * ((currentCorr - gp.corrMin) / (1.0f - gp.corrMin + 0.01f)));
     else
         scores.correlation = juce::jlimit (0.0f, 50.0f, 50.0f * (currentCorr / (gp.corrMin + 0.01f)));
 
-    // Negative correlation = phase issues = bad
     if (currentCorr < 0.0f)
         scores.correlation = juce::jlimit (0.0f, 20.0f, 20.0f * (1.0f + currentCorr));
+
+    // Direction: low correlation or negative = phase issues
+    if (currentCorr < gp.corrMin)
+        scores.correlationDir = -1;
+    else
+        scores.correlationDir = 0;
 
     return scores;
 }
