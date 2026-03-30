@@ -489,6 +489,8 @@ SNIPBridgeAudioProcessor::FeedbackScores SNIPBridgeAudioProcessor::computeFeedba
     float currentWidth, float currentCorr,
     const float* spectrum, int numBins) const
 {
+    juce::ignoreUnused (spectrum, numBins);  // Tonality now uses spectralBands atomics
+
     FeedbackScores scores;
     genreIndex = juce::jlimit (0, kNumGenres - 1, genreIndex);
     const auto& gp = genreProfiles[genreIndex];
