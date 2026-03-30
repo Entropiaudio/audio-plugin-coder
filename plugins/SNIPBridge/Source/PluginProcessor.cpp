@@ -39,6 +39,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout SNIPBridgeAudioProcessor::cr
                             "Downtempo" },
         0));
 
+    // Analysis Window (Reaction Time): 0.5-10.0 seconds, default 3.0
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { "analysis_window", 1 },
+        "Reaction Time",
+        juce::NormalisableRange<float> (0.5f, 10.0f, 0.1f),
+        3.0f));
+
     return { params.begin(), params.end() };
 }
 
@@ -126,6 +133,11 @@ void SNIPBridgeAudioProcessor::prepareToPlay (double sampleRate, int /*samplesPe
     corrSumR2 = 0;
     corrSampleCount = 0;
 
+    // Long-term stereo accumulator
+    ltCorrSumLR = 0;
+    ltCorrSumL2 = 0;
+    ltCorrSumR2 = 0;
+
     // FFT window (Hann)
     for (int i = 0; i < kFFTSize; ++i)
         fftWindow[i] = 0.5f * (1.0f - std::cos (2.0f * juce::MathConstants<float>::pi * i / (float)kFFTSize));
@@ -138,8 +150,10 @@ void SNIPBridgeAudioProcessor::prepareToPlay (double sampleRate, int /*samplesPe
     lufsShort.store (-60.0f);
     lufsIntegrated.store (-60.0f);
     rmsLevel.store (-60.0f);
+    truePeak.store (-144.0f);
     stereoCorrelation.store (1.0f);
     stereoWidth.store (0.0f);
+    stereoBalance.store (0.0f);
 
     for (auto& band : spectralBands)
         band.store (0.0f);
@@ -203,8 +217,17 @@ void SNIPBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         kWeightedSumR += (double)(kR * kR);
 
         //--------------------------------------------------------------
-        // 2. RAW RMS
+        // 2. TRUE PEAK + RAW RMS
         //--------------------------------------------------------------
+        float absPeak = std::max (std::abs (sL), std::abs (sR));
+        if (absPeak > 0.0f)
+        {
+            float peakDb = 20.0f * std::log10f (absPeak);
+            float currentPeak = truePeak.load (std::memory_order_relaxed);
+            if (peakDb > currentPeak)
+                truePeak.store (peakDb, std::memory_order_relaxed);
+        }
+
         float sL2 = sL * sL;
         float sR2 = sR * sR;
         rawSquareSum += (double)(sL2 + sR2) * 0.5;
@@ -215,6 +238,11 @@ void SNIPBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         corrSumLR += (double)(sL * sR);
         corrSumL2 += (double)sL2;
         corrSumR2 += (double)sR2;
+
+        // Long-term accumulators (never reset — matches reference analyzer)
+        ltCorrSumLR += (double)(sL * sR);
+        ltCorrSumL2 += (double)sL2;
+        ltCorrSumR2 += (double)sR2;
 
         //--------------------------------------------------------------
         // 4. FFT RING BUFFER (mono mix)
@@ -242,17 +270,26 @@ void SNIPBridgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 rmsSampleCount = 0;
             }
 
-            // Stereo update
+            // Stereo update: correlation from short-term, width from long-term
             if (corrSampleCount > 0)
             {
+                // Correlation: short-term (responsive to moment-by-moment phase)
                 double denom = std::sqrt (corrSumL2 * corrSumR2);
                 float corr = (denom > 1e-12) ? (float)(corrSumLR / denom) : 1.0f;
                 stereoCorrelation.store (juce::jlimit (-1.0f, 1.0f, corr));
 
-                double mid2  = corrSumL2 + corrSumR2 + 2.0 * corrSumLR;
-                double side2 = corrSumL2 + corrSumR2 - 2.0 * corrSumLR;
-                float w = (mid2 > 1e-12) ? (float)(side2 / (mid2 + side2)) : 0.0f;
+                // Width: long-term accumulators (matches reference analyzer)
+                double ltMid2  = ltCorrSumL2 + ltCorrSumR2 + 2.0 * ltCorrSumLR;
+                double ltSide2 = ltCorrSumL2 + ltCorrSumR2 - 2.0 * ltCorrSumLR;
+                float w = (ltMid2 > 1e-12) ? (float)(ltSide2 / (ltMid2 + ltSide2)) : 0.0f;
                 stereoWidth.store (juce::jlimit (0.0f, 1.0f, w));
+
+                // Balance: short-term (responsive L/R lean)
+                double totalE = corrSumL2 + corrSumR2;
+                float bal = (totalE > 1e-12)
+                    ? (float)((corrSumR2 - corrSumL2) / totalE)
+                    : 0.0f;
+                stereoBalance.store (juce::jlimit (-1.0f, 1.0f, bal));
 
                 corrSumLR = 0;
                 corrSumL2 = 0;
@@ -346,39 +383,19 @@ bool SNIPBridgeAudioProcessor::computeSpectrum (float* output, int numBins)
         int b0 = juce::jlimit (0, halfFFT - 1, (int)(f0 * kFFTSize / (float)currentSampleRate));
         int b1 = juce::jlimit (b0 + 1, halfFFT, (int)(f1 * kFFTSize / (float)currentSampleRate));
 
-        // Peak magnitude with parabolic interpolation for accurate 0 dBFS calibration
-        float mag = 0.0f;
-        int peakIdx = b0;
+        // Average magnitude across FFT bins in this band
+        // (matches reference analyzer: sum/count, not peak)
+        float magSum = 0.0f;
+        int magCount = 0;
         for (int j = b0; j < b1; ++j)
         {
-            if (fftData[j] > mag)
-            {
-                mag = fftData[j];
-                peakIdx = j;
-            }
+            magSum += fftData[j];
+            magCount++;
         }
+        float mag = (magCount > 0) ? (magSum / (float)magCount) : 0.0f;
 
-        // Parabolic interpolation: recover true peak from 3 bins around detected peak
-        // Reduces Hann window scalloping loss from ~1.42 dB to ~0.1 dB
-        if (peakIdx > 0 && peakIdx < halfFFT - 1 && mag > 0.0f)
-        {
-            float alpha = fftData[peakIdx - 1];
-            float beta  = fftData[peakIdx];
-            float gamma = fftData[peakIdx + 1];
-
-            if (beta > alpha && beta > gamma)
-            {
-                float denom = alpha - 2.0f * beta + gamma;
-                if (std::abs (denom) > 1e-10f)
-                {
-                    float p = 0.5f * (alpha - gamma) / denom;
-                    mag = beta - 0.25f * (alpha - gamma) * p;
-                }
-            }
-        }
-
-        // Normalize FFT magnitude (Hann window coherent gain = 0.5, so factor = 2/(N/2) = 4/N)
-        mag *= 4.0f / (float)kFFTSize;
+        // Normalize: 2/N matches reference analyzer's 1/N with Hann window compensation
+        mag *= 2.0f / (float)kFFTSize;
 
         // Convert to dB, normalize
         float db = 20.0f * std::log10 (mag + 1e-10f);
@@ -393,13 +410,15 @@ bool SNIPBridgeAudioProcessor::computeSpectrum (float* output, int numBins)
         int i0 = juce::jlimit (0, halfFFT - 1, (int)(bandEdges[b] * kFFTSize / (float)currentSampleRate));
         int i1 = juce::jlimit (i0 + 1, halfFFT, (int)(bandEdges[b + 1] * kFFTSize / (float)currentSampleRate));
 
-        float bMag = 0.0f;
+        float bMagSum = 0.0f;
+        int bCount = 0;
         for (int j = i0; j < i1; ++j)
         {
-            if (fftData[j] > bMag)
-                bMag = fftData[j];
+            bMagSum += fftData[j];
+            bCount++;
         }
-        bMag *= 4.0f / (float)kFFTSize;
+        float bMag = (bCount > 0) ? (bMagSum / (float)bCount) : 0.0f;
+        bMag *= 2.0f / (float)kFFTSize;
         float bDb = 20.0f * std::log10 (bMag + 1e-10f);
         spectralBands[b].store (juce::jlimit (-100.0f, 0.0f, bDb));
     }
@@ -412,30 +431,54 @@ bool SNIPBridgeAudioProcessor::computeSpectrum (float* output, int numBins)
 //==============================================================================
 const SNIPBridgeAudioProcessor::GenreProfile SNIPBridgeAudioProcessor::genreProfiles[kNumGenres] =
 {
-    // Hip-Hop / Trap (158 tracks)
-    { -11.584f, -7.086f,  -12.602f, -7.782f,  0.000f, 0.110f, 0.781f },
-    // Pop (91 tracks)
-    { -11.005f, -8.060f,  -12.856f, -9.802f,  0.069f, 0.252f, 0.496f },
-    // EDM / Dance (40 tracks)
-    { -7.735f,  -5.715f,  -9.432f,  -7.689f,  0.060f, 0.176f, 0.648f },
-    // Rock (10 tracks)
-    { -17.185f, -10.665f, -19.058f, -12.512f, 0.093f, 0.172f, 0.656f },
-    // Lo-Fi (43 tracks)
-    { -15.049f, -11.062f, -16.511f, -12.268f, 0.053f, 0.161f, 0.679f },
-    // R&B / Soul (63 tracks)
-    { -10.126f, -7.754f,  -12.196f, -9.367f,  0.052f, 0.161f, 0.678f },
-    // Latin (22 tracks)
-    { -10.326f, -7.257f,  -11.866f, -8.210f,  0.000f, 0.049f, 0.901f },
-    // Trance (14 tracks)
-    { -9.244f,  -7.129f,  -10.176f, -8.063f,  0.002f, 0.124f, 0.752f },
-    // Bass (68 tracks)
-    { -10.819f, -6.990f,  -12.267f, -7.956f,  0.038f, 0.137f, 0.726f },
-    // House (24 tracks)
-    { -13.416f, -8.187f,  -14.628f, -9.370f,  0.064f, 0.262f, 0.476f },
-    // Techno (26 tracks)
-    { -11.304f, -8.123f,  -12.090f, -8.461f,  0.001f, 0.071f, 0.860f },
-    // Downtempo (42 tracks)
-    { -15.320f, -9.885f,  -17.095f, -10.902f, 0.064f, 0.262f, 0.476f },
+    // 0: Hip-Hop / Trap (119 tracks)
+    { -11.933f, -7.372f,  -12.699f, -7.990f,  0.000f, 0.089f, 0.822f,
+      { 0.054f, -1.866f, -6.599f, -17.532f, -24.974f, -34.448f },
+      { 9.419f, 4.521f, 3.632f, 4.472f, 5.390f, 5.975f } },
+    // 1: Pop (86 tracks)
+    { -10.570f, -7.635f,  -12.208f, -9.177f,  0.057f, 0.197f, 0.607f,
+      { -2.193f, -0.005f, -5.580f, -18.714f, -28.241f, -37.369f },
+      { 6.300f, 3.995f, 2.818f, 4.395f, 5.379f, 4.979f } },
+    // 2: EDM / Dance (33 tracks)
+    { -8.579f,  -5.896f,  -10.029f, -8.016f,  0.069f, 0.194f, 0.611f,
+      { 0.944f, 0.583f, -5.081f, -14.338f, -23.483f, -33.413f },
+      { 6.666f, 3.192f, 2.689f, 4.677f, 6.715f, 7.798f } },
+    // 3: Rock (20 tracks)
+    { -9.833f,  -8.055f,  -11.875f, -9.902f,  0.056f, 0.218f, 0.565f,
+      { -3.639f, 5.122f, -5.789f, -20.105f, -33.134f, -44.743f },
+      { 5.334f, 3.353f, 2.138f, 4.720f, 5.586f, 6.216f } },
+    // 4: Lo-Fi (19 tracks)
+    { -14.683f, -10.918f, -15.916f, -12.047f, 0.033f, 0.146f, 0.710f,
+      { -11.600f, -2.456f, -10.512f, -31.059f, -43.614f, -56.980f },
+      { 7.795f, 4.166f, 3.214f, 3.473f, 5.004f, 6.546f } },
+    // 5: R&B / Soul (69 tracks)
+    { -10.462f, -7.937f,  -12.625f, -9.633f,  0.052f, 0.199f, 0.602f,
+      { -4.748f, 1.735f, -5.026f, -18.983f, -30.194f, -40.466f },
+      { 8.466f, 3.434f, 2.025f, 4.459f, 5.745f, 6.109f } },
+    // 6: Latin (102 tracks)
+    { -9.305f,  -7.476f,  -10.896f, -9.168f,  0.039f, 0.126f, 0.748f,
+      { -7.043f, -1.588f, -4.591f, -16.630f, -26.770f, -35.576f },
+      { 5.429f, 3.124f, 2.082f, 2.535f, 3.518f, 3.961f } },
+    // 7: Trance (303 tracks)
+    { -10.086f, -7.318f,  -11.422f, -8.490f,  0.030f, 0.112f, 0.776f,
+      { 1.085f, 1.944f, -6.436f, -16.010f, -25.181f, -34.887f },
+      { 5.380f, 2.895f, 2.758f, 4.258f, 5.400f, 6.096f } },
+    // 8: Bass (55 tracks)
+    { -9.222f,  -6.296f,  -10.450f, -7.612f,  0.044f, 0.157f, 0.687f,
+      { -1.884f, -0.993f, -5.743f, -16.711f, -25.993f, -36.742f },
+      { 6.281f, 4.133f, 2.981f, 4.357f, 6.260f, 7.035f } },
+    // 9: House (24 tracks)
+    { -13.416f, -8.187f,  -14.628f, -9.370f,  0.000f, 0.049f, 0.902f,
+      { -3.912f, -3.152f, -14.317f, -20.988f, -26.348f, -37.963f },
+      { 6.807f, 4.220f, 3.707f, 5.598f, 7.102f, 8.441f } },
+    // 10: Techno (25 tracks)
+    { -11.327f, -8.081f,  -12.144f, -8.446f,  0.002f, 0.072f, 0.857f,
+      { 5.376f, 2.519f, -10.051f, -21.895f, -27.912f, -38.969f },
+      { 6.152f, 4.929f, 3.405f, 4.056f, 4.793f, 5.579f } },
+    // 11: Downtempo (42 tracks)
+    { -15.320f, -9.885f,  -17.095f, -10.902f, 0.064f, 0.262f, 0.476f,
+      { -7.364f, -1.296f, -7.514f, -22.101f, -35.056f, -48.414f },
+      { 9.152f, 5.711f, 4.235f, 4.404f, 8.620f, 10.834f } },
 };
 
 //==============================================================================
