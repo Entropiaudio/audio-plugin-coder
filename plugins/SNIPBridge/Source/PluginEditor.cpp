@@ -20,6 +20,8 @@ SNIPBridgeAudioProcessorEditor::SNIPBridgeAudioProcessorEditor (SNIPBridgeAudioP
     DBG("SNIPBridge: Creating parameter attachments");
     genreAttachment = std::make_unique<juce::WebSliderParameterAttachment>(
         *audioProcessor.apvts.getParameter("target_genre"), genreRelay);
+    reactionAttachment = std::make_unique<juce::WebSliderParameterAttachment>(
+        *audioProcessor.apvts.getParameter("analysis_window"), reactionRelay);
 
     // Create WebBrowserComponent with JUCE 8 API
     DBG("SNIPBridge: Creating WebView");
@@ -33,6 +35,7 @@ SNIPBridgeAudioProcessorEditor::SNIPBridgeAudioProcessorEditor (SNIPBridgeAudioP
             .withNativeIntegrationEnabled()
             .withResourceProvider([this](const auto& url) { return getResource(url); })
             .withOptionsFrom(genreRelay)
+            .withOptionsFrom(reactionRelay)
             .withEventListener("sendToSnip", [this](const juce::var& /*event*/) {
                 DBG("SNIPBridge: sendToSnip event received");
                 sendAnalysisToSnip();
@@ -101,6 +104,7 @@ void SNIPBridgeAudioProcessorEditor::timerCallback()
     float rms   = audioProcessor.rmsLevel.load();
     float corr  = audioProcessor.stereoCorrelation.load();
     float width = audioProcessor.stereoWidth.load();
+    float bal   = audioProcessor.stereoBalance.load();
 
     // Read spectral bands
     float bands[6];
@@ -111,13 +115,18 @@ void SNIPBridgeAudioProcessorEditor::timerCallback()
     float spectrumData[SNIPBridgeAudioProcessor::kSpectrumBins];
     bool hasSpectrum = audioProcessor.computeSpectrum (spectrumData, SNIPBridgeAudioProcessor::kSpectrumBins);
 
+    // Read true peak
+    float tp = audioProcessor.truePeak.load();
+
     // Build JSON payload
     auto* obj = new juce::DynamicObject();
     obj->setProperty("lufsShort", lufsS);
     obj->setProperty("lufsInt", lufsI);
     obj->setProperty("rms", rms);
+    obj->setProperty("truePeak", tp);
     obj->setProperty("correlation", corr);
     obj->setProperty("width", width);
+    obj->setProperty("balance", bal);
 
     // Spectral bands array (6 bands)
     juce::Array<juce::var> bandsArray;
@@ -145,6 +154,11 @@ void SNIPBridgeAudioProcessorEditor::timerCallback()
     fbObj->setProperty("tonality", fb.tonality);
     fbObj->setProperty("width", fb.width);
     fbObj->setProperty("correlation", fb.correlation);
+    fbObj->setProperty("dynamicsDir", fb.dynamicsDir);
+    fbObj->setProperty("tonalityDir", fb.tonalityDir);
+    fbObj->setProperty("widthDir", fb.widthDir);
+    fbObj->setProperty("correlationDir", fb.correlationDir);
+    fbObj->setProperty("tonalityWorstBand", fb.tonalityWorstBand);
     obj->setProperty("feedback", juce::var(fbObj));
 
     // Send to WebView via JUCE event system
