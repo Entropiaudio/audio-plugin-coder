@@ -65,6 +65,7 @@ public:
     std::atomic<float> lufsShort { -60.0f };
     std::atomic<float> lufsIntegrated { -60.0f };
     std::atomic<float> rmsLevel { -60.0f };
+    std::atomic<float> truePeak { -144.0f };  // dBTP true peak
 
     // Spectral (6 bands: Sub, Low, LMid, Mid, HMid, High)
     std::array<std::atomic<float>, 6> spectralBands {};
@@ -72,6 +73,7 @@ public:
     // Stereo
     std::atomic<float> stereoCorrelation { 1.0f };
     std::atomic<float> stereoWidth { 0.0f };
+    std::atomic<float> stereoBalance { 0.0f };  // -1.0 full L, 0.0 center, +1.0 full R
 
     //==============================================================================
     // Called from timer thread to compute 300-bin log-spaced spectrum
@@ -89,6 +91,11 @@ public:
         float rmsLo, rmsHi;
         float widthLo, widthHi;
         float corrMin;
+
+        // 6-band spectral targets (from snip_reference_profiles.json)
+        // Bands: Sub(<80Hz), Low(80-250), LMid(250-1k), Mid(1-4k), HMid(4-8k), High(>8k)
+        float bandMeans[6];
+        float bandStdDevs[6];
     };
 
     struct FeedbackScores
@@ -97,6 +104,14 @@ public:
         float tonality    = 0.0f;
         float width       = 0.0f;
         float correlation = 0.0f;
+
+        // Direction: -1 = below target, 0 = on target, +1 = above target
+        int dynamicsDir    = 0;   // -1 too quiet, +1 too loud
+        int tonalityDir    = 0;   // -1 too dark/bass-heavy, +1 too bright/thin
+        int widthDir       = 0;   // -1 too narrow, +1 too wide
+        int correlationDir = 0;   // -1 phase issues
+
+        int tonalityWorstBand = -1;  // 0-5: which band deviates most
     };
 
     static constexpr int kNumGenres = 12;
@@ -181,12 +196,17 @@ private:
     int rmsSampleCount = 0;
 
     //==============================================================================
-    // STEREO ACCUMULATOR
+    // STEREO ACCUMULATOR (short-term: 100ms blocks for responsive display)
     //==============================================================================
     double corrSumLR = 0;
     double corrSumL2 = 0;
     double corrSumR2 = 0;
     int corrSampleCount = 0;
+
+    // Long-term stereo accumulator (never resets — matches reference analyzer)
+    double ltCorrSumLR = 0;
+    double ltCorrSumL2 = 0;
+    double ltCorrSumR2 = 0;
 
     //==============================================================================
     // FFT ENGINE
