@@ -1,0 +1,122 @@
+/* =============================================================
+   CVKnob — Entropia Audio knob styles
+   Vital-style 56×56 knob with conic-gradient arc + 3-pass glow.
+   Pair with knob-renderer.js.
+   ============================================================= */
+
+.knob-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  cursor: ns-resize;
+}
+
+/* 32×32 visible knob body (halved from 56) */
+.knob-body {
+  width: 32px;
+  height: 32px;
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* Canvas 44×44 — 12px bigger than body so glow extends past edge */
+.knob-body canvas {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  width: 44px;
+  height: 44px;
+}
+
+/* Inner dark face disc */
+.knob-face {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #1f1c19;
+  border: 1px solid var(--border-bright);
+  box-shadow: none;
+  z-index: 2;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+/* Tiny indicator dot — rotates to current value via JS */
+.knob-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2.5px;
+  height: 2.5px;
+  margin-left: -1.25px;
+  margin-top: -1.25px;
+  border-radius: 50%;
+  background: #ffffff;
+  z-index: 4;
+  pointer-events: none;
+  transition: background 0.15s ease;
+  transform-origin: 50% 50%;
+}
+
+/* Label below knob */
+.knob-label {
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  text-align: center;
+  line-height: 1;
+}
+
+/* Value below label */
+.knob-value {
+  font-family: 'JetBrains Mono', ui-monospace, 'Courier New', monospace;
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  text-align: center;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Locked state — face transparent border + dim indicator */
+.knob-body.locked .knob-face {
+  border-color: transparent;
+}
+
+/* ─── TOOLTIP (lives on document.body) ─── */
+.knob-tooltip {
+  position: fixed;
+  background: var(--bg-card);
+  border: 1px solid var(--border-bright);
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  padding: 5px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 200;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+.knob-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: var(--border-bright);
+}
+.knob-tooltip.visible {
+  opacity: 1;
+}

@@ -769,11 +769,23 @@
       vsCtx.fillText(labels[li].t, cx0+(R+9)*Math.cos(labels[li].a), cy0+(R+9)*Math.sin(labels[li].a));
     }
 
-    var tgt = genreData[genre];
     // Shared scaling: both target and signal use the same multiplier
     // so their arcs are directly comparable on the same visual scale
     var ARC_SCALE = 2.5;
-    var tgtWidthMid = (tgt.wlo + tgt.whi) * 0.5; // genre midpoint width
+    // Average width range across all selectedGenres (matches buildSpecTargets pattern).
+    // Fixes: checkbox multi-select updates selectedGenres but not `genre`,
+    // so the arc previously stuck on stale `genreData[genre]`.
+    var _wloSum = 0, _whiSum = 0, _wCount = 0;
+    for (var _wg = 0; _wg < 12; _wg++) {
+      if (selectedGenres[_wg]) {
+        _wloSum += genreData[_wg].wlo;
+        _whiSum += genreData[_wg].whi;
+        _wCount++;
+      }
+    }
+    if (_wCount === 0) { _wloSum = genreData[genre].wlo; _whiSum = genreData[genre].whi; _wCount = 1; }
+    var tgtWlo = _wloSum / _wCount, tgtWhi = _whiSum / _wCount;
+    var tgtWidthMid = (tgtWlo + tgtWhi) * 0.5; // averaged genre midpoint width
     var tgtArcWidth = Math.max(0.04, tgtWidthMid * ARC_SCALE);
     tSpread += (tgtArcWidth - tSpread) * .04;
 
@@ -857,14 +869,14 @@
       {on:"Loudness is spot on!"}
     ],
     tonality: [
-      {lo:"Tone is way off — serious imbalance.",hi:"Tone is way off — serious imbalance."},
-      {lo:"Very dark — low end dominating.",hi:"Very bright — highs are harsh."},
-      {lo:"Bass-heavy for this genre.",hi:"Too bright for this genre."},
-      {lo:"Tonal balance leaning dark.",hi:"Tonal balance leaning bright."},
-      {lo:"Slightly dark — could use air.",hi:"Slightly bright — tame the top."},
-      {lo:"Low end is a touch heavy.",hi:"Top end is a touch hot."},
-      {lo:"Close — minor tonal tweak.",hi:"Close — minor tonal tweak."},
-      {on:"Tonal balance is solid."},
+      {lo:"Spectrum doesn't match this genre.",hi:"Spectrum doesn't match this genre."},
+      {lo:"Leaning dark for this genre.",hi:"Leaning bright for this genre."},
+      {lo:"A bit bass-heavy — keep an eye on it.",hi:"A bit bright — keep an eye on it."},
+      {on:"Tonal balance is reasonable."},
+      {on:"Spectrum is in a good range."},
+      {on:"Tonal balance is looking good."},
+      {on:"Tonal balance is looking good."},
+      {on:"Spectrum fits the genre nicely."},
       {on:"Spectrum fits the genre nicely."},
       {on:"Tonal balance is spot on!"}
     ],
@@ -881,16 +893,16 @@
       {on:"Width is spot on!"}
     ],
     correlation: [
-      {lo:"Severe phase issues — check polarity."},
-      {lo:"Major phase problems — mono will cancel."},
-      {lo:"Significant phase issues."},
-      {lo:"Mono compatibility is poor."},
-      {lo:"Phase could be tighter."},
-      {lo:"Minor mono compat concerns."},
-      {lo:"Mostly mono-safe — small issues."},
-      {on:"Mono compatibility is solid."},
-      {on:"Phase is clean and tight."},
-      {on:"Mono compatibility is spot on!"}
+      {lo:"Out of phase — not mono compatible."},
+      {lo:"Out of phase — not mono compatible."},
+      {lo:"Out of phase — not mono compatible."},
+      {lo:"Lots of stereo information. Pay attention."},
+      {lo:"Lots of stereo information. Pay attention."},
+      {lo:"Lots of stereo information. Pay attention."},
+      {lo:"Lots of stereo information. Pay attention."},
+      {on:"Looking good — nice and clean."},
+      {on:"Looking good — nice and clean."},
+      {on:"Mono compatible — that's nice!"}
     ]
   };
   var metricEls = null;
