@@ -306,7 +306,7 @@
   <div class="spectrum-wrap">
     <canvas id="spectrum"></canvas>
     <div class="band-chips" id="bandChips"></div>
-    <div class="spectrum-hint">double-click: add band · drag: freq/lift · scroll: width · double-click handle: remove</div>
+    <div class="spectrum-hint">double-click: add band · drag: freq/lift · scroll: width · double-click handle: bypass/enable</div>
   </div>
 
   <!-- BOTTOM STRIP -->
@@ -353,7 +353,6 @@
     <div class="section-col sec-out">
       <div class="section-label">Output</div>
       <div class="out-knob-row">
-        <div class="knob-wrap" id="knob_width"></div>
         <div class="out-col">
           <div class="knob-wrap" id="knob_mix"></div>
           <button class="toggle-btn bypass-btn" id="bypassBtn" style="margin-top:2px;">BYPASS</button>
@@ -382,10 +381,10 @@ const FMIN = 20, FMAX = 20000;
 
 /* ─── STATE (preview stand-in for APVTS) ─── */
 const state = {
-  seed: 1, width: 100, mix: 100, output: 0, bypass: false,
+  seed: 1, mix: 100, output: 0, bypass: false,
   selected: 0,
   bands: [200, 500, 1000, 2000, 5000, 10000].map((f, i) => ({
-    on: i === 0, freq: f, widthOct: 1.0, lift: 75, depth: 50,
+    on: i === 0, configured: i === 0, freq: f, widthOct: 1.0, lift: 75, depth: 50,
     mode: 0, rate: 0.5, sync: true, div: 3, inertia: 60, phase: 0,
     stepCount: 8, steps: Array.from({ length: 16 }, (_, k) => Math.sin(k / 16 * Math.PI * 2)),
     pan: 0, target: 0, phi: Math.random(),
@@ -517,10 +516,6 @@ const knobDepth = makeKnob("knob_depth", "DEPTH", {
   min: 0, max: 100, def: 50, color: bandColor(),
   get: () => B().depth, set: v => B().depth = v, fmt: v => Math.round(v) + "%"
 });
-const knobOutWidth = makeKnob("knob_width", "WIDTH", {
-  min: 0, max: 200, def: 100, color: "#c8c8d0",
-  get: () => state.width, set: v => state.width = v, fmt: v => Math.round(v) + "%"
-});
 const knobMix = makeKnob("knob_mix", "MIX", {
   min: 0, max: 100, def: 100, color: "#c8c8d0",
   get: () => state.mix, set: v => state.mix = v, fmt: v => Math.round(v) + "%"
@@ -558,16 +553,16 @@ for (let i = 0; i < 6; i++) {
   const b = document.createElement("button");
   b.className = "band-chip"; b.textContent = "B" + (i + 1);
   b.onclick = e => {
-    if (e.altKey) state.bands[i].on = !state.bands[i].on;
+    if (e.altKey) { state.bands[i].on = !state.bands[i].on; if (state.bands[i].on) state.bands[i].configured = true; }
     else state.selected = i;
     refreshPanels();
   };
-  b.ondblclick = () => { state.bands[i].on = true; state.selected = i; refreshPanels(); };
+  b.ondblclick = () => { state.bands[i].on = true; state.bands[i].configured = true; state.selected = i; refreshPanels(); };
   bandChipsEl.appendChild(b);
 }
 
 document.getElementById("syncToggle").onclick = () => { B().sync = !B().sync; refreshPanels(); };
-document.getElementById("bandOnBtn").onclick = () => { B().on = !B().on; refreshPanels(); };
+document.getElementById("bandOnBtn").onclick = () => { B().on = !B().on; if (B().on) B().configured = true; refreshPanels(); };
 document.getElementById("bypassBtn").onclick = e => {
   state.bypass = !state.bypass;
   e.target.classList.toggle("active", state.bypass);
@@ -714,28 +709,31 @@ function drawSpectrum(t) {
   ctx.fillStyle = g; ctx.fill();
   ctx.strokeStyle = "rgba(232,226,214,0.25)"; ctx.lineWidth = DPR; ctx.stroke();
 
-  // bells
+  // bells — disabled band draws as dimmed ghost (visible, "off vibe")
   state.bands.forEach((b, bi) => {
-    if (!b.on) return;
-    const c = BAND_COLORS[bi], sel = bi === state.selected;
+    if (!b.configured && !b.on) return; // never-touched slot: invisible
+    const c = BAND_COLORS[bi], sel = bi === state.selected, ghost = !b.on;
     const topH = H * 0.82;
     ctx.beginPath(); ctx.moveTo(0, H);
     for (let px = 0; px <= W; px += 2 * DPR) {
       ctx.lineTo(px, H - bellY(b, px / W) * topH);
     }
     ctx.lineTo(W, H); ctx.closePath();
-    ctx.fillStyle = c + "2e"; ctx.fill();
-    ctx.strokeStyle = c + (sel ? "ee" : "99");
+    ctx.fillStyle = c + (ghost ? "0f" : "2e"); ctx.fill();
+    ctx.strokeStyle = c + (ghost ? (sel ? "66" : "45") : (sel ? "ee" : "99"));
     ctx.lineWidth = (sel ? 2 : 1.4) * DPR;
-    if (sel) { ctx.shadowColor = c; ctx.shadowBlur = 8 * DPR; }
-    ctx.stroke(); ctx.shadowBlur = 0;
+    if (sel && !ghost) { ctx.shadowColor = c; ctx.shadowBlur = 8 * DPR; }
+    if (ghost) ctx.setLineDash([5 * DPR, 4 * DPR]);
+    ctx.stroke(); ctx.shadowBlur = 0; ctx.setLineDash([]);
 
     // apex handle (bell height = lift)
     const hx = fx(b.freq) * W, hy = H - (b.lift / 100) * topH;
     ctx.beginPath(); ctx.arc(hx, hy, (sel ? 6 : 4.5) * DPR, 0, 7);
-    ctx.fillStyle = c; ctx.fill();
+    ctx.fillStyle = c + (ghost ? "55" : "ff"); ctx.fill();
     ctx.beginPath(); ctx.arc(hx, hy, 2 * DPR, 0, 7);
-    ctx.fillStyle = "#fff"; ctx.fill();
+    ctx.fillStyle = ghost ? "#88837a" : "#fff"; ctx.fill();
+
+    if (ghost) return; // no pan trace / L-R on bypassed band
 
     // pan trace inside bell (amplitude = pan · MIX master)
     const half = (b.widthOct / 2) / Math.log2(FMAX / FMIN);
@@ -763,7 +761,7 @@ function bandAt(e) {
   const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
   let best = -1, bd = 0.05;
   state.bands.forEach((b, i) => {
-    if (!b.on) return;
+    if (!b.on && !b.configured) return; // ghosts are hittable
     const hx = fx(b.freq), hy = 1 - (b.lift / 100) * 0.82;
     const d = Math.hypot(x - hx, y - hy);
     if (d < bd) { bd = d; best = i; }
@@ -785,12 +783,16 @@ window.addEventListener("mousemove", e => {
 window.addEventListener("mouseup", () => dragBand = -1);
 spec.addEventListener("dblclick", e => {
   const hit = bandAt(e);
-  if (hit >= 0) { state.bands[hit].on = false; refreshPanels(); return; }
-  const free = state.bands.findIndex(b => !b.on);
+  if (hit >= 0) { // toggle: active -> ghost (off vibe), ghost -> re-enable
+    const bh = state.bands[hit];
+    bh.on = !bh.on; if (bh.on) bh.configured = true;
+    state.selected = hit; refreshPanels(); return;
+  }
+  const free = state.bands.findIndex(b => !b.on && !b.configured);
   if (free < 0) return;
   const r = spec.getBoundingClientRect();
   const b = state.bands[free];
-  b.on = true;
+  b.on = true; b.configured = true;
   b.freq = xf(clamp((e.clientX - r.left) / r.width, 0, 1));
   b.lift = clamp((1 - (e.clientY - r.top) / r.height) / 0.82 * 100, 0, 100);
   state.selected = free;

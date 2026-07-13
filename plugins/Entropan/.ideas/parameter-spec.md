@@ -8,7 +8,6 @@ Architecture: 6 band slots, each with dedicated modulator (see creative-brief).
 | ID | Name | Type | Range | Default | Unit |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `seed` | Seed | Int | 1 – 128 | 1 | — |
-| `width` | Width | Float | 0.0 – 200.0 | 100.0 | % |
 | `mix` | Mix | Float | 0.0 – 100.0 | 100.0 | % |
 | `output` | Level | Float | -24.0 – +12.0 | 0.0 | dB |
 | `bypass` | Bypass | Bool | off / on | off | — |
@@ -40,7 +39,7 @@ Architecture: 6 band slots, each with dedicated modulator (see creative-brief).
 - `_inertia` — slew between pan targets: 100% = liquid glide, 0% = instant snap.
 - `_phase` — offset for periodic modes (Sine/Triangle/Steps); ignored by S&H/Drift/Chaos.
 
-**Total: 5 global + 6 × 11 = 71 APVTS parameters.**
+**Total: 4 global + 6 × 11 = 70 APVTS parameters.**
 
 ## Step sequencer data (non-parameter state)
 
@@ -54,8 +53,8 @@ Per band, Steps mode: **2–16 steps, each step's value = pan position** (-100�
 
 | UI region | Contents |
 | :--- | :--- |
-| Main area | Spectrum analyzer + lift-gesture bell curves (6 band handles; bell height = `_lift`) |
+| Main area | Spectrum analyzer + lift-gesture bell curves (6 band handles; bell height = `_lift`). Disabled bands stay visible as dimmed ghosts ("off vibe") — selectable, draggable, no glow/trace |
 | Left columns | Selected band inspector: freq, width, lift, depth, mode |
 | Right panel | Selected band modulator engine: rate/interval + sync, inertia, phase (Chaosverb-slider style); step-sequencer editor when Steps mode active |
 | Top bar | CHAOS re-roll button, preset select, seed display |
-| Bottom/output row | width, mix (master depth), output, bypass |
+| Bottom/output row | mix (master depth), output, bypass |

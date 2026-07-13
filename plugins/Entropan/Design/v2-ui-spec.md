@@ -31,7 +31,7 @@ Cloned from **Chaosverb v1.0.18** design system (`/Users/nbs/Developer/plugin-fr
 
 - Canvas, log-freq X (20 Hz–20 kHz), dB Y (-60…0 analyzer, lift overlay normalized).
 - Analyzer: filled magnitude spectrum, `--bg-elevated`→transparent gradient fill, subtle line.
-- **Bells:** each enabled band = bell curve; height = `lift` (extraction amount), center X = `freq`, width = `width` oct. Fill = band color @ 18% alpha, stroke = band color, handle dot at apex.
+- **Bells:** each enabled band = bell curve; height = `lift` (extraction amount), center X = `freq`, width = `width` oct. Fill = band color @ 18% alpha, stroke = band color, handle dot at apex. **Disabled (bypassed) band = ghost:** bell stays visible, dimmed (~30% stroke, faint fill, no glow, no pan trace) — off vibe; still click-selectable and draggable; double-click re-enables.
 - Live pan trace: thin horizontal indicator inside each bell showing current mod pan position (animates; preview fakes it).
 - Gestures:
   - Drag handle: X = freq, Y = lift.
@@ -63,7 +63,6 @@ Cloned from **Chaosverb v1.0.18** design system (`/Users/nbs/Developer/plugin-fr
 ### OUTPUT (Chaosverb output styling, `--section-output`)
 | Control | Type | Param |
 | :--- | :--- | :--- |
-| Width | arc knob | `width` |
 | Mix (master depth) | arc knob | `mix` |
 | Level | arc knob | `output` |
 | Bypass | `bypass-btn` | `bypass` |
@@ -76,7 +75,7 @@ Cloned from **Chaosverb v1.0.18** design system (`/Users/nbs/Developer/plugin-fr
 
 ## Controls inventory (visible at once)
 
-- 7 arc knobs (4 band + 3 output)
+- 6 arc knobs (4 band + 2 output)
 - 3 h-sliders (or step editor) + sync/mode toggles
 - 6 mode chips, 6 band chips, ON/BYPASS/CHAOS/undo/redo/preset/seed/gear
 - 1 spectrum canvas

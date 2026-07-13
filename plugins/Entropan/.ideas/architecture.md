@@ -30,7 +30,7 @@
    - **Re-roll**: UI event sets atomic flag → audio thread re-deals S&H/Drift/Chaos states at next control tick.
 
 4. **Global Output Stage**
-   - Σ (panned lifted portions + unlifted portions + residual) → **Width** (M/S side-gain) → **Output** gain → **Bypass** (crossfaded).
+   - Σ (panned lifted portions + unlifted portions + residual) → **Output** gain → **Bypass** (crossfaded). (No global width/M-S stage — dropped.)
    - **Mix = master depth**: smoothed multiplier into all band depths (NO dry/wet stage — unlifted spectrum is inherently dry).
 
 5. **Analyzer Tap** (display only, NOT in audio path)
@@ -42,8 +42,8 @@
 ```
 Input ─ Splitter1 ─ band1 ─┬─ ×lift1 ─ pan1(mod1) ─┐
           │                └─ ×(1−lift1) ──────────┤
-          └ residual → Splitter2 ─ band2 ─ (same) ─┤(Σ) → WIDTH ─ OUTPUT ─► Out
-                └ … Splitter6 ─ band6 ─ (same) ────┤   (M/S)    (gain)
+          └ residual → Splitter2 ─ band2 ─ (same) ─┤(Σ) → OUTPUT ─► Out
+                └ … Splitter6 ─ band6 ─ (same) ────┤    (gain)
                       └ final residual ────────────┘
 pan_i = mod_i · depth_i · MIX(master)
 Analyzer FIFO tap ──► (UI thread FFT → WebView spectrum)
@@ -54,7 +54,6 @@ Analyzer FIFO tap ──► (UI thread FFT → WebView spectrum)
 | Parameter | Component | Function | Range |
 | :--- | :--- | :--- | :--- |
 | `seed` | RNG streams | Reproducible randomness | 1–128 |
-| `width` | Output M/S | Side gain | 0–200% |
 | `mix` | All modulators | **Master depth** scale on all band depths | 0–100% |
 | `output` | Output | Makeup gain | -24…+12 dB |
 | `bypass` | Output | Crossfaded bypass | off/on |
