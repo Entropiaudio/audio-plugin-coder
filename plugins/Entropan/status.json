@@ -1,0 +1,30 @@
+{
+  "plugin_name": "Entropan",
+  "version": "v0.0.0",
+  "current_phase": "plan",
+  "ui_framework": "webview",
+  "complexity_score": 4,
+  "created_at": "2026-07-13T17:14:56.648262+03:00",
+  "last_modified": "2026-07-13T17:14:56.650061+03:00",
+  "phase_history": [],
+  "validation": {
+    "creative_brief_exists": true,
+    "parameter_spec_exists": true,
+    "architecture_defined": true,
+    "ui_framework_selected": true,
+    "design_complete": false,
+    "code_complete": false,
+    "tests_passed": false,
+    "ship_ready": false
+  },
+  "framework_selection": {
+    "decision": "webview",
+    "rationale": "User mandate: clone Chaosverb WebView GUI; interactive spectrum lift-gesture UI needs canvas WebView",
+    "implementation_strategy": "phased"
+  },
+  "error_recovery": {
+    "last_backup": null,
+    "rollback_available": false,
+    "error_log": []
+  }
+}
