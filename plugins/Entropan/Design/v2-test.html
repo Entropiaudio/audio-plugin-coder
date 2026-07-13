@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Entropan — Design Preview v2</title>
+<style>
+  /* ─── DESIGN TOKENS — cloned from Chaosverb v1.0.18 ─── */
+  :root {
+    --bg-shell: #14110F;
+    --bg-card: #1C1916;
+    --bg-elevated: #24201D;
+    --border-subtle: #2e2a25;
+    --border-bright: #3e3a35;
+    --border-divider: #26221F;
+    --border-soft: rgba(255, 245, 230, 0.08);
+    --text-primary: #E8E2D6;
+    --text-secondary: #A8A29A;
+    --text-dim: #6A6258;
+    --text-faint: #403A32;
+    --accent: #D4A574;
+    --accent-bright: #E2BD96;
+    --accent-glow: rgba(212, 165, 116, 0.35);
+    --accent-tint: rgba(212, 165, 116, 0.08);
+    --accent-muted: rgba(212, 165, 116, 0.15);
+    --band-1: #3ab8d4;
+    --band-2: #8aaa7a;
+    --band-3: #5fc88a;
+    --band-4: #b06ed4;
+    --band-5: #d6884a;
+    --band-6: #D4A574;
+    --section-output: #c8c8d0;
+    --state-success: #6bff8e;
+    --state-warning: #ffb86b;
+    --state-error: #ff6b6b;
+    --t-fast: 120ms;
+    --t-base: 200ms;
+    --t-slow: 350ms;
+    --ease-editorial: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* Fonts: production ships Fraunces/Montserrat/JetBrainsMono woff2 (copy from
+     Chaosverb ui/public/fonts/). Preview uses system fallbacks. */
+
+  html, body { height: 100%; margin: 0; padding: 0; }
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    user-select: none; -webkit-user-select: none;
+    cursor: default; overflow: hidden;
+    background: var(--bg-shell);
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', ui-monospace, 'Courier New', monospace;
+    font-size: 11px;
+  }
+
+  .plugin-shell {
+    width: 900px; height: 560px;
+    margin: 0 auto;
+    display: flex; flex-direction: column;
+    background: var(--bg-shell);
+    position: relative;
+    border: 1px solid var(--border-divider);
+  }
+
+  /* ─── HEADER ─── */
+  .header {
+    height: 56px; flex: 0 0 56px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--border-divider);
+  }
+  .header-left { display: flex; flex-direction: column; gap: 2px; min-width: 210px; }
+  .plugin-title {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 300; font-size: 22px; line-height: 1;
+    color: var(--text-primary); letter-spacing: 0.5px;
+  }
+  .plugin-eyebrow {
+    font-size: 8.5px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--accent); opacity: 0.85;
+  }
+  .header-center { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .chaos-row { display: flex; align-items: center; gap: 6px; }
+  .mutate-btn {
+    font-family: inherit; font-size: 10px; letter-spacing: 3px;
+    color: var(--text-primary); background: transparent;
+    border: 1px solid var(--border-bright); border-radius: 14px;
+    padding: 5px 22px; cursor: pointer;
+    transition: all var(--t-base) var(--ease-editorial);
+  }
+  .mutate-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 12px var(--accent-glow); }
+  .undo-btn {
+    font-family: inherit; font-size: 12px; color: var(--text-dim);
+    background: transparent; border: 1px solid var(--border-subtle);
+    border-radius: 50%; width: 22px; height: 22px; cursor: pointer; line-height: 1;
+  }
+  .undo-btn:hover { color: var(--text-secondary); border-color: var(--border-bright); }
+  .preset-bar { position: relative; }
+  .preset-btn {
+    font-family: inherit; font-size: 9px; letter-spacing: 1px;
+    color: var(--text-dim); background: transparent;
+    border: 1px solid var(--border-subtle); border-radius: 10px;
+    padding: 3px 14px; cursor: pointer;
+  }
+  .preset-btn:hover { color: var(--text-secondary); border-color: var(--border-bright); }
+  .header-right { display: flex; align-items: center; gap: 14px; min-width: 210px; justify-content: flex-end; }
+  .seed-box { display: flex; align-items: center; gap: 4px; }
+  .seed-label { font-size: 8.5px; letter-spacing: 1.5px; color: var(--text-dim); }
+  .seed-val { font-size: 11px; color: var(--text-secondary); min-width: 26px; text-align: center; }
+  .seed-arrow {
+    font-family: inherit; background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 4px;
+    width: 16px; height: 16px; font-size: 9px; cursor: pointer; line-height: 1; padding: 0;
+  }
+  .seed-arrow:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* ─── SPECTRUM ─── */
+  .spectrum-wrap { flex: 1 1 auto; position: relative; margin: 10px 12px 0 12px; }
+  #spectrum {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle); border-radius: 8px;
+    cursor: crosshair;
+  }
+  .band-chips { position: absolute; top: 8px; left: 10px; display: flex; gap: 5px; z-index: 3; }
+  .band-chip {
+    font-family: inherit; font-size: 9px; letter-spacing: 1px;
+    width: 26px; height: 18px; border-radius: 9px; cursor: pointer;
+    background: transparent; color: var(--text-faint);
+    border: 1px solid var(--border-subtle);
+    transition: all var(--t-fast) var(--ease-editorial);
+    padding: 0;
+  }
+  .band-chip.on { color: var(--bg-shell); font-weight: 600; }
+  .band-chip.sel { box-shadow: 0 0 0 1.5px var(--text-primary); }
+  .spectrum-hint {
+    position: absolute; bottom: 6px; left: 12px; z-index: 3;
+    font-size: 8.5px; letter-spacing: 0.5px; color: var(--text-faint);
+  }
+
+  /* ─── BOTTOM STRIP ─── */
+  .bottom {
+    flex: 0 0 180px;
+    min-height: 0; height: 180px;
+    display: flex; gap: 10px;
+    padding: 10px 12px 12px 12px;
+  }
+  .section-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle); border-radius: 8px;
+    padding: 8px 10px;
+    display: flex; flex-direction: column;
+    min-height: 0; overflow: hidden;
+  }
+  .section-label {
+    font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase;
+    opacity: 0.9; margin-bottom: 4px;
+  }
+  .sec-band { flex: 0 0 300px; }
+  .sec-mod  { flex: 1 1 auto; min-width: 0; }
+  .sec-out  { flex: 0 0 220px; }
+  .sec-out .section-label { color: var(--section-output); opacity: 0.7; }
+
+  .knob-row { display: flex; justify-content: space-around; align-items: flex-start; flex: 1; }
+  .knob-wrap { display: flex; flex-direction: column; align-items: center; width: 64px; cursor: ns-resize; }
+  .knob-body { position: relative; width: 56px; height: 56px; }
+  .knob-body canvas { position: absolute; top: 0; left: 0; width: 56px; height: 56px; }
+  .knob-face {
+    position: absolute; top: 10px; left: 10px; width: 36px; height: 36px;
+    border-radius: 50%; background: #1f1c19;
+    border: 1px solid var(--border-bright);
+  }
+  .knob-indicator {
+    position: absolute; top: 50%; left: 50%; width: 4px; height: 4px;
+    margin: -2px 0 0 -2px; border-radius: 50%; background: #fff;
+  }
+  .knob-label { font-size: 8.5px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-dim); margin-top: 3px; }
+  .knob-value { font-size: 9.5px; color: #8a8378; margin-top: 1px; }
+  /* compact header knob: text block left, knob right, fits 56px header */
+  .knob-sm { flex-direction: row-reverse; align-items: center; gap: 7px; width: auto; }
+  .knob-sm .knob-body, .knob-sm .knob-body canvas { width: 40px; height: 40px; }
+  .knob-sm .knob-face { top: 7px; left: 7px; width: 26px; height: 26px; }
+  .knob-sm .knob-label { margin-top: 0; text-align: right; }
+  .knob-sm .knob-value { margin-top: 1px; text-align: right; }
+  .knob-sm .knob-text { display: flex; flex-direction: column; align-items: flex-end; }
+
+  .toggle-btn {
+    font-family: inherit; font-size: 9px; letter-spacing: 1.5px;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 10px;
+    padding: 3px 12px; cursor: pointer; margin-top: 4px;
+    transition: all var(--t-fast) var(--ease-editorial);
+  }
+  .toggle-btn.active { color: var(--state-success); border-color: var(--state-success); }
+  .bypass-btn.active { color: var(--state-warning); border-color: var(--state-warning); }
+
+  /* mode chips */
+  .mode-chips { display: flex; gap: 4px; margin: 2px 0 8px 0; flex-wrap: wrap; }
+  .mode-chip {
+    font-family: inherit; font-size: 8.5px; letter-spacing: 1px;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 9px;
+    padding: 2.5px 10px; cursor: pointer;
+    transition: all var(--t-fast) var(--ease-editorial);
+  }
+
+  /* h-sliders */
+  .hslider-stack { display: flex; flex-direction: column; gap: 8px; flex: 1; justify-content: center; }
+  .hslider-row { display: flex; align-items: center; gap: 8px; }
+  .hslider { flex: 1; height: 22px; position: relative; cursor: ew-resize; }
+  .hslider .hs-label {
+    position: absolute; top: -1px; left: 2px;
+    font-size: 8px; letter-spacing: 1.5px; color: var(--text-dim); text-transform: uppercase;
+  }
+  .hslider .hs-value { position: absolute; top: -1px; right: 2px; font-size: 8.5px; color: var(--text-secondary); }
+  .hslider .hs-track {
+    position: absolute; left: 0; right: 0; bottom: 2px; height: 8px;
+    background: var(--bg-elevated); border-radius: 4px; overflow: hidden;
+    border: 1px solid var(--border-divider);
+  }
+  .hslider .hs-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+  .hslider.disabled { opacity: 0.35; pointer-events: none; }
+  .mode-toggle {
+    font-family: inherit; font-size: 8.5px; letter-spacing: 1px;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 9px;
+    width: 46px; padding: 3px 0; cursor: pointer;
+  }
+  .mode-toggle.active { color: var(--accent); border-color: var(--accent); }
+
+  /* step editor */
+  .step-editor { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 6px; }
+  .step-editor.visible { display: flex; }
+  #stepCanvas { flex: 1; min-height: 0; width: 100%; border-radius: 6px; background: var(--bg-elevated); border: 1px solid var(--border-divider); cursor: crosshair; }
+  .step-count-row { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+  .step-count-row span { font-size: 8.5px; letter-spacing: 1px; color: var(--text-dim); }
+
+  /* output */
+  .out-knob-row { display: flex; justify-content: space-around; align-items: flex-start; flex: 1; }
+  .out-col { display: flex; flex-direction: column; align-items: center; }
+
+  /* overlays */
+  .mutation-flash {
+    position: absolute; inset: 0; z-index: 10; pointer-events: none;
+    background: radial-gradient(circle at 50% 12%, var(--accent-glow), transparent 60%);
+    opacity: 0; transition: opacity var(--t-slow) var(--ease-editorial);
+  }
+  .mutation-flash.fire { opacity: 1; transition: none; }
+  .bypass-dim {
+    position: absolute; inset: 0; z-index: 9; pointer-events: none;
+    background: rgba(20, 17, 15, 0.55); opacity: 0;
+    transition: opacity var(--t-base) var(--ease-editorial);
+  }
+  .bypass-dim.on { opacity: 1; }
+
+  .settings-btn {
+    position: absolute; bottom: 8px; right: 10px; z-index: 5;
+    width: 20px; height: 20px; padding: 2px;
+    background: transparent; border: none; cursor: pointer;
+    color: var(--text-faint);
+  }
+  .settings-btn:hover { color: var(--text-secondary); }
+  .settings-btn svg { width: 100%; height: 100%; }
+
+  .preview-note {
+    text-align: center; font-size: 9px; color: var(--text-faint);
+    letter-spacing: 1px; padding-top: 6px;
+    font-family: ui-monospace, monospace;
+  }
+</style>
+</head>
+<body>
+
+<div class="plugin-shell" id="pluginShell">
+  <div class="mutation-flash" id="mutationFlash"></div>
+  <div class="bypass-dim" id="bypassDim"></div>
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-left">
+      <div class="plugin-title">Entropan</div>
+      <div class="plugin-eyebrow">Entropia Audio &middot; V0.1.0</div>
+    </div>
+    <div class="header-center">
+      <div class="chaos-row">
+        <button class="undo-btn" title="Undo">↶</button>
+        <button class="mutate-btn" id="rerollBtn" title="Re-deal all random modulators">CHAOS</button>
+        <button class="undo-btn" title="Redo">↷</button>
+      </div>
+      <div class="preset-bar">
+        <button class="preset-btn">— select preset — ▾</button>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="seed-box">
+        <span class="seed-label">SEED</span>
+        <button class="seed-arrow" id="seedDown">‹</button>
+        <span class="seed-val" id="seedVal">1</span>
+        <button class="seed-arrow" id="seedUp">›</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SPECTRUM -->
+  <div class="spectrum-wrap">
+    <canvas id="spectrum"></canvas>
+    <div class="band-chips" id="bandChips"></div>
+    <div class="spectrum-hint">double-click: add band · drag: freq/lift · scroll: width · double-click handle: remove</div>
+  </div>
+
+  <!-- BOTTOM STRIP -->
+  <div class="bottom">
+    <div class="section-col sec-band">
+      <div class="section-label" id="bandSecLabel">Band 1</div>
+      <div class="knob-row">
+        <div class="knob-wrap" id="knob_freq"></div>
+        <div class="knob-wrap" id="knob_bwidth"></div>
+        <div class="knob-wrap" id="knob_lift"></div>
+        <div class="knob-wrap" id="knob_depth"></div>
+      </div>
+      <div style="text-align:center;"><button class="toggle-btn" id="bandOnBtn">ON</button></div>
+    </div>
+
+    <div class="section-col sec-mod">
+      <div class="section-label" id="modSecLabel">Modulator</div>
+      <div class="mode-chips" id="modeChips"></div>
+      <div class="hslider-stack" id="sliderStack">
+        <div class="hslider-row">
+          <div class="hslider" id="hs_rate"></div>
+          <button class="mode-toggle" id="syncToggle">SYNC</button>
+        </div>
+        <div class="hslider-row">
+          <div class="hslider" id="hs_inertia"></div>
+          <div style="width:46px;"></div>
+        </div>
+        <div class="hslider-row">
+          <div class="hslider" id="hs_phase"></div>
+          <div style="width:46px;"></div>
+        </div>
+      </div>
+      <div class="step-editor" id="stepEditor">
+        <canvas id="stepCanvas"></canvas>
+        <div class="step-count-row">
+          <span>STEPS</span>
+          <button class="seed-arrow" id="stepDown">−</button>
+          <span class="seed-val" id="stepCount">8</span>
+          <button class="seed-arrow" id="stepUp">+</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-col sec-out">
+      <div class="section-label">Output</div>
+      <div class="out-knob-row">
+        <div class="knob-wrap" id="knob_width"></div>
+        <div class="out-col">
+          <div class="knob-wrap" id="knob_mix"></div>
+          <button class="toggle-btn bypass-btn" id="bypassBtn" style="margin-top:2px;">BYPASS</button>
+        </div>
+        <div class="knob-wrap" id="knob_output"></div>
+      </div>
+    </div>
+  </div>
+
+  <button class="settings-btn" title="Settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
+</div>
+<div class="preview-note">DESIGN PREVIEW v2 — bell = LIFT (extraction), DEPTH = pan amount, MIX = master depth. No audio, no JUCE.</div>
+
+<script>
+"use strict";
+/* Preview-only script. Production JS lives in Source/ui/public/ and binds to
+   window.__JUCE__ state. All DOM built with createElement (no innerHTML). */
+const DPR = window.devicePixelRatio || 1;
+const BAND_COLORS = ["#3ab8d4", "#8aaa7a", "#5fc88a", "#b06ed4", "#d6884a", "#D4A574"];
+const MODES = ["SINE", "TRI", "S&H", "DRIFT", "CHAOS", "STEPS"];
+const DIVS = ["1/16", "1/8", "1/4", "1/2", "1 BAR", "2 BAR", "4 BAR"];
+const DIV_HZ = [8, 4, 2, 1, 0.5, 0.25, 0.125]; // 120 bpm sim
+const FMIN = 20, FMAX = 20000;
+
+/* ─── STATE (preview stand-in for APVTS) ─── */
+const state = {
+  seed: 1, width: 100, mix: 100, output: 0, bypass: false,
+  selected: 0,
+  bands: [200, 500, 1000, 2000, 5000, 10000].map((f, i) => ({
+    on: i === 0, freq: f, widthOct: 1.0, lift: 75, depth: 50,
+    mode: 0, rate: 0.5, sync: true, div: 3, inertia: 60, phase: 0,
+    stepCount: 8, steps: Array.from({ length: 16 }, (_, k) => Math.sin(k / 16 * Math.PI * 2)),
+    pan: 0, target: 0, phi: Math.random(),
+    lz: { x: 0.1 + i * 0.03, y: 0, z: 0 }, lastDeal: -1,
+    driftA: Math.random() * 100
+  }))
+};
+
+/* ─── HELPERS ─── */
+const fx = f => Math.log(f / FMIN) / Math.log(FMAX / FMIN);
+const xf = x => FMIN * Math.pow(FMAX / FMIN, x);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const fmtHz = f => f >= 1000 ? (f / 1000).toFixed(f < 10000 ? 1 : 0) + " kHz" : Math.round(f) + " Hz";
+const div_ = (cls) => { const d = document.createElement("div"); if (cls) d.className = cls; return d; };
+
+/* ─── KNOB FACTORY (Chaosverb buildKnob clone, preview edition) ─── */
+function drawKnobArc(canvas, norm, color, sizePx) {
+  const ctx = canvas.getContext("2d");
+  const S = sizePx * DPR;
+  if (canvas.width !== S) { canvas.width = S; canvas.height = S; }
+  ctx.clearRect(0, 0, S, S);
+  const c = S / 2, r = S / 2 - 3 * DPR;
+  const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25, av = a0 + norm * (a1 - a0);
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "#2a2622"; ctx.lineWidth = 3 * DPR;
+  ctx.beginPath(); ctx.arc(c, c, r, a0, a1); ctx.stroke();
+  [[6, 0.18], [3, 0.45], [1.6, 1]].forEach(([w, al]) => {
+    ctx.strokeStyle = color; ctx.globalAlpha = al; ctx.lineWidth = w * DPR;
+    ctx.beginPath(); ctx.arc(c, c, r, a0, av); ctx.stroke();
+  });
+  ctx.globalAlpha = 1;
+}
+
+function makeKnob(containerId, label, opts) {
+  const el = document.getElementById(containerId);
+  const small = el.classList.contains("knob-sm");
+  const size = small ? 44 : 56;
+
+  const body = div_("knob-body");
+  const canvas = document.createElement("canvas");
+  const face = div_("knob-face");
+  const ind = div_("knob-indicator");
+  face.appendChild(ind);
+  body.appendChild(canvas); body.appendChild(face);
+  const labelEl = div_("knob-label"); labelEl.textContent = label;
+  const val = div_("knob-value");
+  if (small) {
+    const text = div_("knob-text");
+    text.appendChild(labelEl); text.appendChild(val);
+    el.appendChild(body); el.appendChild(text);
+  } else {
+    el.appendChild(body); el.appendChild(labelEl); el.appendChild(val);
+  }
+
+  const k = {
+    el, opts, color: opts.color,
+    refresh() {
+      const norm = (opts.get() - opts.min) / (opts.max - opts.min);
+      drawKnobArc(canvas, norm, k.color, size);
+      const rot = -135 + norm * 270;
+      ind.style.transform = `rotate(${rot}deg) translateY(-${small ? 9 : 12}px)`;
+      ind.style.boxShadow = `0 0 4px ${k.color}`;
+      val.textContent = opts.fmt(opts.get());
+    }
+  };
+  let dragY = null, dragV = null;
+  el.addEventListener("mousedown", e => { dragY = e.clientY; dragV = opts.get(); e.preventDefault(); });
+  window.addEventListener("mousemove", e => {
+    if (dragY === null) return;
+    const fine = e.shiftKey ? 0.2 : 1;
+    const nv = dragV + (dragY - e.clientY) / 140 * (opts.max - opts.min) * fine;
+    opts.set(clamp(nv, opts.min, opts.max)); k.refresh();
+  });
+  window.addEventListener("mouseup", () => dragY = null);
+  el.addEventListener("dblclick", () => { opts.set(opts.def); k.refresh(); });
+  k.refresh();
+  return k;
+}
+
+/* ─── H-SLIDER FACTORY ─── */
+function makeHSlider(id, label, opts) {
+  const el = document.getElementById(id);
+  const labelEl = div_("hs-label"); labelEl.textContent = label;
+  const val = div_("hs-value");
+  const track = div_("hs-track");
+  const fill = div_("hs-fill");
+  track.appendChild(fill);
+  el.appendChild(labelEl); el.appendChild(val); el.appendChild(track);
+
+  const s = {
+    el, color: opts.color,
+    refresh() {
+      const norm = (opts.get() - opts.min) / (opts.max - opts.min);
+      fill.style.width = (norm * 100) + "%";
+      fill.style.background = `linear-gradient(90deg, ${s.color}55, ${s.color})`;
+      val.textContent = opts.fmt(opts.get());
+    }
+  };
+  let drag = false;
+  const setFromX = e => {
+    const r = track.getBoundingClientRect();
+    const norm = clamp((e.clientX - r.left) / r.width, 0, 1);
+    opts.set(opts.min + norm * (opts.max - opts.min)); s.refresh();
+  };
+  el.addEventListener("mousedown", e => { drag = true; setFromX(e); });
+  window.addEventListener("mousemove", e => drag && setFromX(e));
+  window.addEventListener("mouseup", () => drag = false);
+  s.refresh();
+  return s;
+}
+
+/* ─── SELECTED-BAND BINDING ─── */
+const B = () => state.bands[state.selected];
+const bandColor = () => BAND_COLORS[state.selected];
+
+const knobFreq = makeKnob("knob_freq", "CENTER", {
+  min: 0, max: 1, def: fx(1000), color: bandColor(),
+  get: () => fx(B().freq), set: v => B().freq = xf(v), fmt: () => fmtHz(B().freq)
+});
+const knobWidth = makeKnob("knob_bwidth", "WIDTH", {
+  min: 0.1, max: 4, def: 1, color: bandColor(),
+  get: () => B().widthOct, set: v => B().widthOct = v, fmt: v => v.toFixed(2) + " oct"
+});
+const knobLift = makeKnob("knob_lift", "LIFT", {
+  min: 0, max: 100, def: 100, color: bandColor(),
+  get: () => B().lift, set: v => B().lift = v, fmt: v => Math.round(v) + "%"
+});
+const knobDepth = makeKnob("knob_depth", "DEPTH", {
+  min: 0, max: 100, def: 50, color: bandColor(),
+  get: () => B().depth, set: v => B().depth = v, fmt: v => Math.round(v) + "%"
+});
+const knobOutWidth = makeKnob("knob_width", "WIDTH", {
+  min: 0, max: 200, def: 100, color: "#c8c8d0",
+  get: () => state.width, set: v => state.width = v, fmt: v => Math.round(v) + "%"
+});
+const knobMix = makeKnob("knob_mix", "MIX", {
+  min: 0, max: 100, def: 100, color: "#c8c8d0",
+  get: () => state.mix, set: v => state.mix = v, fmt: v => Math.round(v) + "%"
+});
+const knobOut = makeKnob("knob_output", "LEVEL", {
+  min: -24, max: 12, def: 0, color: "#c8c8d0",
+  get: () => state.output, set: v => state.output = v, fmt: v => v.toFixed(1) + " dB"
+});
+
+const hsRate = makeHSlider("hs_rate", "RATE", {
+  min: 0, max: 1, color: bandColor(),
+  get: () => B().sync ? B().div / (DIVS.length - 1) : Math.log(B().rate / 0.02) / Math.log(8 / 0.02),
+  set: v => { if (B().sync) B().div = Math.round(v * (DIVS.length - 1)); else B().rate = 0.02 * Math.pow(8 / 0.02, v); },
+  fmt: () => B().sync ? DIVS[B().div] : B().rate.toFixed(2) + " Hz"
+});
+const hsInertia = makeHSlider("hs_inertia", "INERTIA", {
+  min: 0, max: 100, color: bandColor(),
+  get: () => B().inertia, set: v => B().inertia = v, fmt: v => Math.round(v) + "%"
+});
+const hsPhase = makeHSlider("hs_phase", "PHASE", {
+  min: 0, max: 360, color: bandColor(),
+  get: () => B().phase, set: v => B().phase = v, fmt: v => Math.round(v) + "°"
+});
+
+/* ─── MODE CHIPS / BAND CHIPS / TOGGLES ─── */
+const modeChipsEl = document.getElementById("modeChips");
+MODES.forEach((m, i) => {
+  const b = document.createElement("button");
+  b.className = "mode-chip"; b.textContent = m;
+  b.onclick = () => { B().mode = i; refreshPanels(); };
+  modeChipsEl.appendChild(b);
+});
+const bandChipsEl = document.getElementById("bandChips");
+for (let i = 0; i < 6; i++) {
+  const b = document.createElement("button");
+  b.className = "band-chip"; b.textContent = "B" + (i + 1);
+  b.onclick = e => {
+    if (e.altKey) state.bands[i].on = !state.bands[i].on;
+    else state.selected = i;
+    refreshPanels();
+  };
+  b.ondblclick = () => { state.bands[i].on = true; state.selected = i; refreshPanels(); };
+  bandChipsEl.appendChild(b);
+}
+
+document.getElementById("syncToggle").onclick = () => { B().sync = !B().sync; refreshPanels(); };
+document.getElementById("bandOnBtn").onclick = () => { B().on = !B().on; refreshPanels(); };
+document.getElementById("bypassBtn").onclick = e => {
+  state.bypass = !state.bypass;
+  e.target.classList.toggle("active", state.bypass);
+  document.getElementById("bypassDim").classList.toggle("on", state.bypass);
+};
+document.getElementById("rerollBtn").onclick = () => {
+  state.bands.forEach(b => {
+    b.driftA = Math.random() * 100;
+    b.target = Math.random() * 2 - 1;
+    b.lz.x = Math.random() * 0.4 - 0.2; b.lz.y = 0; b.lz.z = 0;
+    b.lastDeal = -1;
+  });
+  const f = document.getElementById("mutationFlash");
+  f.classList.add("fire");
+  setTimeout(() => f.classList.remove("fire"), 60);
+};
+document.getElementById("seedUp").onclick = () => { state.seed = Math.min(128, state.seed + 1); document.getElementById("seedVal").textContent = state.seed; };
+document.getElementById("seedDown").onclick = () => { state.seed = Math.max(1, state.seed - 1); document.getElementById("seedVal").textContent = state.seed; };
+document.getElementById("stepUp").onclick = () => { B().stepCount = Math.min(16, B().stepCount + 1); refreshPanels(); };
+document.getElementById("stepDown").onclick = () => { B().stepCount = Math.max(2, B().stepCount - 1); refreshPanels(); };
+
+/* ─── PANEL REFRESH ─── */
+function refreshPanels() {
+  const c = bandColor(), b = B();
+  const bandLabel = document.getElementById("bandSecLabel");
+  bandLabel.textContent = "Band " + (state.selected + 1);
+  bandLabel.style.color = c;
+  document.getElementById("modSecLabel").style.color = c;
+  [knobFreq, knobWidth, knobLift, knobDepth].forEach(k => { k.color = c; k.refresh(); });
+  [hsRate, hsInertia, hsPhase].forEach(s => { s.color = c; s.refresh(); });
+  document.querySelectorAll(".mode-chip").forEach((el, i) => {
+    const on = i === b.mode;
+    el.style.color = on ? "#14110F" : "";
+    el.style.background = on ? c : "";
+    el.style.borderColor = on ? c : "";
+  });
+  document.querySelectorAll(".band-chip").forEach((el, i) => {
+    const bb = state.bands[i];
+    el.classList.toggle("on", bb.on);
+    el.classList.toggle("sel", i === state.selected);
+    el.style.background = bb.on ? BAND_COLORS[i] : "transparent";
+    el.style.borderColor = BAND_COLORS[i];
+    el.style.color = bb.on ? "#14110F" : BAND_COLORS[i];
+  });
+  const onBtn = document.getElementById("bandOnBtn");
+  onBtn.classList.toggle("active", b.on);
+  onBtn.textContent = b.on ? "ON" : "OFF";
+  document.getElementById("syncToggle").classList.toggle("active", b.sync);
+  hsPhase.el.classList.toggle("disabled", b.mode >= 2 && b.mode <= 4);
+  document.getElementById("sliderStack").style.display = b.mode === 5 ? "none" : "flex";
+  document.getElementById("stepEditor").classList.toggle("visible", b.mode === 5);
+  document.getElementById("stepCount").textContent = b.stepCount;
+}
+
+/* ─── STEP EDITOR ─── */
+const stepCanvas = document.getElementById("stepCanvas");
+function drawSteps() {
+  const b = B(), r = stepCanvas.getBoundingClientRect();
+  if (r.width === 0) return;
+  const W = Math.round(r.width * DPR), H = Math.round(r.height * DPR);
+  if (stepCanvas.width !== W) { stepCanvas.width = W; stepCanvas.height = H; }
+  const ctx = stepCanvas.getContext("2d");
+  ctx.clearRect(0, 0, W, H);
+  ctx.strokeStyle = "#3e3a35"; ctx.lineWidth = DPR;
+  ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
+  const n = b.stepCount, bw = W / n, c = bandColor();
+  const activeStep = Math.floor(simClock * simRateHz(b)) % n;
+  for (let i = 0; i < n; i++) {
+    const v = b.steps[i], y0 = H / 2, y1 = H / 2 - v * (H / 2 - 4 * DPR);
+    ctx.fillStyle = c + (i === activeStep && b.on ? "cc" : "59");
+    ctx.fillRect(i * bw + 2 * DPR, Math.min(y0, y1), bw - 4 * DPR, Math.abs(y1 - y0) || DPR);
+  }
+}
+let stepDrag = false;
+const paintStep = e => {
+  const b = B(), r = stepCanvas.getBoundingClientRect();
+  const i = clamp(Math.floor((e.clientX - r.left) / r.width * b.stepCount), 0, b.stepCount - 1);
+  b.steps[i] = clamp(-((e.clientY - r.top) / r.height * 2 - 1), -1, 1);
+};
+stepCanvas.addEventListener("mousedown", e => { stepDrag = true; paintStep(e); });
+window.addEventListener("mousemove", e => stepDrag && paintStep(e));
+window.addEventListener("mouseup", () => stepDrag = false);
+
+/* ─── SPECTRUM CANVAS ─── */
+const spec = document.getElementById("spectrum");
+function sizeSpectrum() {
+  const r = spec.getBoundingClientRect();
+  spec.width = Math.round(r.width * DPR);
+  spec.height = Math.round(r.height * DPR);
+}
+window.addEventListener("resize", sizeSpectrum);
+
+/* fake analyzer: pink slope + moving bumps */
+const anaBins = 256;
+const ana = new Float32Array(anaBins).fill(-60);
+function tickAnalyzer(t) {
+  for (let i = 0; i < anaBins; i++) {
+    const x = i / anaBins;
+    const f = xf(x);
+    const db = -14 - 12 * x
+      + 6 * Math.sin(x * 9 + t * 0.7)
+      + 4 * Math.sin(x * 23 - t * 1.3)
+      + (Math.random() - 0.5) * 3
+      + (f > 40 && f < 140 ? 8 : 0);
+    ana[i] += (db - ana[i]) * 0.18;
+  }
+}
+
+function bellY(b, x) {
+  // bell height = LIFT (extraction amount), not depth
+  const sigma = (b.widthOct / 2) / Math.log2(FMAX / FMIN) * 2.2;
+  const d = (x - fx(b.freq)) / sigma;
+  return Math.exp(-d * d) * (b.lift / 100);
+}
+
+function drawSpectrum(t) {
+  const ctx = spec.getContext("2d"), W = spec.width, H = spec.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // grid
+  ctx.strokeStyle = "#26221F"; ctx.lineWidth = DPR;
+  ctx.fillStyle = "#403A32"; ctx.font = `${9 * DPR}px ui-monospace, monospace`;
+  [50, 100, 200, 500, 1000, 2000, 5000, 10000].forEach(f => {
+    const x = fx(f) * W;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+    ctx.fillText(f >= 1000 ? (f / 1000) + "k" : String(f), x + 3 * DPR, H - 5 * DPR);
+  });
+  for (let db = -48; db < 0; db += 12) {
+    const y = (db / -60) * H;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    ctx.fillText(String(db), W - 22 * DPR, y - 3 * DPR);
+  }
+
+  // analyzer fill
+  ctx.beginPath(); ctx.moveTo(0, H);
+  for (let i = 0; i < anaBins; i++) {
+    const x = i / (anaBins - 1) * W;
+    const y = clamp(-ana[i] / 60, 0, 1) * H;
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(W, H); ctx.closePath();
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, "rgba(232,226,214,0.10)"); g.addColorStop(1, "rgba(232,226,214,0.0)");
+  ctx.fillStyle = g; ctx.fill();
+  ctx.strokeStyle = "rgba(232,226,214,0.25)"; ctx.lineWidth = DPR; ctx.stroke();
+
+  // bells
+  state.bands.forEach((b, bi) => {
+    if (!b.on) return;
+    const c = BAND_COLORS[bi], sel = bi === state.selected;
+    const topH = H * 0.82;
+    ctx.beginPath(); ctx.moveTo(0, H);
+    for (let px = 0; px <= W; px += 2 * DPR) {
+      ctx.lineTo(px, H - bellY(b, px / W) * topH);
+    }
+    ctx.lineTo(W, H); ctx.closePath();
+    ctx.fillStyle = c + "2e"; ctx.fill();
+    ctx.strokeStyle = c + (sel ? "ee" : "99");
+    ctx.lineWidth = (sel ? 2 : 1.4) * DPR;
+    if (sel) { ctx.shadowColor = c; ctx.shadowBlur = 8 * DPR; }
+    ctx.stroke(); ctx.shadowBlur = 0;
+
+    // apex handle (bell height = lift)
+    const hx = fx(b.freq) * W, hy = H - (b.lift / 100) * topH;
+    ctx.beginPath(); ctx.arc(hx, hy, (sel ? 6 : 4.5) * DPR, 0, 7);
+    ctx.fillStyle = c; ctx.fill();
+    ctx.beginPath(); ctx.arc(hx, hy, 2 * DPR, 0, 7);
+    ctx.fillStyle = "#fff"; ctx.fill();
+
+    // pan trace inside bell (amplitude = pan · MIX master)
+    const half = (b.widthOct / 2) / Math.log2(FMAX / FMIN);
+    const cx = fx(b.freq), pan = b.pan * (state.mix / 100);
+    const px2 = clamp(cx + pan * half, 0, 1) * W;
+    const py = H - (b.lift / 100) * topH * 0.5;
+    ctx.strokeStyle = c + "cc"; ctx.lineWidth = 2 * DPR;
+    ctx.beginPath(); ctx.moveTo(px2, py - 7 * DPR); ctx.lineTo(px2, py + 7 * DPR); ctx.stroke();
+    ctx.strokeStyle = c + "44"; ctx.lineWidth = DPR;
+    ctx.beginPath();
+    ctx.moveTo(clamp(cx - half, 0, 1) * W, py); ctx.lineTo(clamp(cx + half, 0, 1) * W, py);
+    ctx.stroke();
+    if (sel) {
+      ctx.fillStyle = c + "88";
+      ctx.fillText("L", clamp(cx - half, 0, 1) * W - 10 * DPR, py + 3 * DPR);
+      ctx.fillText("R", clamp(cx + half, 0, 1) * W + 4 * DPR, py + 3 * DPR);
+    }
+  });
+}
+
+/* spectrum gestures */
+let dragBand = -1;
+function bandAt(e) {
+  const r = spec.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+  let best = -1, bd = 0.05;
+  state.bands.forEach((b, i) => {
+    if (!b.on) return;
+    const hx = fx(b.freq), hy = 1 - (b.lift / 100) * 0.82;
+    const d = Math.hypot(x - hx, y - hy);
+    if (d < bd) { bd = d; best = i; }
+  });
+  return best;
+}
+spec.addEventListener("mousedown", e => {
+  const hit = bandAt(e);
+  if (hit >= 0) { dragBand = hit; state.selected = hit; refreshPanels(); }
+});
+window.addEventListener("mousemove", e => {
+  if (dragBand < 0) return;
+  const r = spec.getBoundingClientRect();
+  const b = state.bands[dragBand];
+  b.freq = xf(clamp((e.clientX - r.left) / r.width, 0, 1));
+  b.lift = clamp((1 - (e.clientY - r.top) / r.height) / 0.82 * 100, 0, 100);
+  knobFreq.refresh(); knobLift.refresh();
+});
+window.addEventListener("mouseup", () => dragBand = -1);
+spec.addEventListener("dblclick", e => {
+  const hit = bandAt(e);
+  if (hit >= 0) { state.bands[hit].on = false; refreshPanels(); return; }
+  const free = state.bands.findIndex(b => !b.on);
+  if (free < 0) return;
+  const r = spec.getBoundingClientRect();
+  const b = state.bands[free];
+  b.on = true;
+  b.freq = xf(clamp((e.clientX - r.left) / r.width, 0, 1));
+  b.lift = clamp((1 - (e.clientY - r.top) / r.height) / 0.82 * 100, 0, 100);
+  state.selected = free;
+  refreshPanels();
+});
+spec.addEventListener("wheel", e => {
+  const hit = bandAt(e);
+  const i = hit >= 0 ? hit : state.selected;
+  const b = state.bands[i];
+  b.widthOct = clamp(b.widthOct - Math.sign(e.deltaY) * 0.1, 0.1, 4);
+  knobWidth.refresh();
+  e.preventDefault();
+}, { passive: false });
+
+/* ─── MODULATOR SIMULATION (visual only) ─── */
+let simClock = 0, lastT = performance.now();
+function simRateHz(b) { return b.sync ? DIV_HZ[b.div] : b.rate; }
+function rnd(seed) { const s = Math.sin(seed * 127.1) * 43758.5453; return s - Math.floor(s); }
+
+function tickMods(dt) {
+  state.bands.forEach((b, i) => {
+    if (!b.on) { b.pan = 0; return; }
+    const f = simRateHz(b);
+    b.phi = (b.phi + f * dt) % 1;
+    const ph = (b.phi + b.phase / 360) % 1;
+    switch (b.mode) {
+      case 0: b.target = Math.sin(ph * Math.PI * 2); break;
+      case 1: b.target = 1 - 4 * Math.abs(ph - 0.5); break;
+      case 2: {
+        const cell = Math.floor(simClock * f);
+        if (cell !== b.lastDeal) { b.lastDeal = cell; b.target = rnd(cell * 6 + i + state.seed + b.driftA) * 2 - 1; }
+        break;
+      }
+      case 3: {
+        const tt = simClock * f, c0 = Math.floor(tt), fr = tt - c0;
+        const a = rnd(c0 * 6 + i + state.seed + b.driftA) * 2 - 1;
+        const bb = rnd((c0 + 1) * 6 + i + state.seed + b.driftA) * 2 - 1;
+        const sm = fr * fr * (3 - 2 * fr);
+        b.target = a + (bb - a) * sm; break;
+      }
+      case 4: {
+        const s = 10, r = 28, be = 8 / 3, sc = Math.min(0.02, dt * f * 1.2);
+        const { x, y, z } = b.lz;
+        b.lz.x = x + s * (y - x) * sc;
+        b.lz.y = y + (x * (r - z) - y) * sc;
+        b.lz.z = z + (x * y - be * z) * sc;
+        if (!isFinite(b.lz.x)) { b.lz = { x: 0.1, y: 0, z: 0 }; }
+        b.target = clamp(b.lz.x / 18, -1, 1); break;
+      }
+      case 5: {
+        const pos = ((simClock * f) + b.phase / 360) % 1;
+        const idx = Math.min(b.stepCount - 1, Math.floor(pos * b.stepCount));
+        b.target = b.steps[idx]; break;
+      }
+    }
+    const slewT = 0.004 + Math.pow(b.inertia / 100, 2.2) * 2.0;
+    const k = 1 - Math.exp(-dt / slewT);
+    b.pan += (b.target * (b.depth / 100) - b.pan) * k;
+  });
+}
+
+/* ─── MAIN LOOP ─── */
+function loop() {
+  const now = performance.now(), dt = Math.min(0.05, (now - lastT) / 1000);
+  lastT = now; simClock += dt;
+  tickAnalyzer(simClock);
+  tickMods(dt);
+  drawSpectrum(simClock);
+  if (B().mode === 5) drawSteps();
+  requestAnimationFrame(loop);
+}
+
+sizeSpectrum();
+refreshPanels();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

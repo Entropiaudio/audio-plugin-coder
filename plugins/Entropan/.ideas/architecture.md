@@ -8,10 +8,11 @@
    - **Serial cascade:** band N extracts from residual of band N-1. Band and residual share upstream phase rotation, so the final sum stays flat. Overlapping user bands: overlapped region is claimed by the lower-index band (band 2 extracts from what's left). Documented behavior, not a bug.
    - Disabled band = splitter fully bypassed. Enable/disable crossfaded (~30 ms) to avoid clicks.
 
-2. **Per-Band Pan Stage** (×6)
-   - Equal-power balance law on the extracted stereo band: θ = (pan+1)·π/4, `gainL = cos θ`, `gainR = sin θ` (scaled ×√2 so center = unity).
+2. **Per-Band Lift + Pan Stage** (×6)
+   - **Lift split:** extracted band splits into `lifted = band · lift` (→ pan path) and `unlifted = band · (1 − lift)` (→ summed straight back, dry). `lift` = bell height (0–1). At `lift = 0` band recombines untouched → null preserved.
+   - Equal-power balance law on the lifted stereo portion: θ = (pan+1)·π/4, `gainL = cos θ`, `gainR = sin θ` (scaled ×√2 so center = unity).
    - Balance-style (no mono fold) — preserves intra-band stereo detail.
-   - Gains applied via per-sample smoothing (`SmoothedValue`, ~5 ms) — no zipper.
+   - Lift + pan gains applied via per-sample smoothing (`SmoothedValue`, ~5 ms) — no zipper.
 
 3. **Modulator Engine** (×6, one per band, control-rate ticks ~1 ms + per-sample slew)
    | Mode | Algorithm |
@@ -23,14 +24,14 @@
    | Chaos | Lorenz system integrated at control rate; rate scales dt; x-component normalized to ±1 |
    | Steps | Sequencer 2–16 steps; step value = pan target; clocked by rate/div; phase offsets start position |
    - **Inertia** = one-pole slew on modulator output → pan target. 0% = instant snap, 100% ≈ 2 s glide (exp map).
-   - **Depth**: `pan = mod · depth · entropy_master`.
+   - **Depth**: `pan = mod · depth · mix_master` (`mix` = global master depth).
    - **Tempo sync**: `AudioPlayHead` PPQ → interval boundaries for S&H/Steps, cycle length for Sine/Tri/Drift. Free-run Hz fallback when no playhead/`sync` off.
    - **Seed/streams**: RNG stream per band = `seed + bandIndex`. Reproducible.
    - **Re-roll**: UI event sets atomic flag → audio thread re-deals S&H/Drift/Chaos states at next control tick.
 
 4. **Global Output Stage**
-   - Σ (panned bands + residual) → **Mix** (dry = input, zero-latency so no alignment needed) → **Width** (M/S side-gain) → **Output** gain → **Bypass** (crossfaded).
-   - Entropy master: smoothed multiplier into all band depths.
+   - Σ (panned lifted portions + unlifted portions + residual) → **Width** (M/S side-gain) → **Output** gain → **Bypass** (crossfaded).
+   - **Mix = master depth**: smoothed multiplier into all band depths (NO dry/wet stage — unlifted spectrum is inherently dry).
 
 5. **Analyzer Tap** (display only, NOT in audio path)
    - Lock-free FIFO (input or post-output tap) → message thread → `juce::dsp::FFT` 2048 → magnitude spectrum → WebView via JUCE event (same pattern as SNIPBridge/Chaosverb feedback events).
@@ -39,11 +40,12 @@
 ## Processing Chain
 
 ```
-Input ─┬─ dry ─────────────────────────────────────────────┐
-       └─ Splitter1 ─ band1 ─ pan1(mod1) ──┐               │
-             └ residual → Splitter2 ─ band2 ─ pan2(mod2) ─┤(Σ) → wet ─ MIX ─ WIDTH ─ OUTPUT ─► Out
-                   └ … Splitter6 ─ band6 ─ pan6(mod6) ────┤               (M/S)   (gain)
-                         └ final residual ────────────────┘
+Input ─ Splitter1 ─ band1 ─┬─ ×lift1 ─ pan1(mod1) ─┐
+          │                └─ ×(1−lift1) ──────────┤
+          └ residual → Splitter2 ─ band2 ─ (same) ─┤(Σ) → WIDTH ─ OUTPUT ─► Out
+                └ … Splitter6 ─ band6 ─ (same) ────┤   (M/S)    (gain)
+                      └ final residual ────────────┘
+pan_i = mod_i · depth_i · MIX(master)
 Analyzer FIFO tap ──► (UI thread FFT → WebView spectrum)
 ```
 
@@ -51,16 +53,16 @@ Analyzer FIFO tap ──► (UI thread FFT → WebView spectrum)
 
 | Parameter | Component | Function | Range |
 | :--- | :--- | :--- | :--- |
-| `entropy` | All modulators | Master depth scale | 0–100% |
 | `seed` | RNG streams | Reproducible randomness | 1–128 |
 | `width` | Output M/S | Side gain | 0–200% |
-| `mix` | Output | Dry/wet blend | 0–100% |
+| `mix` | All modulators | **Master depth** scale on all band depths | 0–100% |
 | `output` | Output | Makeup gain | -24…+12 dB |
 | `bypass` | Output | Crossfaded bypass | off/on |
 | `bN_on` | Splitter N | Engage (crossfaded) | off/on |
 | `bN_freq` | Splitter N | Band center → f_lo/f_hi | 20–20k Hz log |
 | `bN_width` | Splitter N | Band width → f_lo/f_hi | 0.1–4 oct |
-| `bN_depth` | Pan N | Mod depth (lift height) | 0–100% |
+| `bN_lift` | Lift split N | Extraction amount (bell height) | 0–100% |
+| `bN_depth` | Pan N | Pan modulation amplitude | 0–100% |
 | `bN_mode` | Modulator N | Algorithm select | 6 choices |
 | `bN_rate` | Modulator N | Free-run speed | 0.02–8 Hz log |
 | `bN_sync` | Modulator N | Tempo sync switch | off/on |

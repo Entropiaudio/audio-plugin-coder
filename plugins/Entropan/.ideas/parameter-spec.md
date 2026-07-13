@@ -7,16 +7,16 @@ Architecture: 6 band slots, each with dedicated modulator (see creative-brief).
 
 | ID | Name | Type | Range | Default | Unit |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `entropy` | Entropy | Float | 0.0 – 100.0 | 100.0 | % |
 | `seed` | Seed | Int | 1 – 128 | 1 | — |
 | `width` | Width | Float | 0.0 – 200.0 | 100.0 | % |
 | `mix` | Mix | Float | 0.0 – 100.0 | 100.0 | % |
 | `output` | Level | Float | -24.0 – +12.0 | 0.0 | dB |
 | `bypass` | Bypass | Bool | off / on | off | — |
 
-- `entropy` — master scale multiplied into every band's depth. 100% = band depths as set; 0% = all motion frozen at center.
+- `mix` — **master depth**: scales every band's `depth` at once. 100% = depths as set; 0% = all motion frozen at center. NOT a dry/wet blend — unlifted spectrum passes untouched by design.
 - `seed` — reproducible random streams for S&H/Drift/Chaos modes.
 - **Re-roll (CHAOS) button** — UI-only native event (not a parameter, not automatable): re-deals random state of all random-type modulators.
+- There is no separate ENTROPY macro (dropped — `mix` covers the master-depth role).
 
 ## Per-band slot parameters — ×6 slots, prefix `b1_` … `b6_`
 
@@ -25,6 +25,7 @@ Architecture: 6 band slots, each with dedicated modulator (see creative-brief).
 | `_on` | Enable | Bool | off / on | b1: on, b2–b6: off | — |
 | `_freq` | Center | Float | 20.0 – 20000.0 (log) | 200 / 500 / 1k / 2k / 5k / 10k | Hz |
 | `_width` | Width | Float | 0.1 – 4.0 | 1.0 | oct |
+| `_lift` | Lift | Float | 0.0 – 100.0 | 100.0 | % |
 | `_depth` | Depth | Float | 0.0 – 100.0 | 50.0 | % |
 | `_mode` | Mod Type | Choice | Sine, Triangle, S&H, Drift, Chaos, Steps | Sine | — |
 | `_rate` | Rate | Float | 0.02 – 8.0 (log) | 0.5 | Hz |
@@ -33,12 +34,13 @@ Architecture: 6 band slots, each with dedicated modulator (see creative-brief).
 | `_inertia` | Inertia | Float | 0.0 – 100.0 | 60.0 | % |
 | `_phase` | Phase | Float | 0.0 – 360.0 | 0.0 | ° |
 
-- `_depth` — the lift height from the spectrum-display gesture. Pan-only: no gain change.
+- `_lift` — **the bell height** from the spectrum-display gesture: extraction amount — how much of the band region is routed into the pan path. 0% = band passes dry (null), 100% = fully routed. Pan-only: no gain change (lifted + unlifted portions always sum to unity when centered).
+- `_depth` — pan modulation amplitude for the band (how far the lifted portion swings). Scaled globally by `mix`.
 - `_rate` used when `_sync` off; `_div` when on.
 - `_inertia` — slew between pan targets: 100% = liquid glide, 0% = instant snap.
 - `_phase` — offset for periodic modes (Sine/Triangle/Steps); ignored by S&H/Drift/Chaos.
 
-**Total: 6 global + 6 × 10 = 66 APVTS parameters.**
+**Total: 5 global + 6 × 11 = 71 APVTS parameters.**
 
 ## Step sequencer data (non-parameter state)
 
@@ -52,8 +54,8 @@ Per band, Steps mode: **2–16 steps, each step's value = pan position** (-100�
 
 | UI region | Contents |
 | :--- | :--- |
-| Main area | Spectrum analyzer + lift-gesture bell curves (6 band handles) |
-| Left columns | Selected band inspector: freq, width, depth, mode |
+| Main area | Spectrum analyzer + lift-gesture bell curves (6 band handles; bell height = `_lift`) |
+| Left columns | Selected band inspector: freq, width, lift, depth, mode |
 | Right panel | Selected band modulator engine: rate/interval + sync, inertia, phase (Chaosverb-slider style); step-sequencer editor when Steps mode active |
-| Top bar | CHAOS re-roll button, preset select, ENTROPY master, seed display |
-| Bottom/output row | width, mix, output, bypass |
+| Top bar | CHAOS re-roll button, preset select, seed display |
+| Bottom/output row | width, mix (master depth), output, bypass |

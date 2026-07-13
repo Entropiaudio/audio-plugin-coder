@@ -12,7 +12,12 @@
 
 Entropan is a band-targeted spectral panner. The user **lifts a band** on a spectrum display (a bell-curve gesture, like Wavesfactory Spectre's EQ interaction) — but instead of boosting gain, the lift hands that frequency region to a panning modulator. Everything outside lifted bands passes through untouched and stays dead-center.
 
-**Lift is pan-only:** lift height = modulation depth for that band. No gain change.
+**Three separated roles:**
+- **Bell (lift gesture)** = *which frequencies* get altered and *how much of them* is routed into the pan path. Center + width choose the region; bell height = extraction amount (`lift`, 0–100%).
+- **DEPTH knob (per band)** = pan modulation amplitude — how far the lifted portion swings.
+- **MIX knob (global)** = master depth, scaling all bands' DEPTH at once. Not a dry/wet — unlifted signal always passes untouched.
+
+**Lift is pan-only:** no gain change; lifted + unlifted portions sum back to unity when centered.
 
 ### DSP architecture (Option B — parallel time-domain filter bank)
 
@@ -35,7 +40,7 @@ Every band slot (max **6**) has its own dedicated modulation engine:
 | Chaos | Lorenz/logistic chaotic oscillator — semi-periodic, brand-defining |
 | Steps | Step sequencer — each step's value IS the pan position |
 
-Per band: rate (free Hz or tempo-synced note division), depth (= lift height), inertia (slew: liquid ↔ snap), phase offset. Global **ENTROPY** macro scales all band depths at once; **CHAOS re-roll button** re-deals the random state of every random-type modulator; **Seed** makes runs reproducible.
+Per band: rate (free Hz or tempo-synced note division), lift (extraction amount = bell height), depth (pan amplitude), inertia (slew: liquid ↔ snap), phase offset. Global **MIX** scales all band depths at once; **CHAOS re-roll button** re-deals the random state of every random-type modulator; **Seed** makes runs reproducible.
 
 ## UI Direction (predetermined by user)
 
@@ -47,7 +52,8 @@ Per band: rate (free Hz or tempo-synced note division), depth (= lift height), i
 
 ## Success criteria
 
-- **Null test:** no bands lifted → output ≈ input (time-domain complementary split only engages per active band).
+- **Null test:** no bands lifted, OR any band at `lift = 0` → output ≈ input (time-domain complementary split only engages per active band).
 - One band, Sine mode, high inertia → smooth, musical auto-pan of that region only; rest of the spectrum image untouched.
+- Sweeping `lift` 0→100% fades the region's motion in smoothly (no clicks); sweeping `depth` widens the swing; `mix` at 0% freezes all bands to center regardless of settings.
 - 6 bands with mixed Chaos/S&H/Steps modes → wild motion, still mix-safe: residual spectrum stays centered, no level pumping.
 - Automation-safe: toggling bands on/off produces no clicks (crossfaded engage).
