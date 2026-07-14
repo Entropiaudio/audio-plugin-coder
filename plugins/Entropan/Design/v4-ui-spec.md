@@ -15,7 +15,7 @@
 1. **Modulation scope** — oscilloscope canvas in MOD section (left of sliders, ~128px wide): scrolling history of selected band's modulator output (post-inertia, ×mix), center line + L/R rails, live dot, band-colored. Feed in plugin: processor sends per-band mod value at ~30 Hz over the event channel; UI keeps ring buffer.
 2. **Step-sequencer presets** — pattern dropdown + SAVE in step editor row. Factory patterns (Ramp Up/Down, Pyramid, Ping-Pong, Ratchet LR) + user presets (named; preview: localStorage; plugin: user pattern file/ValueTree).
 3. **Step ratcheting** — per-step duration: 1, 1/2, or 1/4 of the base interval (`_div`/`_rate` unit). Alt-click a step cycles its length; bar width ∝ duration; sub-length steps show tick markers on top edge. Example: step A at 1/8, next step at 1/16.
-4. **Floating band quick-menu** — when a band is selected & enabled, small floating panel next to the L/R pan-trace line with two mini-sliders: RATE (snaps to note divisions when synced) + DEPTH. Band-colored border, flips side to avoid clipping. **In addition to** the bottom MOD section, not a replacement.
+4. **Floating band quick-menu** — when a band is selected & enabled, small floating panel next to the L/R pan-trace line with three mini-sliders: RATE (snaps to note divisions when synced), DEPTH, and GAIN (±6 dB lifted-branch trim — loudness compensation for panned frequencies). Band-colored border, flips side to avoid clipping. **In addition to** the bottom MOD section, not a replacement.
 
 **v2 change:** bell height = `lift` (extraction amount); per-band DEPTH knob = pan amplitude; global MIX = master depth (ENTROPY dropped).
 

@@ -28,6 +28,7 @@ Architecture: 6 band slots, each with dedicated modulator (see creative-brief).
 | `_width` | Q | Float | 0.1 – 4.0 | 1.0 | oct (UI shows EQ-style Q = 2^(N/2)/(2^N−1); knob clockwise = higher Q = narrower) |
 | `_lift` | Lift | Float | 0.0 – 100.0 | 100.0 | % |
 | `_depth` | Depth | Float | 0.0 – 100.0 | 50.0 | % |
+| `_gain` | Gain | Float | -6.0 – +6.0 | 0.0 | dB |
 | `_mode` | Mod Type | Choice | Sine, Triangle, S&H, Drift, Chaos, Steps | Sine | — |
 | `_rate` | Rate | Float | 0.02 – 1000.0 (log) | 0.5 | Hz |
 | `_ratemode` | Rate Mode | Choice | Sync, Free, MIDI | Sync | — |
@@ -36,12 +37,13 @@ Architecture: 6 band slots, each with dedicated modulator (see creative-brief).
 | `_phase` | Phase | Float | 0.0 – 360.0 | 0.0 | ° |
 
 - `_lift` — **the bell height** from the spectrum-display gesture: extraction amount — how much of the band region is routed into the pan path. 0% = band passes dry (null), 100% = fully routed. Pan-only: no gain change (lifted + unlifted portions always sum to unity when centered).
-- `_depth` — pan modulation amplitude for the band (how far the lifted portion swings). Scaled globally by `mix`.
+- `_depth` — pan modulation amplitude for the band (how far the lifted portion swings). Scaled globally by `amount`.
+- `_gain` — trim on the **lifted branch only** (post-pan, pre-sum): compensates the perceived loudness bump of panned frequencies, or creatively ducks/pushes a moving band. Lift 0 → gain irrelevant → null preserved. UI: third row (GAIN) in the floating quick-menu.
 - `_ratemode` — **Sync**: `_div` note divisions from host tempo. **Free**: `_rate` in Hz, reaching **audio rate** (up to 1 kHz — tremolo/rotary/AM territory). **MIDI**: rate follows the last played MIDI note's frequency (mono, last-note priority; inertia doubles as glide). All modes multiplied by global `speed`.
 - `_inertia` — slew between pan targets: 100% = liquid glide, 0% = instant snap.
 - `_phase` — offset for periodic modes (Sine/Triangle/Steps); ignored by S&H/Drift/Chaos.
 
-**Total: 5 global + 6 × 11 = 71 APVTS parameters.**
+**Total: 5 global + 6 × 12 = 77 APVTS parameters.**
 
 ## Step sequencer data (non-parameter state)
 

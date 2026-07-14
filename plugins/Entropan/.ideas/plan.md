@@ -5,9 +5,9 @@
 ## Implementation Strategy: Phased
 
 ### Phase 4.1: Core Processing (null-test first)
-- [ ] `PluginProcessor` skeleton + full 71-param APVTS layout (from parameter-spec).
+- [ ] `PluginProcessor` skeleton + full 77-param APVTS layout (from parameter-spec).
 - [ ] Band splitter cascade: 6 × 3-way LR4 split (`juce::dsp::LinkwitzRileyFilter`) with allpass compensation, serial residual chain.
-- [ ] Lift split per band: `lifted = band·lift` → pan path, `unlifted = band·(1−lift)` → dry sum.
+- [ ] Lift split per band: `lifted = band·lift` → pan path (+ per-band ±6 dB gain, smoothed), `unlifted = band·(1−lift)` → dry sum.
 - [ ] Static equal-power pan per band (fixed pan target from `depth`·`amount`, no modulators yet).
 - [ ] Sum + output/bypass stages.
 - [ ] **Gate:** null test — all bands off → output ≈ input; 1 band on, lift 0 (or depth 0, centered) → output ≈ input (allpass-flat magnitude).

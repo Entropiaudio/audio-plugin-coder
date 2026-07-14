@@ -11,6 +11,7 @@
 2. **Per-Band Lift + Pan Stage** (×6)
    - **Lift split:** extracted band splits into `lifted = band · lift` (→ pan path) and `unlifted = band · (1 − lift)` (→ summed straight back, dry). `lift` = bell height (0–1). At `lift = 0` band recombines untouched → null preserved.
    - Equal-power balance law on the lifted stereo portion: θ = (pan+1)·π/4, `gainL = cos θ`, `gainR = sin θ` (scaled ×√2 so center = unity).
+   - **Per-band gain** (`_gain`, ±6 dB, smoothed) multiplies the lifted branch post-pan — loudness compensation / creative trim. Unlifted branch untouched.
    - Balance-style (no mono fold) — preserves intra-band stereo detail.
    - Lift + pan gains applied via per-sample smoothing (`SmoothedValue`, ~5 ms) — no zipper.
 
@@ -70,6 +71,7 @@ Analyzer FIFO tap ──► (UI thread FFT → WebView spectrum)
 | `bN_width` | Splitter N | Band width → f_lo/f_hi | 0.1–4 oct |
 | `bN_lift` | Lift split N | Extraction amount (bell height) | 0–100% |
 | `bN_depth` | Pan N | Pan modulation amplitude | 0–100% |
+| `bN_gain` | Lift branch N | Post-pan trim (lifted only) | ±6 dB |
 | `bN_mode` | Modulator N | Algorithm select | 6 choices |
 | `bN_rate` | Modulator N | Free-run speed (audio-rate capable) | 0.02–1000 Hz log |
 | `bN_ratemode` | Modulator N | Sync / Free / MIDI | 3 choices |

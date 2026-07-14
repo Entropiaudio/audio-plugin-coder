@@ -382,6 +382,10 @@
         <div class="qm-label">DEPTH</div><div class="qm-value"></div>
         <div class="qm-track"><div class="qm-fill"></div></div>
       </div>
+      <div class="qm-row" id="qm_gain">
+        <div class="qm-label">GAIN</div><div class="qm-value"></div>
+        <div class="qm-track"><div class="qm-fill"></div></div>
+      </div>
     </div>
     <div class="spectrum-hint">double-click: add band · click tip: on/off · drag: freq/lift · scroll: width · steps: alt-click = divide</div>
   </div>
@@ -469,7 +473,7 @@ const state = {
   selected: 0,
   bands: [200, 500, 1000, 2000, 5000, 10000].map((f, i) => ({
     on: i === 0, configured: i === 0, freq: f, widthOct: 1.0, lift: 75, depth: 50,
-    mode: 0, rate: 0.5, rateMode: 0, div: 3, inertia: 60, phase: 0, // rateMode: 0 sync, 1 free, 2 midi
+    mode: 0, rate: 0.5, rateMode: 0, div: 3, inertia: 60, phase: 0, gain: 0, // gain: lifted-branch trim, dB
     stepCount: 8, steps: Array.from({ length: 16 }, (_, k) => ({ subdiv: 1, vals: [Math.sin(k / 16 * Math.PI * 2), 0, 0, 0] })),
     pan: 0, target: 0, phi: Math.random(),
     lz: { x: 0.1 + i * 0.03, y: 0, z: 0 }, lastDeal: -1,
@@ -1111,6 +1115,7 @@ function drawScope() {
 const quickMenu = document.getElementById("quickMenu");
 const qmRate = document.getElementById("qm_rate");
 const qmDepth = document.getElementById("qm_depth");
+const qmGain = document.getElementById("qm_gain");
 let qmOffset = null;     // user offset RELATIVE to the band anchor — menu keeps following the band
 let qmAnchor = { x: 0, y: 0 }; // last auto-computed anchor (band-driven), used to derive the offset
 (() => {
@@ -1146,11 +1151,11 @@ function updateQuickMenu() {
   let mx = hx + half + 10, my = py - 24;
   if (mx + 122 > rw) mx = hx - half - 130;   // flip left if clipping
   mx = clamp(mx, 4, rw - 122);
-  my = clamp(my, 4, rh - 48);
+  my = clamp(my, 4, rh - 68);
   qmAnchor = { x: mx, y: my };               // band-driven anchor
   if (qmOffset) {                             // user offset rides along with the band
     mx = clamp(mx + qmOffset.dx, 0, rw - 122);
-    my = clamp(my + qmOffset.dy, 0, rh - 52);
+    my = clamp(my + qmOffset.dy, 0, rh - 68);
   }
   quickMenu.style.left = mx + "px";
   quickMenu.style.top = my + "px";
@@ -1160,6 +1165,7 @@ function updateQuickMenu() {
   const rateText = b.rateMode === 0 ? DIVS[b.div] : b.rateMode === 1 ? fmtRate(b.rate) : MIDI_FAKE.note;
   qmRefreshRow(qmRate, rateNorm, rateText, bandColor());
   qmRefreshRow(qmDepth, b.depth / 100, Math.round(b.depth) + "%", bandColor());
+  qmRefreshRow(qmGain, (b.gain + 6) / 12, (b.gain >= 0 ? "+" : "") + b.gain.toFixed(1) + " dB", bandColor());
 }
 function qmDragRow(row, apply) {
   let drag = false;
@@ -1178,6 +1184,7 @@ qmDragRow(qmRate, n => {
   hsRate.refresh();
 });
 qmDragRow(qmDepth, n => { B().depth = n * 100; knobDepth.refresh(); });
+qmDragRow(qmGain, n => { B().gain = -6 + n * 12; }); // ±6 dB on the lifted branch
 
 /* ─── MAIN LOOP ─── */
 function loop() {
