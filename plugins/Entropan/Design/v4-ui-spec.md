@@ -9,6 +9,8 @@
 6. **Rate modes: SYNC / FREE / MIDI** (3-way toggle, was SYNC on/off) — FREE range extended to audio rate (0.02 Hz – 1 kHz log). MIDI mode: band's rate tracks the last played MIDI note's frequency (display shows note + Hz); slider parks.
 7. **Phase** — periodic modes only (Sine/Triangle/Steps); dimmed & inert on S&H/Drift/Chaos by design.
 
+**v4.1 refinements:** band chips (B1…B6 overlay) removed — selection = click anywhere under a bell, on/off = click its tip; BAND and OUTPUT knobs vertically centered in their sections.
+
 **v3 additions:**
 1. **Modulation scope** — oscilloscope canvas in MOD section (left of sliders, ~128px wide): scrolling history of selected band's modulator output (post-inertia, ×mix), center line + L/R rails, live dot, band-colored. Feed in plugin: processor sends per-band mod value at ~30 Hz over the event channel; UI keeps ring buffer.
 2. **Step-sequencer presets** — pattern dropdown + SAVE in step editor row. Factory patterns (Ramp Up/Down, Pyramid, Ping-Pong, Ratchet LR) + user presets (named; preview: localStorage; plugin: user pattern file/ValueTree).
@@ -32,7 +34,7 @@ Cloned from **Chaosverb v1.0.18** design system (`/Users/nbs/Developer/plugin-fr
 │ HEADER (56px): title+eyebrow | ↶ CHAOS ↷  preset ▾ | seed ‹ › │
 ├────────────────────────────────────────────────────────────────┤
 │ SPECTRUM (flex ~62%): analyzer + grid + 6 lift bells            │
-│   band chips (B1…B6) top-left · dB scale right · Hz scale bottom│
+│   dB scale right · Hz scale bottom                              │
 ├────────────────────────────────────────────────────────────────┤
 │ BOTTOM STRIP (~180px): 3 sections                               │
 │  BAND [freq width lift depth + ON]  MOD [mode chips; rate/     │
@@ -54,7 +56,6 @@ Cloned from **Chaosverb v1.0.18** design system (`/Users/nbs/Developer/plugin-fr
   - Double-click empty area: enable next free band slot there.
   - Double-click handle: disable band.
   - Click bell/chip: select band (bottom strip follows).
-- Band chips row (top-left overlay): `B1…B6`, filled = enabled, ring = selected; click select, ⌥click toggle enable.
 
 ## Bottom strip sections
 

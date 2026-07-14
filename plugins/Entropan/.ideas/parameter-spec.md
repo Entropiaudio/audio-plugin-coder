@@ -66,7 +66,7 @@ Per band, Steps mode: **2–16 slots; each slot = { subdiv, vals[] }** — SLOT-
 
 | UI region | Contents |
 | :--- | :--- |
-| Main area | Spectrum analyzer + lift-gesture bell curves (6 band handles; bell height = `_lift`). Disabled bands stay visible as dimmed ghosts ("off vibe") — selectable, draggable, no glow/trace |
+| Main area | Spectrum analyzer + lift-gesture bell curves (6 band handles; bell height = `_lift`). Click under a bell = select; click its tip = on/off. Disabled bands stay visible as dimmed ghosts ("off vibe") — selectable, draggable, no glow/trace. No band-chip row |
 | Left columns | Selected band inspector: freq, width, lift, depth, mode |
 | Right panel | Selected band modulator engine: rate/interval + sync, inertia, phase (Chaosverb-slider style); step-sequencer editor when Steps mode active |
 | Top bar | CHAOS re-roll button, preset select, seed display |

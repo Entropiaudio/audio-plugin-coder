@@ -141,17 +141,6 @@
     border: 1px solid var(--border-subtle); border-radius: 8px;
     cursor: crosshair;
   }
-  .band-chips { position: absolute; top: 8px; left: 10px; display: flex; gap: 5px; z-index: 3; }
-  .band-chip {
-    font-family: inherit; font-size: 9px; letter-spacing: 1px;
-    width: 26px; height: 18px; border-radius: 9px; cursor: pointer;
-    background: transparent; color: var(--text-faint);
-    border: 1px solid var(--border-subtle);
-    transition: all var(--t-fast) var(--ease-editorial);
-    padding: 0;
-  }
-  .band-chip.on { color: var(--bg-shell); font-weight: 600; }
-  .band-chip.sel { box-shadow: 0 0 0 1.5px var(--text-primary); }
   .spectrum-hint {
     position: absolute; bottom: 6px; left: 12px; z-index: 3;
     font-size: 8.5px; letter-spacing: 0.5px; color: var(--text-faint);
@@ -180,7 +169,7 @@
   .sec-out  { flex: 0 0 170px; }
   .sec-out .section-label { color: var(--section-output); opacity: 0.7; }
 
-  .knob-row { display: flex; justify-content: space-around; align-items: flex-start; flex: 1; }
+  .knob-row { display: flex; justify-content: space-around; align-items: center; flex: 1; }
   .knob-wrap { display: flex; flex-direction: column; align-items: center; width: 64px; cursor: ns-resize; }
   .knob-body { position: relative; width: 56px; height: 56px; }
   .knob-body canvas { position: absolute; top: 0; left: 0; width: 56px; height: 56px; }
@@ -310,7 +299,7 @@
   .step-save-btn:hover { color: var(--accent); border-color: var(--accent); }
 
   /* output */
-  .out-knob-row { display: flex; justify-content: space-around; align-items: flex-start; flex: 1; }
+  .out-knob-row { display: flex; justify-content: space-around; align-items: center; flex: 1; }
   .out-col { display: flex; flex-direction: column; align-items: center; }
 
   /* overlays */
@@ -378,7 +367,6 @@
   <!-- SPECTRUM -->
   <div class="spectrum-wrap">
     <canvas id="spectrum"></canvas>
-    <div class="band-chips" id="bandChips"></div>
     <div class="quick-menu" id="quickMenu">
       <div class="qm-grip" id="qmGrip" title="Drag to move"></div>
       <div class="qm-row" id="qm_rate">
@@ -657,18 +645,6 @@ MODES.forEach((m, i) => {
   b.onclick = () => { B().mode = i; refreshPanels(); };
   modeChipsEl.appendChild(b);
 });
-const bandChipsEl = document.getElementById("bandChips");
-for (let i = 0; i < 6; i++) {
-  const b = document.createElement("button");
-  b.className = "band-chip"; b.textContent = "B" + (i + 1);
-  b.onclick = e => {
-    if (e.altKey) { state.bands[i].on = !state.bands[i].on; if (state.bands[i].on) state.bands[i].configured = true; }
-    else state.selected = i;
-    refreshPanels();
-  };
-  b.ondblclick = () => { state.bands[i].on = true; state.bands[i].configured = true; state.selected = i; refreshPanels(); };
-  bandChipsEl.appendChild(b);
-}
 
 document.getElementById("syncToggle").onclick = () => { B().rateMode = (B().rateMode + 1) % 3; refreshPanels(); };
 document.getElementById("bypassBtn").onclick = e => {
@@ -709,14 +685,6 @@ function refreshPanels() {
     el.style.color = on ? "#14110F" : "";
     el.style.background = on ? c : "";
     el.style.borderColor = on ? c : "";
-  });
-  document.querySelectorAll(".band-chip").forEach((el, i) => {
-    const bb = state.bands[i];
-    el.classList.toggle("on", bb.on);
-    el.classList.toggle("sel", i === state.selected);
-    el.style.background = bb.on ? BAND_COLORS[i] : "transparent";
-    el.style.borderColor = BAND_COLORS[i];
-    el.style.color = bb.on ? "#14110F" : BAND_COLORS[i];
   });
   const rm = document.getElementById("syncToggle");
   rm.textContent = ["SYNC", "FREE", "MIDI"][b.rateMode];
@@ -934,6 +902,22 @@ function drawSpectrum(t) {
 
 /* spectrum gestures */
 let dragBand = -1;
+function bandBodyAt(e) { // click anywhere under a bell selects that band
+  const r = spec.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+  let best = -1, bd = 1e9;
+  state.bands.forEach((b, i) => {
+    if (!b.on && !b.configured) return;
+    const cx = fx(b.freq);
+    const half = (b.widthOct / 2) / Math.log2(FMAX / FMIN) * 1.6; // generous skirt
+    if (Math.abs(x - cx) > half) return;
+    const curveY = 1 - bellY(b, x) * 0.82;
+    if (y < curveY - 0.02) return; // above the curve = empty space
+    const d = Math.abs(x - cx);
+    if (d < bd) { bd = d; best = i; }
+  });
+  return best;
+}
 function bandAt(e) {
   const r = spec.getBoundingClientRect();
   const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
@@ -952,7 +936,10 @@ spec.addEventListener("mousedown", e => {
   if (hit >= 0) {
     dragBand = hit; dragMoved = false; downPos = [e.clientX, e.clientY];
     state.selected = hit; refreshPanels();
+    return;
   }
+  const body = bandBodyAt(e);
+  if (body >= 0 && body !== state.selected) { state.selected = body; refreshPanels(); }
 });
 window.addEventListener("mousemove", e => {
   if (dragBand < 0) return;
