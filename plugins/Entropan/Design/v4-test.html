@@ -387,7 +387,7 @@
         <div class="qm-track"><div class="qm-fill"></div></div>
       </div>
     </div>
-    <div class="spectrum-hint">double-click: add band · click tip: on/off · drag: freq/lift · scroll: width · steps: alt-click = divide</div>
+    <div class="spectrum-hint">double-click: add band · double-click tip: on/off · drag: freq/lift · scroll: width · steps: alt-click = divide</div>
   </div>
 
   <!-- BOTTOM STRIP -->
@@ -1010,16 +1010,15 @@ window.addEventListener("mousemove", e => {
   knobFreq.refresh(); knobLift.refresh();
 });
 window.addEventListener("mouseup", () => {
-  if (dragBand >= 0 && !dragMoved) { // clean click on the tip = on/off toggle
-    const b = state.bands[dragBand];
-    b.on = !b.on; if (b.on) b.configured = true;
-    refreshPanels();
-  }
-  dragBand = -1; downPos = null;
+  dragBand = -1; downPos = null; // single click on tip = select only
 });
 spec.addEventListener("dblclick", e => {
   const hit = bandAt(e);
-  if (hit >= 0) return; // tip clicks already toggle on/off
+  if (hit >= 0) { // double-click the tip = on/off toggle
+    const b = state.bands[hit];
+    b.on = !b.on; if (b.on) b.configured = true;
+    state.selected = hit; refreshPanels(); return;
+  }
   const free = state.bands.findIndex(b => !b.on && !b.configured);
   if (free < 0) return;
   const r = spec.getBoundingClientRect();
