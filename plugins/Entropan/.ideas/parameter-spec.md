@@ -24,8 +24,8 @@ Architecture: 6 band slots, each with dedicated modulator (see creative-brief).
 | ID suffix | Name | Type | Range | Default | Unit |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `_on` | Enable | Bool | off / on | b1: on, b2–b6: off | — |
-| `_freq` | Center | Float | 20.0 – 20000.0 (log) | 200 / 500 / 1k / 2k / 5k / 10k | Hz |
-| `_width` | Width | Float | 0.1 – 4.0 | 1.0 | oct |
+| `_freq` | Frequency | Float | 20.0 – 20000.0 (log) | 200 / 500 / 1k / 2k / 5k / 10k | Hz |
+| `_width` | Q | Float | 0.1 – 4.0 | 1.0 | oct (UI shows EQ-style Q = 2^(N/2)/(2^N−1); knob clockwise = higher Q = narrower) |
 | `_lift` | Lift | Float | 0.0 – 100.0 | 100.0 | % |
 | `_depth` | Depth | Float | 0.0 – 100.0 | 50.0 | % |
 | `_mode` | Mod Type | Choice | Sine, Triangle, S&H, Drift, Chaos, Steps | Sine | — |

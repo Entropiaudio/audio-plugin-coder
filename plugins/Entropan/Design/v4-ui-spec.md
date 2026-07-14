@@ -62,8 +62,8 @@ Cloned from **Chaosverb v1.0.18** design system (`/Users/nbs/Developer/plugin-fr
 ### BAND (selected band accent color)
 | Control | Type | Param |
 | :--- | :--- | :--- |
-| Center | arc knob 56px | `bN_freq` |
-| Width | arc knob 56px | `bN_width` |
+| Frequency | arc knob 56px | `bN_freq` |
+| Q | arc knob 56px | `bN_width` (stored as octaves; displayed as EQ-style Q, clockwise = narrower) |
 | Lift | arc knob 56px | `bN_lift` |
 | Depth | arc knob 56px | `bN_depth` |
 | ON | Chaosverb `flutter-toggle` style | `bN_on` |

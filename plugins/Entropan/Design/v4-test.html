@@ -583,13 +583,21 @@ function makeHSlider(id, label, opts) {
 const B = () => state.bands[state.selected];
 const bandColor = () => BAND_COLORS[state.selected];
 
-const knobFreq = makeKnob("knob_freq", "CENTER", {
+const knobFreq = makeKnob("knob_freq", "FREQUENCY", {
   min: 0, max: 1, def: fx(1000), color: bandColor(),
   get: () => fx(B().freq), set: v => B().freq = xf(v), fmt: () => fmtHz(B().freq)
 });
-const knobWidth = makeKnob("knob_bwidth", "WIDTH", {
-  min: 0.1, max: 4, def: 1, color: bandColor(),
-  get: () => B().widthOct, set: v => B().widthOct = v, fmt: v => v.toFixed(2) + " oct"
+// Q display (EQ convention): clockwise = higher Q = narrower band.
+// Stored internally as octaves (0.1–4); Q = 2^(N/2) / (2^N − 1).
+const octToQ = n => Math.pow(2, n / 2) / (Math.pow(2, n) - 1);
+const OCT_MIN = 0.1, OCT_MAX = 4;
+const octToNorm = o => 1 - Math.log(o / OCT_MIN) / Math.log(OCT_MAX / OCT_MIN);
+const normToOct = n => OCT_MIN * Math.pow(OCT_MAX / OCT_MIN, 1 - n);
+const knobWidth = makeKnob("knob_bwidth", "Q", {
+  min: 0, max: 1, def: octToNorm(1), color: bandColor(),
+  get: () => octToNorm(B().widthOct),
+  set: v => B().widthOct = normToOct(v),
+  fmt: () => { const q = octToQ(B().widthOct); return q >= 10 ? q.toFixed(1) : q.toFixed(2); }
 });
 const knobLift = makeKnob("knob_lift", "LIFT", {
   min: 0, max: 100, def: 100, color: bandColor(),
