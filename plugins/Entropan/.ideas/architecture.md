@@ -22,16 +22,20 @@
    | S&H | New uniform(-1,1) target at each interval boundary |
    | Drift | Smoothed random walk (interpolated value-noise clocked by rate) |
    | Chaos | Lorenz system integrated at control rate; rate scales dt; x-component normalized to ±1 |
-   | Steps | Sequencer 2–16 steps; step = {value, length}; length ∈ {1, ½, ¼} of base interval (ratchet); weighted-duration clock; phase offsets start position |
+   | Steps | Sequencer 2–16 slots; slot = {subdiv ∈ 1/2/4, vals[subdiv]}; slot-stable grid (dividing a slot never moves neighbors); phase offsets start position |
    - **Inertia** = one-pole slew on modulator output → pan target. 0% = instant snap, 100% ≈ 2 s glide (exp map).
    - **Depth**: `pan = mod · depth · mix_master` (`mix` = global master depth).
-   - **Tempo sync**: `AudioPlayHead` PPQ → interval boundaries for S&H/Steps, cycle length for Sine/Tri/Drift. Free-run Hz fallback when no playhead/`sync` off.
+   - **Rate modes** (`_ratemode`): **Sync** — `AudioPlayHead` PPQ → interval boundaries for S&H/Steps, cycle length for Sine/Tri/Drift. **Free** — Hz up to audio rate (1 kHz): Sine/Tri evaluated per-sample above ~50 Hz (phase accumulator in process loop, AM/rotary territory); S&H/Drift/Chaos clocked per-sample with cheap ops. **MIDI** — rate = frequency of last MIDI note (mono, last-note priority; inertia acts as glide between notes).
+   - **Global speed** (`speed` ÷4…×4): multiplies the effective rate of every band, all modes.
    - **Seed/streams**: RNG stream per band = `seed + bandIndex`. Reproducible.
    - **Re-roll**: UI event sets atomic flag → audio thread re-deals S&H/Drift/Chaos states at next control tick.
 
 4. **Global Output Stage**
    - Σ (panned lifted portions + unlifted portions + residual) → **Output** gain → **Bypass** (crossfaded). (No global width/M-S stage — dropped.)
-   - **Mix = master depth**: smoothed multiplier into all band depths (NO dry/wet stage — unlifted spectrum is inherently dry).
+   - **Amount = master depth**: smoothed multiplier into all band depths (NO dry/wet stage — unlifted spectrum is inherently dry).
+
+4b. **MIDI Input**
+   - `acceptsMidi = true`; processBlock scans MidiBuffer, tracks last note-on frequency (440·2^((n−69)/12)) → bands in MIDI rate mode. Notes consumed.
 
 5. **Mod telemetry** (display only)
    - Control thread publishes each band's current mod value (post-inertia) at ~30 Hz to the UI event channel → scope ring buffer + pan-trace animation. No audio-thread allocation; reuse Chaosverb feedback-event pattern.
@@ -48,7 +52,7 @@ Input ─ Splitter1 ─ band1 ─┬─ ×lift1 ─ pan1(mod1) ─┐
           └ residual → Splitter2 ─ band2 ─ (same) ─┤(Σ) → OUTPUT ─► Out
                 └ … Splitter6 ─ band6 ─ (same) ────┤    (gain)
                       └ final residual ────────────┘
-pan_i = mod_i · depth_i · MIX(master)
+pan_i = mod_i · depth_i · AMOUNT(master); rate_i × SPEED(global)
 Analyzer FIFO tap ──► (UI thread FFT → WebView spectrum)
 ```
 
@@ -57,7 +61,8 @@ Analyzer FIFO tap ──► (UI thread FFT → WebView spectrum)
 | Parameter | Component | Function | Range |
 | :--- | :--- | :--- | :--- |
 | `seed` | RNG streams | Reproducible randomness | 1–128 |
-| `mix` | All modulators | **Master depth** scale on all band depths | 0–100% |
+| `amount` | All modulators | **Master depth** scale on all band depths | 0–100% |
+| `speed` | All modulators | Global rate multiplier | ÷4–×4 |
 | `output` | Output | Makeup gain | -24…+12 dB |
 | `bypass` | Output | Crossfaded bypass | off/on |
 | `bN_on` | Splitter N | Engage (crossfaded) | off/on |
@@ -66,8 +71,8 @@ Analyzer FIFO tap ──► (UI thread FFT → WebView spectrum)
 | `bN_lift` | Lift split N | Extraction amount (bell height) | 0–100% |
 | `bN_depth` | Pan N | Pan modulation amplitude | 0–100% |
 | `bN_mode` | Modulator N | Algorithm select | 6 choices |
-| `bN_rate` | Modulator N | Free-run speed | 0.02–8 Hz log |
-| `bN_sync` | Modulator N | Tempo sync switch | off/on |
+| `bN_rate` | Modulator N | Free-run speed (audio-rate capable) | 0.02–1000 Hz log |
+| `bN_ratemode` | Modulator N | Sync / Free / MIDI | 3 choices |
 | `bN_div` | Modulator N | Synced interval | 1/16–4 bar |
 | `bN_inertia` | Modulator N | Slew time | 0–100% |
 | `bN_phase` | Modulator N | Phase offset (periodic modes) | 0–360° |

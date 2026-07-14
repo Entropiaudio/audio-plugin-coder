@@ -1,0 +1,107 @@
+# Entropan — UI Specification v4
+
+**v4 changes:**
+1. **Slot-stable step ratchets** — every step slot = one base interval, fixed on the grid. Alt-click divides a slot IN PLACE into 2 or 4 sub-steps (each independently paintable); neighboring steps never move. Steps model: `{subdiv: 1|2|4, vals[subdiv]}` per slot.
+2. **Draggable quick-menu** — grip bar on top; drag to park it anywhere over the spectrum. Once moved manually it stays put (stops auto-following the band) until reload.
+3. **Apex = on/off button** — clean click (no drag) on a bell's tip toggles the band on/off (ghost). ON button removed from BAND section. Drag still = freq/lift; double-click empty area still adds a band.
+4. **MIX → AMOUNT** — global master-depth knob renamed (param id `amount`).
+5. **GLOBAL SPEED** (header right, bright accent + glow, replaces SEED display) — stepper ÷4 ÷2 ×1 ×2 ×3 ×4; multiplies every band's rate (synced divisions and free Hz alike). Seed moves to the settings popover.
+6. **Rate modes: SYNC / FREE / MIDI** (3-way toggle, was SYNC on/off) — FREE range extended to audio rate (0.02 Hz – 1 kHz log). MIDI mode: band's rate tracks the last played MIDI note's frequency (display shows note + Hz); slider parks.
+7. **Phase** — periodic modes only (Sine/Triangle/Steps); dimmed & inert on S&H/Drift/Chaos by design.
+
+**v3 additions:**
+1. **Modulation scope** — oscilloscope canvas in MOD section (left of sliders, ~128px wide): scrolling history of selected band's modulator output (post-inertia, ×mix), center line + L/R rails, live dot, band-colored. Feed in plugin: processor sends per-band mod value at ~30 Hz over the event channel; UI keeps ring buffer.
+2. **Step-sequencer presets** — pattern dropdown + SAVE in step editor row. Factory patterns (Ramp Up/Down, Pyramid, Ping-Pong, Ratchet LR) + user presets (named; preview: localStorage; plugin: user pattern file/ValueTree).
+3. **Step ratcheting** — per-step duration: 1, 1/2, or 1/4 of the base interval (`_div`/`_rate` unit). Alt-click a step cycles its length; bar width ∝ duration; sub-length steps show tick markers on top edge. Example: step A at 1/8, next step at 1/16.
+4. **Floating band quick-menu** — when a band is selected & enabled, small floating panel next to the L/R pan-trace line with two mini-sliders: RATE (snaps to note divisions when synced) + DEPTH. Band-colored border, flips side to avoid clipping. **In addition to** the bottom MOD section, not a replacement.
+
+**v2 change:** bell height = `lift` (extraction amount); per-band DEPTH knob = pan amplitude; global MIX = master depth (ENTROPY dropped).
+
+Cloned from **Chaosverb v1.0.18** design system (`/Users/nbs/Developer/plugin-freedom-system/plugins/Chaosverb/Source/ui/public/index.html`). Layout adapted: spectrum-top / controls-bottom.
+
+## Window
+
+- Default: **900 × 560 px** (Chaosverb pattern: saved size in ValueTree, resizable).
+- Resize limits: 720×448 → 1620×1008 (16:10-ish, keep aspect via shell zoom like Chaosverb `currentScale`).
+- Settings popover (gear, bottom-right): size presets SM 720×448 / MD 900×560 / LG 1200×747 / XL 1500×933, brightness, tooltips toggle.
+
+## Layout regions
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ HEADER (56px): title+eyebrow | ↶ CHAOS ↷  preset ▾ | seed ‹ › │
+├────────────────────────────────────────────────────────────────┤
+│ SPECTRUM (flex ~62%): analyzer + grid + 6 lift bells            │
+│   band chips (B1…B6) top-left · dB scale right · Hz scale bottom│
+├────────────────────────────────────────────────────────────────┤
+│ BOTTOM STRIP (~180px): 3 sections                               │
+│  BAND [freq width lift depth + ON]  MOD [mode chips; rate/     │
+│  (selected band color)          phase h-sliders + SYNC | step   │
+│                                 editor when Steps]  OUTPUT      │
+│                                 [width mix level + BYPASS]      │
+└────────────────────────────────────────────────────────────────┘
+```
+
+## Spectrum display (main interaction)
+
+- Canvas, log-freq X (20 Hz–20 kHz), dB Y (-60…0 analyzer, lift overlay normalized).
+- Analyzer: filled magnitude spectrum, `--bg-elevated`→transparent gradient fill, subtle line.
+- **Bells:** each enabled band = bell curve; height = `lift` (extraction amount), center X = `freq`, width = `width` oct. Fill = band color @ 18% alpha, stroke = band color, handle dot at apex. **Disabled (bypassed) band = ghost:** bell stays visible, dimmed (~30% stroke, faint fill, no glow, no pan trace) — off vibe; still click-selectable and draggable; double-click re-enables.
+- Live pan trace: thin horizontal indicator inside each bell showing current mod pan position (animates; preview fakes it).
+- Gestures:
+  - Drag handle: X = freq, Y = lift.
+  - Alt-drag / vertical scroll on handle: width.
+  - Double-click empty area: enable next free band slot there.
+  - Double-click handle: disable band.
+  - Click bell/chip: select band (bottom strip follows).
+- Band chips row (top-left overlay): `B1…B6`, filled = enabled, ring = selected; click select, ⌥click toggle enable.
+
+## Bottom strip sections
+
+### BAND (selected band accent color)
+| Control | Type | Param |
+| :--- | :--- | :--- |
+| Center | arc knob 56px | `bN_freq` |
+| Width | arc knob 56px | `bN_width` |
+| Lift | arc knob 56px | `bN_lift` |
+| Depth | arc knob 56px | `bN_depth` |
+| ON | Chaosverb `flutter-toggle` style | `bN_on` |
+
+### MOD (selected band)
+- Mode selector: 6 text chips — SINE TRI S&H DRIFT CHAOS STEPS (`bN_mode`), selected = band color.
+- H-sliders (Chaosverb `hslider-row` style):
+  - RATE + SYNC toggle (`bN_rate`/`bN_div`/`bN_sync`) — synced shows note div, free shows Hz.
+  - INERTIA (`bN_inertia`).
+  - PHASE (`bN_phase`) — dimmed/disabled for S&H/Drift/Chaos.
+- **Steps mode:** slider stack swaps to step editor — N vertical bars (2–16), bar value = pan (-100…+100, center line), drag to paint; `-`/`+` step count; RATE/SYNC row stays.
+
+### OUTPUT (Chaosverb output styling, `--section-output`)
+| Control | Type | Param |
+| :--- | :--- | :--- |
+| Mix (master depth) | arc knob | `mix` |
+| Level | arc knob | `output` |
+| Bypass | `bypass-btn` | `bypass` |
+
+## Header
+
+- Left: `.plugin-title` "Entropan" (Fraunces 300), `.plugin-eyebrow` "ENTROPIA AUDIO · V0.1.0".
+- Center: `.chaos-row` — undo ↶, **CHAOS** re-roll (`mutate-btn` style; fires re-roll event + flash overlay), redo ↷; preset dropdown below.
+- Right: **SEED** numeric stepper (mono text, ‹ › arrows).
+
+## Controls inventory (visible at once)
+
+- 6 arc knobs (4 band + 2 output)
+- 3 h-sliders (or step editor) + sync/mode toggles
+- 6 mode chips, 6 band chips, ON/BYPASS/CHAOS/undo/redo/preset/seed/gear
+- 1 spectrum canvas
+
+## Parameter ↔ element ID convention
+
+`knob_<paramID>`, `hslider_<paramID>`, `chip_mode_<idx>`, `band_chip_<n>`, `spectrum` canvas. Selected-band controls rebind to `b<sel>_*` params on selection change (JS-side indirection — same widgets, swapped param handles).
+
+## Style notes
+
+- All tokens inherited from Chaosverb (see v2-style-guide.md). No new surface colors.
+- Section accent usage: BAND/MOD sections tint to **selected band hue**; OUTPUT stays `--section-output` grey; header accent = copper.
+- Knob rendering: canvas arc -135°→+135°, 3-pass glow stroke in accent, warm disc face `#1f1c19`, white indicator dot, JetBrains Mono value below (Chaosverb `buildKnob` clone).
+- Motion: `--t-fast/base/slow` + `--ease-editorial`; CHAOS click = `mutation-flash` overlay reuse.

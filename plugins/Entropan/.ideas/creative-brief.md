@@ -15,7 +15,7 @@ Entropan is a band-targeted spectral panner. The user **lifts a band** on a spec
 **Three separated roles:**
 - **Bell (lift gesture)** = *which frequencies* get altered and *how much of them* is routed into the pan path. Center + width choose the region; bell height = extraction amount (`lift`, 0–100%).
 - **DEPTH knob (per band)** = pan modulation amplitude — how far the lifted portion swings.
-- **MIX knob (global)** = master depth, scaling all bands' DEPTH at once. Not a dry/wet — unlifted signal always passes untouched.
+- **AMOUNT knob (global)** = master depth, scaling all bands' DEPTH at once. Not a dry/wet — unlifted signal always passes untouched.
 
 **Lift is pan-only:** no gain change; lifted + unlifted portions sum back to unity when centered.
 
@@ -40,7 +40,7 @@ Every band slot (max **6**) has its own dedicated modulation engine:
 | Chaos | Lorenz/logistic chaotic oscillator — semi-periodic, brand-defining |
 | Steps | Step sequencer — each step's value IS the pan position |
 
-Per band: rate (free Hz or tempo-synced note division), lift (extraction amount = bell height), depth (pan amplitude), inertia (slew: liquid ↔ snap), phase offset. A **scope** in the modulator panel shows the selected band's modulation waveform live; a **floating quick-menu** beside the band's L/R trace gives instant rate/depth access; the **step sequencer** supports per-step ratcheting (1, ½, ¼ durations) and savable patterns. Global **MIX** scales all band depths at once; **CHAOS re-roll button** re-deals the random state of every random-type modulator; **Seed** makes runs reproducible.
+Per band: rate (free Hz or tempo-synced note division), lift (extraction amount = bell height), depth (pan amplitude), inertia (slew: liquid ↔ snap), phase offset. A **scope** in the modulator panel shows the selected band's modulation waveform live; a **floating quick-menu** beside the band's L/R trace gives instant rate/depth access; the **step sequencer** supports slot-stable ratcheting (divide any step in place into 2 or 4 sub-steps — neighbors never move) and savable patterns. Free rate mode reaches **audio rate** (up to 1 kHz), and **MIDI mode** locks a band's rate to played notes for pitched AM-panning. Global **AMOUNT** scales all band depths at once; **GLOBAL SPEED** (÷4…×4) makes the whole plugin slower or faster; **CHAOS re-roll button** re-deals the random state of every random-type modulator; **Seed** makes runs reproducible.
 
 ## UI Direction (predetermined by user)
 
@@ -54,6 +54,6 @@ Per band: rate (free Hz or tempo-synced note division), lift (extraction amount 
 
 - **Null test:** no bands lifted, OR any band at `lift = 0` → output ≈ input (time-domain complementary split only engages per active band).
 - One band, Sine mode, high inertia → smooth, musical auto-pan of that region only; rest of the spectrum image untouched.
-- Sweeping `lift` 0→100% fades the region's motion in smoothly (no clicks); sweeping `depth` widens the swing; `mix` at 0% freezes all bands to center regardless of settings.
+- Sweeping `lift` 0→100% fades the region's motion in smoothly (no clicks); sweeping `depth` widens the swing; `amount` at 0% freezes all bands to center regardless of settings.
 - 6 bands with mixed Chaos/S&H/Steps modes → wild motion, still mix-safe: residual spectrum stays centered, no level pumping.
 - Automation-safe: toggling bands on/off produces no clicks (crossfaded engage).

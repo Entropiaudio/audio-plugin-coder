@@ -5,10 +5,10 @@
 ## Implementation Strategy: Phased
 
 ### Phase 4.1: Core Processing (null-test first)
-- [ ] `PluginProcessor` skeleton + full 70-param APVTS layout (from parameter-spec).
+- [ ] `PluginProcessor` skeleton + full 71-param APVTS layout (from parameter-spec).
 - [ ] Band splitter cascade: 6 × 3-way LR4 split (`juce::dsp::LinkwitzRileyFilter`) with allpass compensation, serial residual chain.
 - [ ] Lift split per band: `lifted = band·lift` → pan path, `unlifted = band·(1−lift)` → dry sum.
-- [ ] Static equal-power pan per band (fixed pan target from `depth`·`mix`, no modulators yet).
+- [ ] Static equal-power pan per band (fixed pan target from `depth`·`amount`, no modulators yet).
 - [ ] Sum + output/bypass stages.
 - [ ] **Gate:** null test — all bands off → output ≈ input; 1 band on, lift 0 (or depth 0, centered) → output ≈ input (allpass-flat magnitude).
 
@@ -17,12 +17,13 @@
 - [ ] Sine, Triangle (phase accumulator + phase offset).
 - [ ] S&H, Drift (seeded RNG streams, `seed + bandIndex`).
 - [ ] Chaos (Lorenz, control-rate integration, normalized x).
-- [ ] Tempo sync via `AudioPlayHead` PPQ (interval boundaries, loop-jump safety, free-run fallback).
+- [ ] Rate modes: tempo sync via `AudioPlayHead` PPQ (loop-jump safety), free Hz incl. audio-rate per-sample path (>~50 Hz), MIDI note tracking (`acceptsMidi`, last-note priority, inertia = glide).
+- [ ] Global speed multiplier into all band rates.
 - [ ] Re-roll: atomic flag UI→audio, re-deal at next tick.
-- [ ] Mix master-depth scaling.
+- [ ] Amount master-depth scaling.
 
 ### Phase 4.3: Steps Mode + State + Analyzer
-- [ ] Step sequencer engine (2–16 steps, value = pan target, PPQ/free clocked, phase = start offset).
+- [ ] Step sequencer engine (2–16 slot-stable slots, subdiv 1/2/4 ratchets, PPQ/free clocked, phase = start offset).
 - [ ] Step data in ValueTree; `getStateInformation`/`setStateInformation` round-trip incl. APVTS + steps.
 - [ ] Analyzer FIFO tap → UI-thread FFT 2048 → spectrum frames to WebView event channel.
 
