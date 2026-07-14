@@ -1357,7 +1357,9 @@ function bandBodyAt(e) {
   let best = -1, bd = 1e9;
   for (let i = 0; i < 6; i++) {
     const pb = P.bands[i];
-    if (!pb.on.get() && !ui.bands[i].configured) continue;
+    if (!pb.on.get()) continue;   // body-click selects ACTIVE bands only —
+                                  // ghosts (their wide skirts read as "empty
+                                  // space") are selected via their tip
     const cx = fx(pb.freq.get());
     const half = (pb.width.get() / 2) / Math.log2(FMAX / FMIN) * 1.6;
     if (Math.abs(x - cx) > half) continue;
