@@ -232,7 +232,7 @@
     width: 72px; height: 72px;
   }
   .knob-face {
-    position: absolute; top: 12px; left: 12px; width: 32px; height: 32px;
+    position: absolute; top: 9px; left: 9px; width: 38px; height: 38px;
     border-radius: 50%; background: #1f1c19;
     border: 1px solid var(--border-bright);
     box-shadow: none; z-index: 2;
@@ -438,7 +438,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B20</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B21</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -577,7 +577,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B20";
+const ENTROPAN_BUILD = "B21";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -843,9 +843,9 @@ function drawKnob(canvas, normValue, accentColor) {
         ctx.stroke();
       }
     };
-    ctx.save(); ctx.shadowColor = accentColor; ctx.shadowBlur = 14; ctx.globalAlpha = 0.35; strokeArc(); ctx.restore();
-    ctx.save(); ctx.shadowColor = accentColor; ctx.shadowBlur = 7;  ctx.globalAlpha = 0.6;  strokeArc(); ctx.restore();
-    ctx.save(); ctx.shadowColor = accentColor; ctx.shadowBlur = 2;  ctx.globalAlpha = 1.0;  strokeArc(); ctx.restore();
+    ctx.save(); ctx.shadowColor = accentColor; ctx.shadowBlur = 9;   ctx.globalAlpha = 0.30; strokeArc(); ctx.restore();
+    ctx.save(); ctx.shadowColor = accentColor; ctx.shadowBlur = 4.5; ctx.globalAlpha = 0.55; strokeArc(); ctx.restore();
+    ctx.save(); ctx.shadowColor = accentColor; ctx.shadowBlur = 1.5; ctx.globalAlpha = 1.0;  strokeArc(); ctx.restore();
   }
 }
 
@@ -867,7 +867,7 @@ function makeKnob(containerId, label, opts) {
     refresh() {
       const norm = opts.get();
       drawKnob(canvas, norm, k.color);
-      ind.style.transform = `rotate(${-135 + clamp(norm, 0, 1) * 270}deg) translateY(-12px)`;
+      ind.style.transform = `rotate(${-135 + clamp(norm, 0, 1) * 270}deg) translateY(-14px)`;
       ind.style.boxShadow = `0 0 4px ${k.color}`;
       val.textContent = opts.fmt();
     }
