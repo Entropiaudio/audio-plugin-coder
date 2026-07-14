@@ -4,13 +4,14 @@
 //==============================================================================
 namespace
 {
-    // Log-shaped range: value = min * (max/min)^norm — must mirror the maps in
-    // ui/public/index.html (MAPS.log) so UI and host agree on every position.
+    // Log-feel range via JUCE's standard skew (centre = geometric mean).
+    // IMPORTANT: custom-lambda ranges serialize skew=1 to the WebView JS lib
+    // (which only knows start/end/skew) — UI and host then disagree on every
+    // position. Standard skew keeps C++ and JS byte-compatible.
     juce::NormalisableRange<float> logRange (float lo, float hi)
     {
-        juce::NormalisableRange<float> r (lo, hi,
-            [lo, hi] (float, float, float norm)  { return lo * std::pow (hi / lo, norm); },
-            [lo, hi] (float, float, float value) { return std::log (value / lo) / std::log (hi / lo); });
+        juce::NormalisableRange<float> r (lo, hi, 0.0f);
+        r.setSkewForCentre (std::sqrt (lo * hi));
         return r;
     }
 
@@ -268,7 +269,6 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         double quartersPerCycle = 1.0;// sync: musical cycle length
         float  phaseOff = 0.0f;
         float  lorenzDt = 0.0f;
-        float  reachComp = 1.0f;
     };
     std::array<BandBlock, kNumBands> bb;
 
@@ -437,12 +437,10 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     break;
             }
 
-            // inertia slew (rate-relative) + reach compensation, then
-            // depth · master amount — inertia shapes the path, never the reach
+            // inertia slew (per-mode policy), then depth · master amount
             m.value += (m.target - m.value) * m.slewCoeff;
             const float depthV = b.depth.getNextValue();
-            const float shaped = juce::jlimit (-1.0f, 1.0f, m.value * cfg.reachComp);
-            const float panV = juce::jlimit (-1.0f, 1.0f, shaped * depthV * amountV);
+            const float panV = juce::jlimit (-1.0f, 1.0f, m.value * depthV * amountV);
 
             // 3-way split (processSample yields the complementary LP/HP pair)
             float lowL = 0, restL = 0, lowR = 0, restR = 0;
@@ -487,6 +485,21 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     for (int i = 0; i < kNumBands; ++i)
         modOutDepth[(size_t) i].store (mods[(size_t) i].value * bands[(size_t) i].depth.getCurrentValue(),
                                        std::memory_order_relaxed);
+
+    // ── scope ring: all bands every 64 samples (~750 Hz) — smooth waveform ──
+    {
+        int w = scopeWrite.load (std::memory_order_relaxed);
+        for (int s2 = scopePhase; s2 < numSamples; s2 += kScopeStride)
+        {
+            for (int i = 0; i < kNumBands; ++i)
+                scopeRing[(size_t) i][(size_t) (w & (kScopeRingSize - 1))] =
+                    mods[(size_t) i].value * bands[(size_t) i].depth.getCurrentValue();
+            ++w;
+        }
+        scopePhase = (scopePhase + kScopeStride * ((numSamples - scopePhase + kScopeStride - 1) / kScopeStride)) - numSamples;
+        if (scopePhase < 0 || scopePhase >= kScopeStride) scopePhase = 0;
+        scopeWrite.store (w, std::memory_order_release);
+    }
 
     // ── analyzer tap: mono of the processed output ──
     {

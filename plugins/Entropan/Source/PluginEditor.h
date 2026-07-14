@@ -58,6 +58,7 @@ private:
     juce::dsp::WindowingFunction<float> window { kFftSize, juce::dsp::WindowingFunction<float>::hann };
     std::vector<float> fifoDrain, fftAccum, fftWork;
     int accumFill = 0;
+    int scopeReadPos = 0;
 
     juce::ComponentBoundsConstrainer constrainer;
     EntropanAudioProcessor& audioProcessor;

@@ -438,7 +438,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B14</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B15</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -577,7 +577,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B14";
+const ENTROPAN_BUILD = "B15";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -641,9 +641,20 @@ function makeParam(def) {
     if (def.kind === "slider") {
       const st = Juce.getSliderState(def.id);
       st.valueChangedEvent.addListener(notify);
+      // Use the SAME skew formula as the JUCE frontend lib (properties carry
+      // start/end/skew from the C++ NormalisableRange) — custom client-side
+      // maps drift from the host on every skewed parameter.
+      const toScaled = norm => {
+        const pr = st.properties;
+        return Math.pow(clamp(norm, 0, 1), 1 / pr.skew) * (pr.end - pr.start) + pr.start;
+      };
+      const toNorm = v => {
+        const pr = st.properties;
+        return Math.pow(clamp((v - pr.start) / (pr.end - pr.start), 0, 1), pr.skew);
+      };
       return {
-        get: () => def.map.from(st.getNormalisedValue()),
-        set: v => st.setNormalisedValue(def.map.to(v)),
+        get: () => toScaled(st.getNormalisedValue()),
+        set: v => st.setNormalisedValue(toNorm(v)),
         onChange: f => listeners.push(f)
       };
     }
@@ -689,6 +700,7 @@ const getStepsNative = native("getSteps");
    ════════════════════════════════════════════════════════════════════ */
 const ui = {
   selected: 0,
+  menuHidden: false,   // true after clicking empty space (explicit deselect)
   bands: Array.from({ length: 6 }, (_, i) => ({
     configured: false,   // nothing on the canvas until the user adds a band
     stepCount: 8,
@@ -1012,6 +1024,7 @@ function refreshPanels() {
   rm.classList.toggle("active", pb.ratemode.get() !== 1);
   const mode = pb.mode.get();
   hsPhase.el.classList.toggle("disabled", mode >= 2 && mode <= 4);
+  hsInertia.el.classList.toggle("disabled", mode <= 1);   // Sine/Tri: already smooth — no slew
   hsInertia.el.classList.toggle("disabled", mode <= 1); // sine/tri: no slew — depth reach stays full
   document.getElementById("sliderStack").style.display = mode === 5 ? "none" : "flex";
   document.getElementById("stepEditor").classList.toggle("visible", mode === 5);
@@ -1021,11 +1034,19 @@ function refreshPanels() {
   document.getElementById("bypassDim").classList.toggle("on", P.bypass.get());
 }
 
-/* param changes from host (automation) → repaint panels */
-P.bands.forEach(pb => Object.values(pb).forEach(p => p.onChange(() => refreshPanels())));
-P.amount.onChange(() => knobAmount.refresh());
-P.output.onChange(() => knobOut.refresh());
-P.bypass.onChange(() => refreshPanels());
+/* param changes from host (automation) → ONE coalesced repaint per frame.
+   (Direct per-event refresh redraws every knob's 3-pass glow per mousemove —
+   that was the drag stutter.) */
+let panelsDirty = false;
+function schedulePanels() {
+  if (panelsDirty) return;
+  panelsDirty = true;
+  requestAnimationFrame(() => { panelsDirty = false; refreshPanels(); });
+}
+P.bands.forEach(pb => Object.values(pb).forEach(p => p.onChange(schedulePanels)));
+P.amount.onChange(schedulePanels);
+P.output.onChange(schedulePanels);
+P.bypass.onChange(schedulePanels);
 
 /* ════════════════════════════════════════════════════════════════════
    STEP EDITOR (slot-stable ratchets)
@@ -1382,11 +1403,16 @@ spec.addEventListener("mousedown", e => {
   const hit = bandAt(e);
   if (hit >= 0) {
     dragBand = hit; dragMoved = false; downPos = [e.clientX, e.clientY];
-    ui.selected = hit; refreshPanels();
+    ui.selected = hit; ui.menuHidden = false; refreshPanels();
     return;
   }
   const body = bandBodyAt(e);
-  if (body >= 0 && body !== ui.selected) { ui.selected = body; refreshPanels(); }
+  if (body >= 0) {
+    ui.menuHidden = false;
+    if (body !== ui.selected) { ui.selected = body; refreshPanels(); }
+    return;
+  }
+  ui.menuHidden = true;   // clicked truly empty space → tuck the menu away
 });
 window.addEventListener("mousemove", e => {
   if (dragBand < 0) return;
@@ -1413,6 +1439,7 @@ spec.addEventListener("dblclick", e => {
   const r = spec.getBoundingClientRect();
   const pb = P.bands[free];
   pb.on.set(true); ui.bands[free].configured = true;
+  ui.menuHidden = false;
   pb.freq.set(xf(clamp((e.clientX - r.left) / r.width, 0, 1)));
   pb.lift.set(clamp((1 - (e.clientY - r.top) / r.height) / 0.82 * 100, 0, 100));
   ui.selected = free;
@@ -1461,7 +1488,7 @@ function qmRefreshRow(row, norm, text, color) {
 }
 function updateQuickMenu() {
   const pb = PB(), wrap = spec.parentElement;
-  if (!pb.on.get()) { quickMenu.classList.remove("visible"); return; }
+  if (!pb.on.get() || ui.menuHidden) { quickMenu.classList.remove("visible"); return; }
   quickMenu.classList.add("visible");
   const rw = wrap.clientWidth, rh = wrap.clientHeight;
   const topH = 0.82;
@@ -1519,7 +1546,20 @@ let scopeBuf = new Float32Array(SCOPE_N);
 let scopeHead = 0, scopeBand = 0;
 let lastModEvent = 0;
 
+let lastScopeVals = 0;
 if (EMBEDDED) {
+  window.__JUCE__.backend.addEventListener("scopevals", data => {
+    try {
+      const d = typeof data === "string" ? JSON.parse(data) : data;
+      if (!d || !d.bands) return;
+      lastScopeVals = performance.now();
+      const sel = d.bands[ui.selected] || [];
+      for (let k = 0; k < sel.length; k++) {
+        scopeBuf[scopeHead] = (PB().on.get() ? sel[k] : 0) * (P.amount.get() / 100);
+        scopeHead = (scopeHead + 1) % SCOPE_N;
+      }
+    } catch {}
+  });
   window.__JUCE__.backend.addEventListener("modvals", data => {
     try {
       const d = typeof data === "string" ? JSON.parse(data) : data;
@@ -1537,6 +1577,7 @@ if (EMBEDDED) {
 
 function pushScope() {
   if (scopeBand !== ui.selected) { scopeBuf.fill(0); scopeBand = ui.selected; }
+  if (EMBEDDED && performance.now() - lastScopeVals < 300) return; // real 750 Hz feed active
   scopeBuf[scopeHead] = PB().on.get() ? ui.bands[ui.selected].pan * (P.amount.get() / 100) : 0;
   scopeHead = (scopeHead + 1) % SCOPE_N;
 }

@@ -167,11 +167,17 @@ public:
     // Analyzer tap: mono (L+R)/2 of the processed output, drained by the editor.
     int popAnalyzer (float* dest, int maxNum);
 
+    // Mod scope ring: every band sampled every 64 audio samples (~750 Hz).
+    static constexpr int kScopeStride = 64, kScopeRingSize = 2048;
+    std::array<std::array<float, kScopeRingSize>, kNumBands> scopeRing {};
+    std::atomic<int> scopeWrite { 0 };
+
 private:
     void parseStepsSnapshot (int bandIndex);
 
     std::array<std::array<StepsData, 2>, kNumBands> stepsBuf {};
     std::array<std::atomic<int>, kNumBands> stepsActive {};
+    int scopePhase = 0;
 
     juce::AbstractFifo analyzerFifo { 1 << 14 };
     std::vector<float> analyzerStore;

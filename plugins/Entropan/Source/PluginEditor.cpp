@@ -168,6 +168,35 @@ void EntropanAudioProcessorEditor::timerCallback()
         webView->emitEventIfBrowserIsVisible ("modvals", juce::var (obj));
     }
 
+    // ── high-rate scope samples (all bands, ~750 Hz ring) ──
+    {
+        const int w = audioProcessor.scopeWrite.load (std::memory_order_acquire);
+        int n = w - scopeReadPos;
+        if (n > 0)
+        {
+            n = juce::jmin (n, EntropanAudioProcessor::kScopeRingSize / 2);
+            const int startIdx = w - n;
+            juce::Array<juce::var> bandsArr;
+            for (int i = 0; i < EntropanAudioProcessor::kNumBands; ++i)
+            {
+                juce::Array<juce::var> vals;
+                vals.ensureStorageAllocated (n);
+                for (int k = 0; k < n; ++k)
+                    vals.add ((double) audioProcessor.scopeRing[(size_t) i]
+                        [(size_t) ((startIdx + k) & (EntropanAudioProcessor::kScopeRingSize - 1))]);
+                bandsArr.add (juce::var (vals));
+            }
+            scopeReadPos = w;
+            auto* so = new juce::DynamicObject();
+            so->setProperty ("bands", bandsArr);
+            webView->emitEventIfBrowserIsVisible ("scopevals", juce::var (so));
+        }
+        else if (n < 0)
+        {
+            scopeReadPos = w;
+        }
+    }
+
     // ── spectrum: drain FIFO into a sliding FFT frame ──
     const int got = audioProcessor.popAnalyzer (fifoDrain.data(), kFftSize);
     if (got > 0)
