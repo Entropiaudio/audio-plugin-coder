@@ -387,29 +387,26 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // Lorenz integration step scales with rate; clamped for stability.
         cfg.lorenzDt = (float) juce::jmin (0.02, cfg.cycPerSample * 1.2);
 
-        // Inertia → per-sample one-pole coefficient. Policy (keeps DEPTH reach
-        // independent of inertia):
-        //   Sine/Tri  — no slew (already smooth; lag would only eat amplitude)
-        //   S&H/Steps — slew capped at cyclePeriod/3.5 so the pan ALWAYS
-        //               arrives at the full target before the next deal
-        //   Drift/Chaos — free viscosity (unbounded wanderers by nature)
-        const float inertia = pp.inertia->load() * 0.01f;
-        float slewT = 0.004f + std::pow (inertia, 2.2f) * 2.0f;
-        if (cfg.mode == 0 || cfg.mode == 1)
-        {
-            m.slewCoeff = 1.0f;   // bypass
-        }
-        else
-        {
-            if (cfg.mode == 2 || cfg.mode == 5)
-            {
-                const double period = cfg.cycPerSample > 1.0e-9
-                                        ? 1.0 / (cfg.cycPerSample * currentSampleRate)
-                                        : 1.0e9;
-                slewT = (float) juce::jmin ((double) slewT, period / 3.5);
-            }
-            m.slewCoeff = 1.0f - std::exp (-1.0f / (juce::jmax (slewT, 1.0e-4f) * (float) currentSampleRate));
-        }
+        // Inertia → per-sample one-pole slew. Live on EVERY mode; reach stays
+        // owned by DEPTH (never shrunk by inertia except by physical necessity):
+        //   Sine/Tri   — mild lag, slew corner kept ABOVE the mod rate so the
+        //                waveform passes at ~full amplitude (reach preserved)
+        //   S&H/Steps  — slew capped at cyclePeriod/3.5 → pan always ARRIVES at
+        //                the full target before the next deal
+        //   Drift/Chaos— free viscosity (unbounded wanderers by nature)
+        const float  inertia = pp.inertia->load() * 0.01f;
+        const double i2 = (double) inertia * inertia;
+        const double periodS = cfg.cycPerSample > 1.0e-9
+                                 ? 1.0 / (cfg.cycPerSample * currentSampleRate) : 1.0e9;
+        double slewT;
+        if (cfg.mode == 2 || cfg.mode == 5)          // S&H / Steps
+            slewT = juce::jmin (0.004 + i2 * 2.0, periodS / 3.5);
+        else if (cfg.mode == 3 || cfg.mode == 4)     // Drift / Chaos
+            slewT = juce::jmin (2.0, 0.004 + i2 * 2.0);
+        else                                          // Sine / Tri
+            slewT = i2 * 0.10 * periodS;              // corner ≈ 1.6·rate at max
+        m.slewCoeff = slewT < 5.0e-4 ? 1.0f
+                    : 1.0f - std::exp (-1.0f / ((float) slewT * (float) currentSampleRate));
     }
 
     outGainSm.setTargetValue (juce::Decibels::decibelsToGain (pOutput->load()));

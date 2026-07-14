@@ -438,7 +438,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B19</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B20</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -577,7 +577,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B19";
+const ENTROPAN_BUILD = "B20";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -1089,8 +1089,6 @@ function refreshPanels() {
   rm.classList.toggle("active", pb.ratemode.get() !== 1);
   const mode = pb.mode.get();
   hsPhase.el.classList.toggle("disabled", mode >= 2 && mode <= 4);
-  hsInertia.el.classList.toggle("disabled", mode <= 1);   // Sine/Tri: already smooth — no slew
-  hsInertia.el.classList.toggle("disabled", mode <= 1); // sine/tri: no slew — depth reach stays full
   document.getElementById("sliderStack").style.display = mode === 5 ? "none" : "flex";
   document.getElementById("stepEditor").classList.toggle("visible", mode === 5);
   document.getElementById("stepCount").textContent = b.stepCount;
@@ -1377,7 +1375,7 @@ function drawSpectrum(t) {
     // gain aura — expensive blur render is CACHED per band; re-rendered only
     // when bell geometry or gain changes, stamped as a bitmap every frame
     const gainV = pb.gain.get();
-    if (Math.abs(gainV) > 0.05 && !ghost) {
+    if (Math.abs(gainV) > 0.05 && !ghost && dragBand !== bi) {
       const boost = gainV > 0;
       const amt = Math.abs(gainV) / 6;
       const blur = (5 + amt * 22) * DPR;
@@ -1453,7 +1451,7 @@ function drawSpectrum(t) {
 }
 
 /* gestures */
-let dragBand = -1, downPos = null;
+let dragBand = -1, downPos = null, bandDragEvent = null;
 function bandAt(e) {
   const r = spec.getBoundingClientRect();
   const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
@@ -1504,13 +1502,18 @@ spec.addEventListener("mousedown", e => {
 window.addEventListener("mousemove", e => {
   if (dragBand < 0) return;
   if (downPos && Math.hypot(e.clientX - downPos[0], e.clientY - downPos[1]) < 4) return;
+  bandDragEvent = e;   // apply once per frame in the loop — not per mouse event
+});
+window.addEventListener("mouseup", () => { dragBand = -1; downPos = null; bandDragEvent = null; });
+function applyBandDrag() {
+  if (dragBand < 0 || !bandDragEvent) return;
+  const e = bandDragEvent; bandDragEvent = null;
   const r = spec.getBoundingClientRect();
   const pb = P.bands[dragBand];
   pb.freq.set(xf(clamp((e.clientX - r.left) / r.width, 0, 1)));
   pb.lift.set(clamp((1 - (e.clientY - r.top) / r.height) / 0.82 * 100, 0, 100));
   knobFreq.refresh(); knobLift.refresh();
-});
-window.addEventListener("mouseup", () => { dragBand = -1; downPos = null; });
+}
 spec.addEventListener("dblclick", e => {
   const hit = bandAt(e);
   if (hit >= 0) { // double-click the tip = on/off toggle
@@ -1745,8 +1748,11 @@ function tickMods(dt) {
     let k;
     if (mode <= 1) k = 1;                          // sine/tri: no slew
     else {
-      let slewT = 0.004 + Math.pow(pb.inertia.get() / 100, 2.2) * 2.0;
-      if (mode === 2 || mode === 5) slewT = Math.min(slewT, (1 / Math.max(f, 1e-6)) / 3.5);
+      const inr = pb.inertia.get() / 100, i2 = inr * inr, per = 1 / Math.max(f, 1e-6);
+      let slewT;
+      if (mode === 2 || mode === 5) slewT = Math.min(0.004 + i2 * 2.0, per / 3.5);
+      else if (mode === 3 || mode === 4) slewT = Math.min(2.0, 0.004 + i2 * 2.0);
+      else slewT = i2 * 0.10 * per;
       k = 1 - Math.exp(-dt / slewT);
     }
     b.pan += (b.target * (pb.depth.get() / 100) - b.pan) * k;
@@ -1771,6 +1777,7 @@ function loop(ts) {
   }
   const now = performance.now(), dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now; simClock += dt;
+  applyBandDrag();
   tickAnalyzer(simClock);
   tickMods(dt);
   pushScope();
