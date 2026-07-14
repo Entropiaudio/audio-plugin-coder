@@ -43,11 +43,19 @@ Architecture: 6 band slots, each with dedicated modulator (see creative-brief).
 
 ## Step sequencer data (non-parameter state)
 
-Per band, Steps mode: **2–16 steps, each step's value = pan position** (-100…+100).
+Per band, Steps mode: **2–16 steps; each step = { value, length }**.
 
-- Stored in the plugin `ValueTree` state blob, **NOT** as APVTS parameters (16 steps × 6 bands = 96 extra params would explode the layout and pollute host automation lists).
-- Step count + step values edited in the UI step-sequencer panel, saved with session and presets via `getStateInformation`/`setStateInformation`.
+- `value` = pan position (-100…+100).
+- `length` = step duration as fraction of the base interval (`_div` when synced / `_rate` cycle when free): **1, 1/2, or 1/4** (ratcheting — e.g. one step at 1/8, the next at 1/16 when base = 1/8). Sequencer clock walks weighted durations; cycle length = Σ lengths.
+- Stored in the plugin `ValueTree` state blob, **NOT** as APVTS parameters (16 steps × 6 bands × 2 fields would explode the layout and pollute host automation lists).
+- Step count, values and lengths edited in the UI step-sequencer panel (alt-click = cycle step length), saved with session and presets via `getStateInformation`/`setStateInformation`.
+- **Step pattern presets:** factory patterns (Ramp Up/Down, Pyramid, Ping-Pong, Ratchet LR) + user-saved named patterns (persisted to a small user file, e.g. `~/Library/Application Support/Entropia Audio/Entropan/step-patterns.json`); selectable per band from the step editor.
 - Not host-automatable by design; `_rate`/`_div` still clock the sequencer and remain automatable.
+
+## UI-only features (no parameters)
+
+- **Modulation scope** — oscilloscope of selected band's modulator output; fed by processor→UI telemetry event (~30 Hz per-band mod value), display only.
+- **Floating band quick-menu** — RATE + DEPTH mini-sliders floating next to the selected band's pan trace; binds to the same `bN_rate`/`bN_div`/`bN_depth` params (additional access point, not new params).
 
 ## UI section mapping (Chaosverb-clone layout)
 

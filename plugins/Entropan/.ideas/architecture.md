@@ -22,7 +22,7 @@
    | S&H | New uniform(-1,1) target at each interval boundary |
    | Drift | Smoothed random walk (interpolated value-noise clocked by rate) |
    | Chaos | Lorenz system integrated at control rate; rate scales dt; x-component normalized to ±1 |
-   | Steps | Sequencer 2–16 steps; step value = pan target; clocked by rate/div; phase offsets start position |
+   | Steps | Sequencer 2–16 steps; step = {value, length}; length ∈ {1, ½, ¼} of base interval (ratchet); weighted-duration clock; phase offsets start position |
    - **Inertia** = one-pole slew on modulator output → pan target. 0% = instant snap, 100% ≈ 2 s glide (exp map).
    - **Depth**: `pan = mod · depth · mix_master` (`mix` = global master depth).
    - **Tempo sync**: `AudioPlayHead` PPQ → interval boundaries for S&H/Steps, cycle length for Sine/Tri/Drift. Free-run Hz fallback when no playhead/`sync` off.
@@ -33,7 +33,10 @@
    - Σ (panned lifted portions + unlifted portions + residual) → **Output** gain → **Bypass** (crossfaded). (No global width/M-S stage — dropped.)
    - **Mix = master depth**: smoothed multiplier into all band depths (NO dry/wet stage — unlifted spectrum is inherently dry).
 
-5. **Analyzer Tap** (display only, NOT in audio path)
+5. **Mod telemetry** (display only)
+   - Control thread publishes each band's current mod value (post-inertia) at ~30 Hz to the UI event channel → scope ring buffer + pan-trace animation. No audio-thread allocation; reuse Chaosverb feedback-event pattern.
+
+6. **Analyzer Tap** (display only, NOT in audio path)
    - Lock-free FIFO (input or post-output tap) → message thread → `juce::dsp::FFT` 2048 → magnitude spectrum → WebView via JUCE event (same pattern as SNIPBridge/Chaosverb feedback events).
    - Drives spectrum display + lift-gesture UI.
 

@@ -40,7 +40,7 @@ Every band slot (max **6**) has its own dedicated modulation engine:
 | Chaos | Lorenz/logistic chaotic oscillator — semi-periodic, brand-defining |
 | Steps | Step sequencer — each step's value IS the pan position |
 
-Per band: rate (free Hz or tempo-synced note division), lift (extraction amount = bell height), depth (pan amplitude), inertia (slew: liquid ↔ snap), phase offset. Global **MIX** scales all band depths at once; **CHAOS re-roll button** re-deals the random state of every random-type modulator; **Seed** makes runs reproducible.
+Per band: rate (free Hz or tempo-synced note division), lift (extraction amount = bell height), depth (pan amplitude), inertia (slew: liquid ↔ snap), phase offset. A **scope** in the modulator panel shows the selected band's modulation waveform live; a **floating quick-menu** beside the band's L/R trace gives instant rate/depth access; the **step sequencer** supports per-step ratcheting (1, ½, ¼ durations) and savable patterns. Global **MIX** scales all band depths at once; **CHAOS re-roll button** re-deals the random state of every random-type modulator; **Seed** makes runs reproducible.
 
 ## UI Direction (predetermined by user)
 
