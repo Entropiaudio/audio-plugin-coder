@@ -61,6 +61,10 @@ EntropanAudioProcessor::EntropanAudioProcessor()
             json << "]}";
             setStepsJson (i, json);
         }
+        else
+        {
+            parseStepsSnapshot (i);
+        }
     }
 }
 
@@ -96,7 +100,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::crea
         const juce::String label = "B" + juce::String (i + 1) + " ";
 
         params.push_back (std::make_unique<juce::AudioParameterBool> (
-            juce::ParameterID { p + "on", 1 }, label + "Enable", i == 0));
+            juce::ParameterID { p + "on", 1 }, label + "Enable", false));   // default preset: no bands
         params.push_back (std::make_unique<juce::AudioParameterFloat> (
             juce::ParameterID { p + "freq", 1 }, label + "Frequency",
             logRange (20.0f, 20000.0f), kBandFreqDefaults[i],
@@ -158,6 +162,7 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     amountSm.reset  (sampleRate, 0.020);
 
     dryBuffer.setSize (2, samplesPerBlock);
+    analyzerStore.resize ((size_t) analyzerFifo.getTotalSize(), 0.0f);
 
     for (auto& m : mods)
         m = Modulator {};
@@ -407,7 +412,21 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     m.target = juce::jlimit (-1.0f, 1.0f, (float) (m.lx / 18.0));
                     break;
                 }
-                case 5: // Steps: engine lands in Phase 4.3 — hold centre
+                case 5: // Steps: slot-stable ratchets (RT snapshot)
+                {
+                    const auto& sd = stepsBuf[(size_t) i][(size_t) stepsActive[(size_t) i].load (std::memory_order_acquire)];
+                    if (sd.count > 0)
+                    {
+                        double sp = frac * (double) sd.count;
+                        int slot = juce::jlimit (0, sd.count - 1, (int) sp);
+                        const auto& sl = sd.slots[slot];
+                        const int sub = juce::jlimit (0, sl.subdiv - 1, (int) ((sp - (double) slot) * (double) sl.subdiv));
+                        m.target = sl.vals[sub];
+                    }
+                    else
+                        m.target = 0.0f;
+                    break;
+                }
                 default:
                     m.target = 0.0f;
                     break;
@@ -455,6 +474,36 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         left[s]  = xl + (dryBuffer.getSample (0, s) - xl) * by;
         right[s] = xr + (dryBuffer.getSample (1, s) - xr) * by;
     }
+
+    // ── UI telemetry: post-slew mod × depth, one snapshot per block ──
+    for (int i = 0; i < kNumBands; ++i)
+        modOutDepth[(size_t) i].store (mods[(size_t) i].value * bb[(size_t) i].depth,
+                                       std::memory_order_relaxed);
+
+    // ── analyzer tap: mono of the processed output ──
+    {
+        int start1 = 0, size1 = 0, start2 = 0, size2 = 0;
+        analyzerFifo.prepareToWrite (numSamples, start1, size1, start2, size2);
+        int s2 = 0;
+        for (int k = 0; k < size1; ++k, ++s2)
+            analyzerStore[(size_t) (start1 + k)] = 0.5f * (left[s2] + right[s2]);
+        for (int k = 0; k < size2; ++k, ++s2)
+            analyzerStore[(size_t) (start2 + k)] = 0.5f * (left[s2] + right[s2]);
+        analyzerFifo.finishedWrite (size1 + size2);
+    }
+}
+
+int EntropanAudioProcessor::popAnalyzer (float* dest, int maxNum)
+{
+    int start1 = 0, size1 = 0, start2 = 0, size2 = 0;
+    analyzerFifo.prepareToRead (maxNum, start1, size1, start2, size2);
+    int n = 0;
+    for (int k = 0; k < size1; ++k)
+        dest[n++] = analyzerStore[(size_t) (start1 + k)];
+    for (int k = 0; k < size2; ++k)
+        dest[n++] = analyzerStore[(size_t) (start2 + k)];
+    analyzerFifo.finishedRead (n);
+    return n;
 }
 
 //==============================================================================
@@ -466,6 +515,41 @@ juce::String EntropanAudioProcessor::getStepsJson (int bandIndex) const
 void EntropanAudioProcessor::setStepsJson (int bandIndex, const juce::String& json)
 {
     apvts.state.setProperty ("steps_b" + juce::String (bandIndex + 1), json, nullptr);
+    parseStepsSnapshot (bandIndex);
+}
+
+void EntropanAudioProcessor::parseStepsSnapshot (int bandIndex)
+{
+    // Message-thread only. Writes the inactive snapshot, then publishes it.
+    const auto json = getStepsJson (bandIndex);
+    const auto parsed = juce::JSON::parse (json);
+
+    const int inactive = 1 - stepsActive[(size_t) bandIndex].load();
+    auto& sd = stepsBuf[(size_t) bandIndex][(size_t) inactive];
+    sd = StepsData {};
+
+    if (auto* obj = parsed.getDynamicObject())
+    {
+        const auto steps = obj->getProperty ("steps");
+        if (auto* arr = steps.getArray())
+        {
+            sd.count = juce::jlimit (0, kMaxSteps, arr->size());
+            for (int k = 0; k < sd.count; ++k)
+            {
+                auto& slot = sd.slots[k];
+                if (auto* so = (*arr)[k].getDynamicObject())
+                {
+                    const int subdiv = (int) so->getProperty ("subdiv");
+                    slot.subdiv = (subdiv == 2 || subdiv == 4) ? subdiv : 1;
+                    if (auto* vals = so->getProperty ("vals").getArray())
+                        for (int v = 0; v < juce::jmin (4, vals->size()); ++v)
+                            slot.vals[v] = juce::jlimit (-1.0f, 1.0f, (float) (double) (*vals)[v]);
+                }
+            }
+        }
+    }
+
+    stepsActive[(size_t) bandIndex].store (inactive, std::memory_order_release);
 }
 
 //==============================================================================
@@ -480,8 +564,14 @@ void EntropanAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 void EntropanAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     if (auto xmlState = getXmlFromBinary (data, sizeInBytes))
+    {
         if (xmlState->hasTagName (apvts.state.getType()))
+        {
             apvts.replaceState (juce::ValueTree::fromXml (*xmlState));
+            for (int i = 0; i < kNumBands; ++i)
+                parseStepsSnapshot (i);
+        }
+    }
 }
 
 //==============================================================================

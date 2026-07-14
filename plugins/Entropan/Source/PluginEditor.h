@@ -18,7 +18,8 @@
  *   - 19 choice     → WebComboBoxRelay
  *   -  7 bool       → WebToggleButtonRelay
  */
-class EntropanAudioProcessorEditor : public juce::AudioProcessorEditor
+class EntropanAudioProcessorEditor : public juce::AudioProcessorEditor,
+                                     private juce::Timer
 {
 public:
     explicit EntropanAudioProcessorEditor (EntropanAudioProcessor&);
@@ -49,6 +50,14 @@ private:
     // Embedded-resource provider (BinaryData → WebView)
     std::optional<juce::WebBrowserComponent::Resource> getResource (const juce::String& url);
     static const char* mimeForExtension (const juce::String& ext);
+
+    // ── UI telemetry (30 Hz): spectrum frames + per-band mod values ──
+    void timerCallback() override;
+    static constexpr int kFftOrder = 11, kFftSize = 1 << kFftOrder, kSpectrumBins = 160;
+    juce::dsp::FFT fft { kFftOrder };
+    juce::dsp::WindowingFunction<float> window { kFftSize, juce::dsp::WindowingFunction<float>::hann };
+    std::vector<float> fifoDrain, fftAccum, fftWork;
+    int accumFill = 0;
 
     juce::ComponentBoundsConstrainer constrainer;
     EntropanAudioProcessor& audioProcessor;

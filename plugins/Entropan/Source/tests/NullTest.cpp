@@ -258,6 +258,48 @@ int main()
         ok &= check ("T6 S&H runs are deterministic", a == b);
     }
 
+    // ── T8: Steps engine — pattern of all +1 pins hard right (parse + clock) ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        p.setStepsJson (0, R"({"count":4,"steps":[{"subdiv":1,"vals":[1]},{"subdiv":2,"vals":[1,1]},{"subdiv":1,"vals":[1]},{"subdiv":4,"vals":[1,1,1,1]}]})");
+        setParam (p, "b1_on", 1.0f);
+        setParam (p, "b1_freq", 1000.0f);
+        setParam (p, "b1_width", 2.0f);
+        setParam (p, "b1_lift", 100.0f);
+        setParam (p, "b1_depth", 100.0f);
+        setParam (p, "b1_mode", 5.0f);       // Steps
+        setParam (p, "b1_ratemode", 1.0f);
+        setParam (p, "b1_rate", 2.0f);
+        setParam (p, "b1_inertia", 0.0f);
+
+        juce::AudioBuffer<float> buf (2, kBlock);
+        juce::MidiBuffer midi;
+        double phase = 0.0;
+        const double inc = 2.0 * juce::MathConstants<double>::pi * 1000.0 / kSampleRate;
+        double inE = 0, outLE = 0, outRE = 0;
+        for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk)
+        {
+            for (int s = 0; s < kBlock; ++s)
+            {
+                const float v = (float) std::sin (phase);
+                phase += inc;
+                buf.setSample (0, s, v); buf.setSample (1, s, v);
+            }
+            p.processBlock (buf, midi);
+            if (blk < kWarmBlocks) continue;
+            for (int s = 0; s < kBlock; ++s)
+            {
+                inE += 0.5;
+                outLE += juce::square ((double) buf.getSample (0, s));
+                outRE += juce::square ((double) buf.getSample (1, s));
+            }
+        }
+        const double dL = dB (outLE / inE), dR = dB (outRE / inE);
+        ok &= check ("T8 steps pattern drives pan", dL < -6.0 && dR > 2.0 && dR < 4.0);
+        std::printf ("    dL = %+.2f dB, dR = %+.2f dB\n", dL, dR);
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }

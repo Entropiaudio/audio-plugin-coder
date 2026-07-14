@@ -118,11 +118,82 @@ EntropanAudioProcessorEditor::EntropanAudioProcessorEditor (EntropanAudioProcess
     constrainer.setFixedAspectRatio (900.0 / 560.0);
     setConstrainer (&constrainer);
     setSize (savedW, savedH);
+
+    fifoDrain.resize (kFftSize);
+    fftAccum.resize (kFftSize, 0.0f);
+    fftWork.resize ((size_t) kFftSize * 2, 0.0f);
+    startTimerHz (30);
 }
 
 EntropanAudioProcessorEditor::~EntropanAudioProcessorEditor()
 {
+    stopTimer();
     setConstrainer (nullptr);
+}
+
+//==============================================================================
+void EntropanAudioProcessorEditor::timerCallback()
+{
+    if (webView == nullptr)
+        return;
+
+    // ── per-band mod values (post-slew × depth) + last MIDI note ──
+    {
+        juce::Array<juce::var> pans;
+        for (int i = 0; i < EntropanAudioProcessor::kNumBands; ++i)
+            pans.add ((double) audioProcessor.modOutDepth[(size_t) i].load (std::memory_order_relaxed));
+
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty ("pans", pans);
+        obj->setProperty ("midiNote", audioProcessor.lastMidiNote.load());
+        webView->emitEventIfBrowserIsVisible ("modvals", juce::var (obj));
+    }
+
+    // ── spectrum: drain FIFO into a sliding FFT frame ──
+    const int got = audioProcessor.popAnalyzer (fifoDrain.data(), kFftSize);
+    if (got > 0)
+    {
+        if (got >= kFftSize)
+        {
+            std::memcpy (fftAccum.data(), fifoDrain.data() + (got - kFftSize), sizeof (float) * kFftSize);
+            accumFill = kFftSize;
+        }
+        else
+        {
+            const int keep = kFftSize - got;
+            std::memmove (fftAccum.data(), fftAccum.data() + got, sizeof (float) * (size_t) keep);
+            std::memcpy (fftAccum.data() + keep, fifoDrain.data(), sizeof (float) * (size_t) got);
+            accumFill = juce::jmin (kFftSize, accumFill + got);
+        }
+    }
+
+    if (accumFill >= kFftSize)
+    {
+        std::memcpy (fftWork.data(), fftAccum.data(), sizeof (float) * kFftSize);
+        window.multiplyWithWindowingTable (fftWork.data(), kFftSize);
+        fft.performFrequencyOnlyForwardTransform (fftWork.data());
+
+        // log-resample 20 Hz … 20 kHz into kSpectrumBins dB values
+        const double sr = audioProcessor.getSampleRate() > 0 ? audioProcessor.getSampleRate() : 48000.0;
+        const double binHz = sr / (double) kFftSize;
+        juce::Array<juce::var> mags;
+        mags.ensureStorageAllocated (kSpectrumBins);
+        for (int b = 0; b < kSpectrumBins; ++b)
+        {
+            const double f0 = 20.0 * std::pow (1000.0, (double) b / kSpectrumBins);
+            const double f1 = 20.0 * std::pow (1000.0, (double) (b + 1) / kSpectrumBins);
+            int i0 = juce::jlimit (1, kFftSize / 2 - 1, (int) (f0 / binHz));
+            int i1 = juce::jlimit (i0 + 1, kFftSize / 2, (int) std::ceil (f1 / binHz));
+            float peak = 0.0f;
+            for (int k = i0; k < i1; ++k)
+                peak = juce::jmax (peak, fftWork[(size_t) k]);
+            const double db = juce::Decibels::gainToDecibels ((double) peak / (double) (kFftSize / 4), -80.0);
+            mags.add (juce::jlimit (-60.0, 0.0, db));
+        }
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty ("mags", mags);
+        webView->emitEventIfBrowserIsVisible ("spectrum", juce::var (obj));
+    }
 }
 
 //==============================================================================

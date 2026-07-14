@@ -142,11 +142,34 @@ private:
 
     // MIDI rate mode: last note frequency (Hz); 0 = no note yet (frozen).
     float midiFreq = 0.0f;
-    std::atomic<int> lastMidiNote { -1 };    // for UI telemetry
 
     std::atomic<bool> rerollFlag { false };
     int rerollOffset = 0;                    // hashed into random streams on CHAOS
     double currentSampleRate = 44100.0;
+
+public:
+    //==============================================================================
+    // ── Steps engine (Phase 4.3) ──
+    // Slot-stable ratchets parsed from the per-band JSON into RT-safe snapshots
+    // (double-buffered, atomic index swap — message thread writes, audio reads).
+    struct StepSlot  { int subdiv = 1; float vals[4] { 0, 0, 0, 0 }; };
+    struct StepsData { int count = 0; StepSlot slots[kMaxSteps]; };
+
+    // ── UI telemetry (Phase 4.3) ──
+    std::atomic<int>   lastMidiNote { -1 };
+    std::array<std::atomic<float>, kNumBands> modOutDepth {};   // post-slew mod × depth
+
+    // Analyzer tap: mono (L+R)/2 of the processed output, drained by the editor.
+    int popAnalyzer (float* dest, int maxNum);
+
+private:
+    void parseStepsSnapshot (int bandIndex);
+
+    std::array<std::array<StepsData, 2>, kNumBands> stepsBuf {};
+    std::array<std::atomic<int>, kNumBands> stepsActive {};
+
+    juce::AbstractFifo analyzerFifo { 1 << 14 };
+    std::vector<float> analyzerStore;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EntropanAudioProcessor)
 };

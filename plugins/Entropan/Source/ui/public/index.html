@@ -488,7 +488,7 @@ const MAPS = {
 
 /* param table: id → {kind, map, def(denorm)} */
 function bandIds(i) { const p = `b${i + 1}_`; return {
-  on:      { id: p + "on",      kind: "toggle", def: i === 0 },
+  on:      { id: p + "on",      kind: "toggle", def: false },   // default preset: no bands
   freq:    { id: p + "freq",    kind: "slider", map: MAPS.log(FMIN, FMAX), def: [200, 500, 1000, 2000, 5000, 10000][i] },
   width:   { id: p + "width",   kind: "slider", map: MAPS.log(0.1, 4), def: 1.0 },
   lift:    { id: p + "lift",    kind: "slider", map: MAPS.lin(0, 100), def: 100 },
@@ -566,7 +566,7 @@ const getStepsNative = native("getSteps");
 const ui = {
   selected: 0,
   bands: Array.from({ length: 6 }, (_, i) => ({
-    configured: i === 0,
+    configured: false,   // nothing on the canvas until the user adds a band
     stepCount: 8,
     steps: Array.from({ length: 16 }, (_, k) => ({ subdiv: 1, vals: [Math.sin(k / 16 * Math.PI * 2), 0, 0, 0] })),
     // local modulator sim (drives traces/scope until DSP telemetry lands)
@@ -1481,6 +1481,9 @@ window.addEventListener("resize", fitShell);
 fitShell();
 refreshPanels();
 requestAnimationFrame(loop);
+
+/* debug/testing handle (module scope is otherwise sealed) */
+window.__entropan = { P, ui, spec, quickMenu, refreshPanels };
 </script>
 </body>
 </html>
