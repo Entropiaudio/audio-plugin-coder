@@ -894,36 +894,49 @@ function drawSpectrum(t) {
     ctx.beginPath(); ctx.arc(hx, hy, 2 * DPR, 0, 7);
     ctx.fillStyle = ghost ? "#88837a" : "#fff"; ctx.fill();
 
-    // gain status: AURA hugging the bell — above = boost, below = cut, strength ∝ dB (±6)
+    // gain status: smooth AURA hugging the bell — above = boost, below = cut.
+    // One-sided shadow-blur glow: stroke the curve far off-canvas, let its
+    // blurred shadow land here, clipped to one side of the curve. No banding.
     if (Math.abs(b.gain) > 0.05 && !ghost) {
       const dir = b.gain > 0 ? -1 : 1;                    // boost glows upward
       const amt = Math.abs(b.gain) / 6;                    // 0..1
-      const maxOff = amt * 26 * DPR;
-      const LAYERS = 6;
-      ctx.lineWidth = 2.2 * DPR; ctx.lineCap = "round";
-      for (let li = 1; li <= LAYERS; li++) {
-        const off = dir * maxOff * (li / LAYERS);
-        const alpha = 0.30 * (1 - li / LAYERS) * (0.35 + 0.65 * amt);
-        ctx.strokeStyle = c;
-        ctx.globalAlpha = alpha;
-        // offset scales with curve height: aura wraps the WHOLE bell,
-        // pinching to the baseline at the skirts (no floating lines)
-        const cxN = fx(b.freq), halfN = (b.widthOct / 2) / Math.log2(FMAX / FMIN) * 2.4;
-        const x0 = clamp(cxN - halfN, 0, 1) * W, x1 = clamp(cxN + halfN, 0, 1) * W;
-        const peak = Math.max(b.lift / 100, 0.01);
-        ctx.beginPath();
-        for (let px = x0; px <= x1; px += 3 * DPR) {
-          const by = bellY(b, px / W);
-          const y = H - by * topH + off * (by / peak);
-          px > x0 ? ctx.lineTo(px, y) : ctx.moveTo(px, y);
-        }
-        ctx.stroke();
+      const blur = (6 + amt * 26) * DPR;
+      const cxN = fx(b.freq), halfN = (b.widthOct / 2) / Math.log2(FMAX / FMIN) * 2.4;
+      const x0 = clamp(cxN - halfN, 0, 1) * W, x1 = clamp(cxN + halfN, 0, 1) * W;
+
+      ctx.save();
+      // clip: region strictly above (boost) or below (cut) the curve
+      ctx.beginPath();
+      for (let px = x0; px <= x1; px += 2 * DPR) {
+        const y = H - bellY(b, px / W) * topH + dir * 1.5 * DPR;
+        px > x0 ? ctx.lineTo(px, y) : ctx.moveTo(px, y);
       }
+      const edgeY = dir < 0 ? 0 : H;
+      ctx.lineTo(x1, edgeY); ctx.lineTo(x0, edgeY); ctx.closePath();
+      ctx.clip();
+
+      // off-canvas stroke, shadow lands in view — continuous gradient glow
+      const SHIFT = 10000 * DPR;
+      ctx.shadowColor = c;
+      ctx.shadowBlur = blur;
+      ctx.shadowOffsetX = SHIFT;
+      ctx.globalAlpha = 0.4 + 0.5 * amt;
+      ctx.strokeStyle = c;
+      ctx.lineWidth = 3 * DPR;
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      for (let px = x0; px <= x1; px += 2 * DPR) {
+        const y = H - bellY(b, px / W) * topH;
+        px > x0 ? ctx.lineTo(px - SHIFT, y) : ctx.moveTo(px - SHIFT, y);
+      }
+      ctx.stroke();
+      ctx.restore();
       ctx.globalAlpha = 1;
+
       if (sel) {
         ctx.fillStyle = c + "cc";
         ctx.fillText((b.gain > 0 ? "+" : "") + b.gain.toFixed(1) + " dB",
-                     hx + 10 * DPR, hy + dir * (maxOff + 10 * DPR) + 3 * DPR);
+                     hx + 10 * DPR, hy + dir * (blur + 8 * DPR) + 3 * DPR);
       }
     }
 
