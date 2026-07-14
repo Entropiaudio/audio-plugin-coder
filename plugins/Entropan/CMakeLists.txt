@@ -122,3 +122,41 @@ if(UNIX AND NOT APPLE)
             JUCE_JACK=1
     )
 endif()
+
+# ============================================
+# NULL-TEST HARNESS (console, dev only)
+# ============================================
+option(ENTROPAN_BUILD_TESTS "Build Entropan DSP null-test console app" ON)
+if(ENTROPAN_BUILD_TESTS)
+    juce_add_console_app(Entropan_NullTest PRODUCT_NAME "EntropanNullTest")
+    target_sources(Entropan_NullTest
+        PRIVATE
+            Source/tests/NullTest.cpp
+            Source/PluginProcessor.cpp
+            Source/PluginEditor.cpp
+    )
+    target_include_directories(Entropan_NullTest PRIVATE Source)
+    target_link_libraries(Entropan_NullTest
+        PRIVATE
+            Entropan_WebUI
+            juce::juce_audio_basics
+            juce::juce_audio_formats
+            juce::juce_audio_processors
+            juce::juce_audio_utils
+            juce::juce_core
+            juce::juce_data_structures
+            juce::juce_dsp
+            juce::juce_events
+            juce::juce_graphics
+            juce::juce_gui_basics
+            juce::juce_gui_extra
+        PUBLIC
+            juce::juce_recommended_config_flags
+    )
+    target_compile_definitions(Entropan_NullTest
+        PRIVATE
+            JUCE_WEB_BROWSER=1
+            JUCE_USE_CURL=0
+            JUCE_STANDALONE_APPLICATION=1
+    )
+endif()

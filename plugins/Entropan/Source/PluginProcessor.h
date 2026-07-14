@@ -7,9 +7,10 @@
 /**
  * Entropan — band-targeted spectral panner (Entropia Audio).
  *
- * Phase 4.0 skeleton: full 77-parameter APVTS layout, audio passthrough,
- * step-sequencer state storage (ValueTree, non-APVTS), MIDI input accepted.
- * DSP lands in Phase 4.1+ (see .ideas/plan.md).
+ * Phase 4.1: core DSP — serial Linkwitz-Riley splitter cascade with allpass
+ * compensation, per-band lift split, equal-power pan (static target for now),
+ * per-band gain, output/bypass stages. Null-tested (see Source/tests/).
+ * Modulator engines land in Phase 4.2.
  */
 class EntropanAudioProcessor : public juce::AudioProcessor
 {
@@ -61,6 +62,62 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+
+    //==============================================================================
+    // Per-band DSP stage: 3-way LR4 split with allpass-compensated low branch.
+    //   input → splitLo → {low, rest};  rest → splitHi → {band, high}
+    //   low → apLow (LP+HP sum = allpass at f_hi) → residual = lowAP + high
+    //   band → lift split → pan/gain → out = residual + unlifted + panned
+    struct BandDSP
+    {
+        juce::dsp::LinkwitzRileyFilter<float> splitLo, splitHi, apLow;
+
+        juce::SmoothedValue<float> lift;      // 0..1
+        juce::SmoothedValue<float> gainLin;   // linear, from ±6 dB
+        juce::SmoothedValue<float> pan;       // -1..+1 (Phase 4.1: static target)
+        juce::SmoothedValue<float> enable;    // 0..1 engage crossfade (~30 ms)
+
+        void prepare (const juce::dsp::ProcessSpec& spec)
+        {
+            splitLo.prepare (spec);
+            splitHi.prepare (spec);
+            apLow.prepare (spec);
+            splitLo.setType (juce::dsp::LinkwitzRileyFilterType::lowpass);  // processSample gives both outs
+            splitHi.setType (juce::dsp::LinkwitzRileyFilterType::lowpass);
+            apLow.setType   (juce::dsp::LinkwitzRileyFilterType::allpass);
+            const double sr = spec.sampleRate;
+            lift.reset    (sr, 0.005);
+            gainLin.reset (sr, 0.005);
+            pan.reset     (sr, 0.005);
+            enable.reset  (sr, 0.030);
+        }
+
+        void resetState()
+        {
+            splitLo.reset(); splitHi.reset(); apLow.reset();
+        }
+    };
+
+    std::array<BandDSP, kNumBands> bands;
+
+    juce::SmoothedValue<float> outGainSm;    // linear
+    juce::SmoothedValue<float> bypassSm;     // 0 = process, 1 = bypassed
+    juce::AudioBuffer<float> dryBuffer;
+
+    // Cached raw parameter pointers (hot path — no string lookups per block)
+    struct BandParams
+    {
+        std::atomic<float>* on;
+        std::atomic<float>* freq;
+        std::atomic<float>* width;
+        std::atomic<float>* lift;
+        std::atomic<float>* depth;
+        std::atomic<float>* gain;
+    };
+    std::array<BandParams, kNumBands> bandParams {};
+    std::atomic<float>* pAmount = nullptr;
+    std::atomic<float>* pOutput = nullptr;
+    std::atomic<float>* pBypass = nullptr;
 
     std::atomic<bool> rerollFlag { false };
     double currentSampleRate = 44100.0;
