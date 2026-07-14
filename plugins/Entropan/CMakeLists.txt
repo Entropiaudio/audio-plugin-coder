@@ -6,16 +6,16 @@
 # PLATFORM-SPECIFIC CONFIGURATION
 # ============================================
 if(WIN32)
-    set(PLUGIN_FORMATS VST3 Standalone)
+    set(PLUGIN_FORMATS VST3)
     set(NEEDS_WEBVIEW2 TRUE)
     set(NEEDS_WEB_BROWSER FALSE)
 elseif(APPLE)
-    set(PLUGIN_FORMATS VST3 AU Standalone)
+    set(PLUGIN_FORMATS VST3 AU)
     set(NEEDS_WEBVIEW2 FALSE)
     set(NEEDS_WEB_BROWSER FALSE)
     set(AU_MAIN_TYPE kAudioUnitType_MusicEffect)  # aumf: DAWs route MIDI to it
 elseif(UNIX)
-    set(PLUGIN_FORMATS VST3 LV2 Standalone)
+    set(PLUGIN_FORMATS VST3 LV2)
     set(NEEDS_WEBVIEW2 FALSE)
     set(NEEDS_WEB_BROWSER TRUE)
     set(LV2_URI "https://entropiaaudio.com/plugins/Entropan")
