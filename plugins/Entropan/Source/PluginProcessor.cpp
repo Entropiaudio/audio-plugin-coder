@@ -471,6 +471,19 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             xr = xr + (outR - xr) * e;
         }
 
+        // scope ring: sample every band's live mod value every 64 samples —
+        // captured IN the loop (a post-loop fill repeats the block's final
+        // value and draws as a staircase)
+        if (--scopePhase <= 0)
+        {
+            scopePhase = kScopeStride;
+            const int w = scopeWrite.load (std::memory_order_relaxed);
+            for (int i = 0; i < kNumBands; ++i)
+                scopeRing[(size_t) i][(size_t) (w & (kScopeRingSize - 1))] =
+                    mods[(size_t) i].value * bands[(size_t) i].depth.getCurrentValue();
+            scopeWrite.store (w + 1, std::memory_order_release);
+        }
+
         const float og = outGainSm.getNextValue();
         const float by = bypassSm.getNextValue();
 
@@ -486,20 +499,6 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         modOutDepth[(size_t) i].store (mods[(size_t) i].value * bands[(size_t) i].depth.getCurrentValue(),
                                        std::memory_order_relaxed);
 
-    // ── scope ring: all bands every 64 samples (~750 Hz) — smooth waveform ──
-    {
-        int w = scopeWrite.load (std::memory_order_relaxed);
-        for (int s2 = scopePhase; s2 < numSamples; s2 += kScopeStride)
-        {
-            for (int i = 0; i < kNumBands; ++i)
-                scopeRing[(size_t) i][(size_t) (w & (kScopeRingSize - 1))] =
-                    mods[(size_t) i].value * bands[(size_t) i].depth.getCurrentValue();
-            ++w;
-        }
-        scopePhase = (scopePhase + kScopeStride * ((numSamples - scopePhase + kScopeStride - 1) / kScopeStride)) - numSamples;
-        if (scopePhase < 0 || scopePhase >= kScopeStride) scopePhase = 0;
-        scopeWrite.store (w, std::memory_order_release);
-    }
 
     // ── analyzer tap: mono of the processed output ──
     {
