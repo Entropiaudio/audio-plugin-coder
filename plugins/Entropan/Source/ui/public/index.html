@@ -121,7 +121,16 @@
     padding: 3px 14px; cursor: pointer;
   }
   .preset-btn:hover { color: var(--text-secondary); border-color: var(--border-bright); }
-  .header-right { display: flex; align-items: center; gap: 14px; min-width: 210px; justify-content: flex-end; }
+  .header-right { display: flex; align-items: center; gap: 10px; min-width: 210px; justify-content: flex-end; }
+  .knob-hdr { display: flex; flex-direction: column; align-items: center; width: auto; cursor: ns-resize; position: relative; padding-bottom: 9px; }
+  .knob-hdr { gap: 6px; }
+  .knob-hdr .knob-body { width: 34px; height: 34px; }
+  .knob-hdr .knob-body canvas { width: 44px; height: 44px; top: -5px; left: -5px; }
+  .knob-hdr .knob-face { top: 6px; left: 6px; width: 22px; height: 22px; }
+  .knob-hdr .knob-label { display: none; }
+  .knob-hdr .knob-value { position: absolute; bottom: -11px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: 600; color: var(--accent-bright); text-shadow: 0 0 8px var(--accent-glow); white-space: nowrap; }
+  .knob-hdr .knob-body { position: relative; }
+  .settings-btn.hdr { position: static; width: 16px; height: 16px; }
   .seed-arrow {
     font-family: inherit; background: transparent; color: var(--text-dim);
     border: 1px solid var(--border-subtle); border-radius: 4px;
@@ -130,24 +139,11 @@
   .seed-arrow:hover { color: var(--accent); border-color: var(--accent); }
   .seed-val { font-size: 11px; color: var(--text-secondary); min-width: 26px; text-align: center; }
 
-  /* global speed — bright, unmissable */
-  .speed-box { display: flex; align-items: center; gap: 6px; }
+  /* global speed label (knob sits beside it) */
   .speed-label {
     font-size: 8.5px; letter-spacing: 1.5px; color: var(--accent);
     text-shadow: 0 0 8px var(--accent-glow);
   }
-  .speed-val {
-    font-size: 8.5px; font-weight: 400; letter-spacing: 1.5px;
-    color: var(--accent);
-    text-shadow: 0 0 8px var(--accent-glow);
-    min-width: 26px; text-align: center;
-  }
-  .speed-arrow {
-    font-family: inherit; background: transparent; color: var(--accent);
-    border: 1px solid var(--accent-muted); border-radius: 4px;
-    width: 18px; height: 18px; font-size: 10px; cursor: pointer; line-height: 1; padding: 0;
-  }
-  .speed-arrow:hover { border-color: var(--accent); box-shadow: 0 0 8px var(--accent-glow); }
 
   /* ─── SPECTRUM ─── */
   .spectrum-wrap { flex: 1 1 auto; position: relative; margin: 10px 12px 0 12px; }
@@ -215,7 +211,7 @@
   }
   .sec-band { flex: 0 0 300px; }
   .sec-mod  { flex: 1 1 auto; min-width: 0; }
-  .sec-out  { flex: 0 0 170px; }
+  .sec-out  { flex: 0 0 296px; }
   .sec-out .section-label { color: var(--section-output); opacity: 0.7; }
 
   .knob-row { display: flex; justify-content: space-around; align-items: center; flex: 1; }
@@ -274,12 +270,12 @@
   }
 
   /* mode chips */
-  .mode-chips { display: flex; gap: 3px; margin: 2px 0 8px 0; flex-wrap: nowrap; }
+  .mode-chips { display: flex; gap: 3px; margin: 2px 0 8px 0; flex-wrap: wrap; }
   .mode-chip {
-    font-family: inherit; font-size: 8px; letter-spacing: 0.8px;
+    font-family: inherit; font-size: 8px; letter-spacing: 0.5px;
     background: transparent; color: var(--text-dim);
     border: 1px solid var(--border-subtle); border-radius: 9px;
-    padding: 2.5px 8px; cursor: pointer; white-space: nowrap; flex: 0 0 auto;
+    padding: 2.5px 6px; cursor: pointer; white-space: nowrap; flex: 0 0 auto;
     transition: all var(--t-fast) var(--ease-editorial);
   }
 
@@ -342,10 +338,10 @@
   /* overlays */
   .mutation-flash {
     position: absolute; inset: 0; z-index: 10; pointer-events: none;
-    background: radial-gradient(circle at 50% 12%, var(--accent-glow), transparent 60%);
+    background: radial-gradient(circle at 50% 12%, var(--accent-tint), transparent 55%);
     opacity: 0; transition: opacity var(--t-slow) var(--ease-editorial);
   }
-  .mutation-flash.fire { opacity: 1; transition: none; }
+  .mutation-flash.fire { opacity: 0.6; transition: none; }
   .bypass-dim {
     position: absolute; inset: 0; z-index: 9; pointer-events: none;
     background: rgba(20, 17, 15, 0.55); opacity: 0;
@@ -355,7 +351,7 @@
 
   /* ─── SETTINGS POPOVER (Chaosverb feature set) ─── */
   .settings-popover {
-    position: absolute; bottom: 30px; right: 10px; z-index: 20;
+    position: absolute; top: 52px; right: 12px; z-index: 20;
     width: 190px; padding: 10px 12px;
     background: var(--bg-elevated);
     border: 1px solid var(--border-bright); border-radius: 8px;
@@ -438,7 +434,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B21</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B22</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -451,12 +447,9 @@
       </div>
     </div>
     <div class="header-right">
-      <div class="speed-box" title="Global speed — multiplies every band's rate">
-        <span class="speed-label">GLOBAL SPEED</span>
-        <button class="speed-arrow" id="speedDown">‹</button>
-        <span class="speed-val" id="speedVal">×1</span>
-        <button class="speed-arrow" id="speedUp">›</button>
-      </div>
+      <span class="speed-label" data-tip="Global speed — multiplies every band's rate">GLOBAL SPEED</span>
+      <div class="knob-wrap knob-hdr" id="knob_speed"></div>
+      <button class="settings-btn hdr" id="settingsBtn" data-tip="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
     </div>
   </div>
 
@@ -532,6 +525,8 @@
       <div class="section-label">Output</div>
       <div class="out-knob-row">
         <div class="knob-wrap" id="knob_mix"></div>
+        <div class="knob-wrap" id="knob_wow"></div>
+        <div class="knob-wrap" id="knob_flutter"></div>
         <div class="knob-wrap" id="knob_output"></div>
       </div>
       <button class="toggle-btn bypass-btn" id="bypassBtn">BYPASS</button>
@@ -567,9 +562,6 @@
     </div>
   </div>
   <div class="resize-grip" id="resizeGrip" title="Drag to resize"></div>
-  <button class="settings-btn" id="settingsBtn" title="Settings">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-  </button>
 </div>
 
 <script type="module">
@@ -577,7 +569,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B21";
+const ENTROPAN_BUILD = "B22";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -593,7 +585,7 @@ const EMBEDDED = typeof window.__JUCE__ !== "undefined"
 
 const DPR = window.devicePixelRatio || 1;
 const BAND_COLORS = ["#3ab8d4", "#8aaa7a", "#5fc88a", "#b06ed4", "#d6884a", "#D4A574"];
-const MODES = ["SINE", "TRI", "S&H", "DRIFT", "CHAOS", "STEPS"];
+const MODES = ["SINE", "TRI", "S&H", "DRIFT", "CHAOS", "STEPS", "ENV"];
 const DIVS = ["1/16", "1/8", "1/4", "1/2", "1 BAR", "2 BAR", "4 BAR"];
 const DIV_HZ = [8, 4, 2, 1, 0.5, 0.25, 0.125]; // at 120 bpm — UI sim only
 const SPEEDS = [0.25, 0.5, 1, 2, 3, 4];
@@ -629,6 +621,12 @@ const GLOBALS = {
   seed:   { id: "seed",   kind: "slider", map: MAPS.int(1, 128), def: 1 },
   amount: { id: "amount", kind: "slider", map: MAPS.lin(0, 100), def: 100 },
   speed:  { id: "speed",  kind: "combo",  def: 2 },
+  wow:     { id: "wow",     kind: "slider", map: MAPS.lin(0, 100), def: 0 },
+  flutter: { id: "flutter", kind: "slider", map: MAPS.lin(0, 100), def: 0 },
+  envAtk:  { id: "env_atk", kind: "slider", map: MAPS.log(1, 500), def: 20 },
+  envRel:  { id: "env_rel", kind: "slider", map: MAPS.log(5, 2000), def: 150 },
+  envScf:  { id: "env_scf", kind: "slider", map: MAPS.log(20, 2000), def: 20 },
+  envRms:  { id: "env_rms", kind: "toggle", def: false },
   output: { id: "output", kind: "slider", map: MAPS.lin(-24, 12), def: 0 },
   bypass: { id: "bypass", kind: "toggle", def: false }
 };
@@ -968,21 +966,40 @@ const knobOut = makeKnob("knob_output", "LEVEL", {
   set: n => P.output.set(-24 + n * 36),
   fmt: () => { const v = P.output.get(); return (Math.abs(v) < 0.05 ? 0 : v).toFixed(1) + " dB"; }
 });
+const knobWow = makeKnob("knob_wow", "WOW", {
+  color: "#b06ed4", def: 0,
+  get: () => P.wow.get() / 100, set: n => P.wow.set(n * 100), fmt: () => Math.round(P.wow.get()) + "%"
+});
+const knobFlutter = makeKnob("knob_flutter", "FLUTTER", {
+  color: "#b06ed4", def: 0,
+  get: () => P.flutter.get() / 100, set: n => P.flutter.set(n * 100), fmt: () => Math.round(P.flutter.get()) + "%"
+});
+const knobSpeed = makeKnob("knob_speed", "SPEED", {
+  color: "#D4A574", def: 2 / 5,
+  get: () => P.speed.get() / 5,
+  set: n => P.speed.set(Math.round(clamp(n, 0, 1) * 5)),
+  fmt: () => SPEED_LABELS[P.speed.get()] || "×1"
+});
 
+const ENV_ATK = MAPS.log(1, 500), ENV_REL = MAPS.log(5, 2000), ENV_SCF = MAPS.log(20, 2000);
+const isEnv = () => PB().mode.get() === 6;
 const hsRate = makeHSlider("hs_rate", "RATE", {
   color: bandColor(),
   get: () => {
+    if (isEnv()) return ENV_ATK.to(P.envAtk.get());
     const pb = PB(), rm = pb.ratemode.get();
     if (rm === 0) return pb.div.get() / (DIVS.length - 1);
     if (rm === 1) return Math.log(pb.rate.get() / RATE_MIN) / Math.log(RATE_MAX / RATE_MIN);
     return 0.5;
   },
   set: n => {
+    if (isEnv()) { P.envAtk.set(ENV_ATK.from(n)); return; }
     const pb = PB(), rm = pb.ratemode.get();
     if (rm === 0) pb.div.set(Math.round(n * (DIVS.length - 1)));
     else if (rm === 1) pb.rate.set(RATE_MIN * Math.pow(RATE_MAX / RATE_MIN, n));
   },
   fmt: () => {
+    if (isEnv()) return Math.round(P.envAtk.get()) + " ms";
     const pb = PB(), rm = pb.ratemode.get();
     if (rm === 0) return DIVS[pb.div.get()];
     if (rm === 1) return fmtRate(pb.rate.get());
@@ -991,15 +1008,15 @@ const hsRate = makeHSlider("hs_rate", "RATE", {
 });
 const hsInertia = makeHSlider("hs_inertia", "INERTIA", {
   color: bandColor(),
-  get: () => PB().inertia.get() / 100,
-  set: n => PB().inertia.set(n * 100),
-  fmt: () => Math.round(PB().inertia.get()) + "%"
+  get: () => isEnv() ? ENV_REL.to(P.envRel.get()) : PB().inertia.get() / 100,
+  set: n => isEnv() ? P.envRel.set(ENV_REL.from(n)) : PB().inertia.set(n * 100),
+  fmt: () => isEnv() ? Math.round(P.envRel.get()) + "ms" : Math.round(PB().inertia.get()) + "%"
 });
 const hsPhase = makeHSlider("hs_phase", "PHASE", {
   color: bandColor(),
-  get: () => PB().phase.get() / 360,
-  set: n => PB().phase.set(n * 360),
-  fmt: () => Math.round(PB().phase.get()) + "°"
+  get: () => isEnv() ? ENV_SCF.to(P.envScf.get()) : PB().phase.get() / 360,
+  set: n => isEnv() ? P.envScf.set(ENV_SCF.from(n)) : PB().phase.set(n * 360),
+  fmt: () => isEnv() ? (P.envScf.get() >= 1000 ? (P.envScf.get()/1000).toFixed(1)+"k" : Math.round(P.envScf.get())+"Hz") : Math.round(PB().phase.get()) + "°"
 });
 
 /* mode chips */
@@ -1012,6 +1029,7 @@ MODES.forEach((m, i) => {
 });
 
 document.getElementById("syncToggle").onclick = () => {
+  if (isEnv()) { P.envRms.set(!P.envRms.get()); refreshPanels(); return; }
   PB().ratemode.set((PB().ratemode.get() + 1) % 3); refreshPanels();
 };
 document.getElementById("bypassBtn").onclick = e => {
@@ -1053,12 +1071,7 @@ document.getElementById("rerollBtn").onclick = () => {
 };
 
 /* global speed stepper */
-const speedVal = document.getElementById("speedVal");
-function refreshSpeed() { speedVal.textContent = SPEED_LABELS[P.speed.get()] || "×1"; }
-document.getElementById("speedUp").onclick = () => { P.speed.set(Math.min(SPEEDS.length - 1, P.speed.get() + 1)); refreshSpeed(); };
-document.getElementById("speedDown").onclick = () => { P.speed.set(Math.max(0, P.speed.get() - 1)); refreshSpeed(); };
-P.speed.onChange(refreshSpeed);
-refreshSpeed();
+P.speed.onChange(() => knobSpeed.refresh());
 
 document.getElementById("stepUp").onclick = () => { B().stepCount = Math.min(16, B().stepCount + 1); pushSteps(ui.selected); refreshPanels(); };
 document.getElementById("stepDown").onclick = () => { B().stepCount = Math.max(2, B().stepCount - 1); pushSteps(ui.selected); refreshPanels(); };
@@ -1077,18 +1090,29 @@ function refreshPanels() {
   document.getElementById("modSecLabel").style.color = c;
   [knobFreq, knobWidth, knobLift, knobDepth].forEach(k => { k.color = c; k.refresh(); });
   [hsRate, hsInertia, hsPhase].forEach(s => { s.color = c; s.refresh(); });
-  knobAmount.refresh(); knobOut.refresh();
+  knobAmount.refresh(); knobOut.refresh(); knobWow.refresh(); knobFlutter.refresh(); knobSpeed.refresh();
   document.querySelectorAll(".mode-chip").forEach((el, i) => {
     const on = i === pb.mode.get();
     el.style.color = on ? "#14110F" : "";
     el.style.background = on ? c : "";
     el.style.borderColor = on ? c : "";
   });
-  const rm = document.getElementById("syncToggle");
-  rm.textContent = ["SYNC", "FREE", "MIDI"][pb.ratemode.get()] || "SYNC";
-  rm.classList.toggle("active", pb.ratemode.get() !== 1);
   const mode = pb.mode.get();
-  hsPhase.el.classList.toggle("disabled", mode >= 2 && mode <= 4);
+  const rm = document.getElementById("syncToggle");
+  const setHsLabel = (hs, txt) => { const el = hs.el.querySelector(".hs-label"); if (el) el.textContent = txt; };
+  if (mode === 6) {   // Env: sliders become the detection-circuit controls
+    setHsLabel(hsRate, "ATK"); setHsLabel(hsInertia, "REL"); setHsLabel(hsPhase, "SC-F");
+    rm.textContent = P.envRms.get() ? "RMS" : "PEAK";
+    rm.classList.toggle("active", P.envRms.get());
+    hsPhase.el.classList.remove("disabled");
+    hsInertia.el.classList.remove("disabled");
+  } else {
+    setHsLabel(hsRate, "Rate"); setHsLabel(hsInertia, "Inertia"); setHsLabel(hsPhase, "Phase");
+    rm.textContent = ["SYNC", "FREE", "MIDI"][pb.ratemode.get()] || "SYNC";
+    rm.classList.toggle("active", pb.ratemode.get() !== 1);
+    hsPhase.el.classList.toggle("disabled", mode >= 2 && mode <= 4);
+    hsInertia.el.classList.toggle("disabled", mode <= 1);
+  }
   document.getElementById("sliderStack").style.display = mode === 5 ? "none" : "flex";
   document.getElementById("stepEditor").classList.toggle("visible", mode === 5);
   document.getElementById("stepCount").textContent = b.stepCount;
@@ -1742,6 +1766,9 @@ function tickMods(dt) {
       }
       case 5: {
         b.target = stepValueAt(b, (simClock * f) + pb.phase.get() / 360); break;
+      }
+      case 6: { // Env (preview only — real plugin drives this from audio telemetry)
+        b.target = Math.sin(simClock * 1.7 + i) * 0.5 + Math.sin(simClock * 5.3) * 0.2; break;
       }
     }
     const mode = pb.mode.get();

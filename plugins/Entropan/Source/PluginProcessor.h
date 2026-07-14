@@ -153,6 +153,23 @@ private:
     std::atomic<float>* pBypass = nullptr;
     std::atomic<float>* pSeed   = nullptr;
     std::atomic<float>* pSpeed  = nullptr;
+    std::atomic<float>* pWow     = nullptr;
+    std::atomic<float>* pFlutter = nullptr;
+    std::atomic<float>* pEnvAtk  = nullptr;
+    std::atomic<float>* pEnvRel  = nullptr;
+    std::atomic<float>* pEnvScf  = nullptr;
+    std::atomic<float>* pEnvRms  = nullptr;
+
+    // Envelope follower (global detection circuit — feeds every Env-mode band).
+    float envScLp = 0.0f;   // sidechain HPF one-pole state
+    float envState = 0.0f;  // ballistics state
+    float globalEnv = 0.0f; // 0..1, updated per sample from the input copy
+
+    // Global wow & flutter — wet-only modulated stereo delay (RC-20-style),
+    // engage-crossfaded so 0 = truly dry (no added latency).
+    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Lagrange3rd> wfDelay { 4096 };
+    double wowPhase = 0.0, flutPhase = 0.0;
+    juce::SmoothedValue<float> wfEngage;
 
     // MIDI rate mode: last note frequency (Hz); 0 = no note yet (frozen).
     float midiFreq = 0.0f;

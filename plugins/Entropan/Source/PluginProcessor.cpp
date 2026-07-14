@@ -15,7 +15,7 @@ namespace
         return r;
     }
 
-    const juce::StringArray kModeChoices    { "Sine", "Triangle", "S&H", "Drift", "Chaos", "Steps" };
+    const juce::StringArray kModeChoices    { "Sine", "Triangle", "S&H", "Drift", "Chaos", "Steps", "Env" };
     const juce::StringArray kRateModeChoices{ "Sync", "Free", "MIDI" };
     const juce::StringArray kDivChoices     { "1/16", "1/8", "1/4", "1/2", "1 Bar", "2 Bar", "4 Bar" };
     const juce::StringArray kSpeedChoices   { "/4", "/2", "x1", "x2", "x3", "x4" };
@@ -155,6 +155,30 @@ juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::crea
     params.push_back (std::make_unique<juce::AudioParameterBool> (
         juce::ParameterID { "bypass", 1 }, "Bypass", false));
 
+    // Global wow & flutter (wet-only)
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { "wow", 1 }, "Wow", pct(), 0.0f,
+        juce::AudioParameterFloatAttributes().withLabel ("%")));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { "flutter", 1 }, "Flutter", pct(), 0.0f,
+        juce::AudioParameterFloatAttributes().withLabel ("%")));
+
+    // Envelope follower — global detection circuit (Env mode)
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { "env_atk", 1 }, "Env Attack",
+        logRange (1.0f, 500.0f), 20.0f,
+        juce::AudioParameterFloatAttributes().withLabel ("ms")));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { "env_rel", 1 }, "Env Release",
+        logRange (5.0f, 2000.0f), 150.0f,
+        juce::AudioParameterFloatAttributes().withLabel ("ms")));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { "env_scf", 1 }, "Env SC Filter",
+        logRange (20.0f, 2000.0f), 20.0f,
+        juce::AudioParameterFloatAttributes().withLabel ("Hz")));
+    params.push_back (std::make_unique<juce::AudioParameterBool> (
+        juce::ParameterID { "env_rms", 1 }, "Env RMS", false));
+
     // ─── Per band (12 × 6 = 72) ───
     for (int i = 0; i < kNumBands; ++i)
     {
@@ -230,12 +254,24 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     for (auto& m : mods)
         m = Modulator {};
 
+    wfDelay.prepare (spec);
+    wfDelay.reset();
+    wfEngage.reset (sampleRate, 0.020);
+    wowPhase = flutPhase = 0.0;
+    envScLp = envState = globalEnv = 0.0f;
+
     // Cache raw parameter pointers once (RT-safe reads afterwards).
     pAmount = apvts.getRawParameterValue ("amount");
     pOutput = apvts.getRawParameterValue ("output");
     pBypass = apvts.getRawParameterValue ("bypass");
     pSeed   = apvts.getRawParameterValue ("seed");
     pSpeed  = apvts.getRawParameterValue ("speed");
+    pWow     = apvts.getRawParameterValue ("wow");
+    pFlutter = apvts.getRawParameterValue ("flutter");
+    pEnvAtk  = apvts.getRawParameterValue ("env_atk");
+    pEnvRel  = apvts.getRawParameterValue ("env_rel");
+    pEnvScf  = apvts.getRawParameterValue ("env_scf");
+    pEnvRms  = apvts.getRawParameterValue ("env_rms");
     for (int i = 0; i < kNumBands; ++i)
     {
         const juce::String p = "b" + juce::String (i + 1) + "_";
@@ -412,6 +448,23 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     outGainSm.setTargetValue (juce::Decibels::decibelsToGain (pOutput->load()));
     bypassSm.setTargetValue (pBypass->load() > 0.5f ? 1.0f : 0.0f);
 
+    // ── envelope-follower coefficients (global detection circuit) ──
+    const bool  envRms  = pEnvRms->load() > 0.5f;
+    const float envAtkC = 1.0f - std::exp (-1.0f / (juce::jmax (1.0f, pEnvAtk->load()) * 0.001f * (float) currentSampleRate));
+    const float envRelC = 1.0f - std::exp (-1.0f / (juce::jmax (1.0f, pEnvRel->load()) * 0.001f * (float) currentSampleRate));
+    const float envScC  = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * pEnvScf->load() / (float) currentSampleRate);
+
+    // ── wow & flutter setup ──
+    const float wowAmt  = pWow->load()     * 0.01f;
+    const float flutAmt = pFlutter->load() * 0.01f;
+    const bool  wfOn    = (wowAmt > 0.001f || flutAmt > 0.001f);
+    wfEngage.setTargetValue (wfOn ? 1.0f : 0.0f);
+    const double wowInc  = 0.7  / currentSampleRate;   // ~0.7 Hz wow
+    const double flutInc = 6.3  / currentSampleRate;   // ~6.3 Hz flutter
+    const float  baseDelay   = 0.010f * (float) currentSampleRate;  // ~10 ms centre
+    const float  wowDepthS   = wowAmt  * 0.006f * (float) currentSampleRate; // up to 6 ms
+    const float  flutDepthS  = flutAmt * 0.0012f * (float) currentSampleRate; // up to 1.2 ms
+
     // ── per-sample cascade ──
     auto* left  = buffer.getWritePointer (0);
     auto* right = buffer.getWritePointer (1);
@@ -420,6 +473,17 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     {
         float xl = left[s], xr = right[s];
         const float amountV = amountSm.getNextValue();
+
+        // envelope detector (from the pre-process input copy)
+        {
+            const float inMono = 0.5f * (dryBuffer.getSample (0, s) + dryBuffer.getSample (1, s));
+            envScLp += envScC * (inMono - envScLp);      // one-pole LP …
+            const float hp = inMono - envScLp;           // … input minus LP = SC high-pass
+            const float det = envRms ? hp * hp : std::abs (hp);
+            envState += (det > envState ? envAtkC : envRelC) * (det - envState);
+            const float e = envRms ? std::sqrt (juce::jmax (0.0f, envState)) : envState;
+            globalEnv = juce::jlimit (0.0f, 1.0f, e * 2.0f);
+        }
 
         for (int i = 0; i < kNumBands; ++i)
         {
@@ -493,6 +557,9 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                         m.target = 0.0f;
                     break;
                 }
+                case 6: // Env: global envelope follower drives the pan
+                    m.target = juce::jlimit (-1.0f, 1.0f, globalEnv * 2.0f - 1.0f);
+                    break;
                 default:
                     m.target = 0.0f;
                     break;
@@ -542,6 +609,24 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 scopeRing[(size_t) i][(size_t) (w & (kScopeRingSize - 1))] =
                     mods[(size_t) i].value * bands[(size_t) i].depth.getCurrentValue();
             scopeWrite.store (w + 1, std::memory_order_release);
+        }
+
+        // global wow & flutter (wet-only modulated delay, engage-crossfaded)
+        {
+            const float eng = wfEngage.getNextValue();
+            wowPhase  += wowInc;  if (wowPhase  >= 1.0) wowPhase  -= 1.0;
+            flutPhase += flutInc; if (flutPhase >= 1.0) flutPhase -= 1.0;
+            const float wowMod  = std::sin ((float) wowPhase  * juce::MathConstants<float>::twoPi) * wowDepthS;
+            const float flutMod = std::sin ((float) flutPhase * juce::MathConstants<float>::twoPi) * flutDepthS;
+            wfDelay.pushSample (0, xl);
+            wfDelay.pushSample (1, xr);
+            // slight L/R divergence for width
+            wfDelay.setDelay (juce::jlimit (1.0f, 4000.0f, baseDelay + wowMod + flutMod));
+            const float dl = wfDelay.popSample (0);
+            wfDelay.setDelay (juce::jlimit (1.0f, 4000.0f, baseDelay - wowMod + flutMod));
+            const float dr = wfDelay.popSample (1);
+            xl += (dl - xl) * eng;
+            xr += (dr - xr) * eng;
         }
 
         const float og = outGainSm.getNextValue();

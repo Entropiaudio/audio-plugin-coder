@@ -389,6 +389,43 @@ int main()
         ok &= check ("T11 undo ignores resize; load resets", ! resizeMadeStep && editMadeStep && historyCleared);
     }
 
+    // ── T12: wow/flutter at 0 stays null; engaged, it changes the signal ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        double md = 0; run (p, md);                          // all default (wf 0)
+        const bool nullOff = md < 1.0e-6;
+        setParam (p, "wow", 60.0f); setParam (p, "flutter", 40.0f);
+        double md2 = 0; run (p, md2);
+        ok &= check ("T12 wow/flutter: off=null, on=active", nullOff && md2 > 1.0e-3);
+        std::printf ("    off maxDiff=%.2g, on maxDiff=%.3f\n", md, md2);
+    }
+
+    // ── T13: Env mode — steady loud in-band tone drives the pan right ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        setParam (p, "b1_on", 1.0f);
+        setParam (p, "b1_freq", 1000.0f); setParam (p, "b1_width", 2.0f);
+        setParam (p, "b1_lift", 100.0f);  setParam (p, "b1_depth", 100.0f);
+        setParam (p, "b1_mode", 6.0f);    // Env
+        setParam (p, "env_atk", 5.0f);    setParam (p, "env_rel", 50.0f);
+        setParam (p, "b1_inertia", 0.0f);
+
+        juce::AudioBuffer<float> buf (2, kBlock);
+        juce::MidiBuffer midi;
+        double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate;
+        double outLE = 0, outRE = 0;
+        for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk) {
+            for (int s = 0; s < kBlock; ++s) { const float v = (float) std::sin (phase); phase += inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+            p.processBlock (buf, midi);
+            if (blk < kWarmBlocks) continue;
+            for (int s = 0; s < kBlock; ++s) { outLE += juce::square((double)buf.getSample(0,s)); outRE += juce::square((double)buf.getSample(1,s)); }
+        }
+        ok &= check ("T13 env-follower pans loud signal right", outRE > outLE * 2.0);
+        std::printf ("    R/L energy ratio = %.2f\n", outRE / juce::jmax(1e-9, outLE));
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }
