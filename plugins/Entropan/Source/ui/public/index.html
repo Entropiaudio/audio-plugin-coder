@@ -438,7 +438,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow">Entropia Audio &middot; V0.1.0</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B14</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -561,6 +561,10 @@
         <button class="settings-mini-btn" id="brightnessUp">+</button>
       </div>
     </div>
+    <div class="settings-row">
+      <span class="settings-row-label" id="buildInfo">—</span>
+      <span class="settings-row-value" id="fpsInfo">— fps</span>
+    </div>
   </div>
   <div class="resize-grip" id="resizeGrip" title="Drag to resize"></div>
   <button class="settings-btn" id="settingsBtn" title="Settings">
@@ -571,6 +575,10 @@
 <script type="module">
 "use strict";
 import * as Juce from "./js/juce/index.js";
+
+/* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
+const ENTROPAN_BUILD = "B14";
+console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
    PARAMETER LAYER
@@ -1621,11 +1629,18 @@ function tickMods(dt) {
    MAIN LOOP
    ════════════════════════════════════════════════════════════════════ */
 let lastFrame = 0, loopCalls = 0, loopErr = null;
+let fpsCount = 0, fpsLastTs = 0;
 function loop(ts) {
   loopCalls++;
   requestAnimationFrame(loop);
   if (ts - lastFrame < 30) return;      // ~33 fps cap — WKWebView-friendly
   lastFrame = ts;
+  fpsCount++;
+  if (ts - fpsLastTs > 1000) {
+    const el = document.getElementById("fpsInfo");
+    if (el) el.textContent = fpsCount + " fps";
+    fpsCount = 0; fpsLastTs = ts;
+  }
   const now = performance.now(), dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now; simClock += dt;
   tickAnalyzer(simClock);
@@ -1673,6 +1688,7 @@ window.addEventListener("load", kickLoop);
 
 /* ── SETTINGS (Chaosverb set: tooltips, window size presets, brightness) ── */
 const settingsPopover = document.getElementById("settingsPopover");
+document.getElementById("buildInfo").textContent = "V0.1.0 · " + ENTROPAN_BUILD + (EMBEDDED ? " · plugin" : " · browser");
 document.getElementById("settingsBtn").addEventListener("click", e => {
   settingsPopover.classList.toggle("open");
   e.stopPropagation();
@@ -1759,7 +1775,7 @@ const setEditorSizeNative = native("setEditorSize");
 })();
 
 /* debug/testing handle (module scope is otherwise sealed) */
-window.__entropan = { P, ui, spec, quickMenu, refreshPanels, drawScope, drawSpectrum, loopInfo: () => ({ lastFrame, simClock, loopCalls, loopErr, loopStarted }), kickLoop };
+window.__entropan = { version: ENTROPAN_BUILD, P, ui, spec, quickMenu, refreshPanels, drawScope, drawSpectrum, loopInfo: () => ({ lastFrame, simClock, loopCalls, loopErr, loopStarted }), kickLoop };
 </script>
 </body>
 </html>
