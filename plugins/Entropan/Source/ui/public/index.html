@@ -858,6 +858,7 @@ function refreshPanels() {
   rm.classList.toggle("active", pb.ratemode.get() !== 1);
   const mode = pb.mode.get();
   hsPhase.el.classList.toggle("disabled", mode >= 2 && mode <= 4);
+  hsInertia.el.classList.toggle("disabled", mode <= 1); // sine/tri: no slew — depth reach stays full
   document.getElementById("sliderStack").style.display = mode === 5 ? "none" : "flex";
   document.getElementById("stepEditor").classList.toggle("visible", mode === 5);
   document.getElementById("stepCount").textContent = b.stepCount;
@@ -1434,8 +1435,14 @@ function tickMods(dt) {
         b.target = stepValueAt(b, (simClock * f) + pb.phase.get() / 360); break;
       }
     }
-    const slewT = 0.004 + Math.pow(pb.inertia.get() / 100, 2.2) * 2.0;
-    const k = 1 - Math.exp(-dt / slewT);
+    const mode = pb.mode.get();
+    let k;
+    if (mode <= 1) k = 1;                          // sine/tri: no slew
+    else {
+      let slewT = 0.004 + Math.pow(pb.inertia.get() / 100, 2.2) * 2.0;
+      if (mode === 2 || mode === 5) slewT = Math.min(slewT, (1 / Math.max(f, 1e-6)) / 3.5);
+      k = 1 - Math.exp(-dt / slewT);
+    }
     b.pan += (b.target * (pb.depth.get() / 100) - b.pan) * k;
   }
 }

@@ -163,6 +163,50 @@ int main()
         std::printf ("    dL = %+.2f dB, dR = %+.2f dB\n", dL, dR);
     }
 
+    // ── T7 (reach-safety): same as T4 but inertia 100% — sine bypasses slew,
+    //    swing must still reach hard right (depth independent of inertia) ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        setParam (p, "b1_on", 1.0f);
+        setParam (p, "b1_freq", 1000.0f);
+        setParam (p, "b1_width", 2.0f);
+        setParam (p, "b1_lift", 100.0f);
+        setParam (p, "b1_depth", 100.0f);
+        setParam (p, "amount", 100.0f);
+        setParam (p, "b1_ratemode", 1.0f);
+        setParam (p, "b1_rate", 0.02f);
+        setParam (p, "b1_phase", 90.0f);
+        setParam (p, "b1_inertia", 100.0f);   // ← the whole point
+
+        juce::AudioBuffer<float> buf (2, kBlock);
+        juce::MidiBuffer midi;
+        double phase = 0.0;
+        const double inc = 2.0 * juce::MathConstants<double>::pi * 1000.0 / kSampleRate;
+        double inE = 0, outLE = 0, outRE = 0;
+        for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk)
+        {
+            for (int s = 0; s < kBlock; ++s)
+            {
+                const float v = (float) std::sin (phase);
+                phase += inc;
+                buf.setSample (0, s, v);
+                buf.setSample (1, s, v);
+            }
+            p.processBlock (buf, midi);
+            if (blk < kWarmBlocks) continue;
+            for (int s = 0; s < kBlock; ++s)
+            {
+                inE += 0.5;
+                outLE += juce::square ((double) buf.getSample (0, s));
+                outRE += juce::square ((double) buf.getSample (1, s));
+            }
+        }
+        const double dL = dB (outLE / inE), dR = dB (outRE / inE);
+        ok &= check ("T7 full reach at inertia 100%", dL < -6.0 && dR > 2.0 && dR < 4.0);
+        std::printf ("    dL = %+.2f dB, dR = %+.2f dB\n", dL, dR);
+    }
+
     // ── T5: audio-rate sine mod (200 Hz) keeps total energy (equal-power law) ──
     {
         EntropanAudioProcessor p;

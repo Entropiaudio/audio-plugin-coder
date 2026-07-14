@@ -40,7 +40,7 @@ Architecture: 6 band slots, each with dedicated modulator (see creative-brief).
 - `_depth` — pan modulation amplitude for the band (how far the lifted portion swings). Scaled globally by `amount`.
 - `_gain` — trim on the **lifted branch only** (post-pan, pre-sum): compensates the perceived loudness bump of panned frequencies, or creatively ducks/pushes a moving band. Lift 0 → gain irrelevant → null preserved. UI: third row (GAIN) in the floating quick-menu.
 - `_ratemode` — **Sync**: `_div` note divisions from host tempo. **Free**: `_rate` in Hz, reaching **audio rate** (up to 1 kHz — tremolo/rotary/AM territory). **MIDI**: rate follows the last played MIDI note's frequency (mono, last-note priority; inertia doubles as glide). All modes multiplied by global `speed`.
-- `_inertia` — slew between pan targets: 100% = liquid glide, 0% = instant snap.
+- `_inertia` — slew between pan targets: 100% = liquid glide, 0% = instant snap. **Never limits reach:** Sine/Tri bypass slew entirely (already smooth); S&H/Steps cap the slew at ⅓ of the step interval so the pan always arrives at the full ±depth target. Drift/Chaos keep free viscosity. Inactive (dimmed) for Sine/Tri.
 - `_phase` — offset for periodic modes (Sine/Triangle/Steps); ignored by S&H/Drift/Chaos.
 
 **Total: 5 global + 6 × 12 = 77 APVTS parameters.**

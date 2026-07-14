@@ -315,10 +315,29 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // Lorenz integration step scales with rate; clamped for stability.
         cfg.lorenzDt = (float) juce::jmin (0.02, cfg.cycPerSample * 1.2);
 
-        // Inertia → per-sample one-pole coefficient (4 ms … ~2 s exp map)
+        // Inertia → per-sample one-pole coefficient. Policy (keeps DEPTH reach
+        // independent of inertia):
+        //   Sine/Tri  — no slew (already smooth; lag would only eat amplitude)
+        //   S&H/Steps — slew capped at cyclePeriod/3.5 so the pan ALWAYS
+        //               arrives at the full target before the next deal
+        //   Drift/Chaos — free viscosity (unbounded wanderers by nature)
         const float inertia = pp.inertia->load() * 0.01f;
-        const float slewT = 0.004f + std::pow (inertia, 2.2f) * 2.0f;
-        m.slewCoeff = 1.0f - std::exp (-1.0f / (slewT * (float) currentSampleRate));
+        float slewT = 0.004f + std::pow (inertia, 2.2f) * 2.0f;
+        if (cfg.mode == 0 || cfg.mode == 1)
+        {
+            m.slewCoeff = 1.0f;   // bypass
+        }
+        else
+        {
+            if (cfg.mode == 2 || cfg.mode == 5)
+            {
+                const double period = cfg.cycPerSample > 1.0e-9
+                                        ? 1.0 / (cfg.cycPerSample * currentSampleRate)
+                                        : 1.0e9;
+                slewT = (float) juce::jmin ((double) slewT, period / 3.5);
+            }
+            m.slewCoeff = 1.0f - std::exp (-1.0f / (juce::jmax (slewT, 1.0e-4f) * (float) currentSampleRate));
+        }
     }
 
     outGainSm.setTargetValue (juce::Decibels::decibelsToGain (pOutput->load()));
