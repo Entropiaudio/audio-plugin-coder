@@ -434,7 +434,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B28</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B29</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -577,7 +577,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B28";
+const ENTROPAN_BUILD = "B29";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -616,7 +616,7 @@ function bandIds(i) { const p = `b${i + 1}_`; return {
   freq:    { id: p + "freq",    kind: "slider", map: MAPS.log(FMIN, FMAX), def: [200, 500, 1000, 2000, 5000, 10000][i] },
   width:   { id: p + "width",   kind: "slider", map: MAPS.log(0.1, 4), def: 1.0 },
   lift:    { id: p + "lift",    kind: "slider", map: MAPS.lin(0, 100), def: 100 },
-  depth:   { id: p + "depth",   kind: "slider", map: MAPS.lin(0, 100), def: 50 },
+  depth:   { id: p + "depth",   kind: "slider", map: MAPS.lin(0, 100), def: 100 },
   gain:    { id: p + "gain",    kind: "slider", map: MAPS.lin(-6, 6), def: 0 },
   mode:    { id: p + "mode",    kind: "combo",  def: 0 },
   rate:    { id: p + "rate",    kind: "slider", map: MAPS.log(RATE_MIN, RATE_MAX), def: 0.5 },
@@ -960,7 +960,7 @@ const knobLift = makeKnob("knob_lift", "LIFT", {
   fmt: () => Math.round(PB().lift.get()) + "%"
 });
 const knobDepth = makeKnob("knob_depth", "DEPTH", {
-  color: bandColor(), def: 0.5,
+  color: bandColor(), def: 1.0,
   get: () => PB().depth.get() / 100,
   set: n => PB().depth.set(n * 100),
   fmt: () => Math.round(PB().depth.get()) + "%"

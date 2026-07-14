@@ -203,7 +203,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::crea
             juce::ParameterID { p + "lift", 1 }, label + "Lift", pct(), 100.0f,
             juce::AudioParameterFloatAttributes().withLabel ("%")));
         params.push_back (std::make_unique<juce::AudioParameterFloat> (
-            juce::ParameterID { p + "depth", 1 }, label + "Depth", pct(), 50.0f,
+            juce::ParameterID { p + "depth", 1 }, label + "Depth", pct(), 100.0f,
             juce::AudioParameterFloatAttributes().withLabel ("%")));
         params.push_back (std::make_unique<juce::AudioParameterFloat> (
             juce::ParameterID { p + "gain", 1 }, label + "Gain",

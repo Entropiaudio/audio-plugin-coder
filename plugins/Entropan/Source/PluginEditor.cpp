@@ -276,12 +276,26 @@ void EntropanAudioProcessorEditor::timerCallback()
         {
             const double f0 = 20.0 * std::pow (1000.0, (double) b / kSpectrumBins);
             const double f1 = 20.0 * std::pow (1000.0, (double) (b + 1) / kSpectrumBins);
-            int i0 = juce::jlimit (1, kFftSize / 2 - 1, (int) (f0 / binHz));
-            int i1 = juce::jlimit (i0 + 1, kFftSize / 2, (int) std::ceil (f1 / binHz));
-            float peak = 0.0f;
-            for (int k = i0; k < i1; ++k)
-                peak = juce::jmax (peak, fftWork[(size_t) k]);
-            const double db = juce::Decibels::gainToDecibels ((double) peak / (double) (kFftSize / 4), -80.0);
+            const double fc = std::sqrt (f0 * f1);                 // log centre
+            const double b0d = fc / binHz;
+            const int    b0  = juce::jlimit (1, kFftSize / 2 - 2, (int) b0d);
+            const float  fr  = (float) juce::jlimit (0.0, 1.0, b0d - b0);
+            // Below one FFT bin per log-band (the lows): linearly interpolate the
+            // magnitude at the fractional bin → smooth, no staircase. Above that
+            // (the highs, many bins per band): take the peak → keep spikes.
+            const int i0 = juce::jlimit (1, kFftSize / 2 - 1, (int) (f0 / binHz));
+            const int i1 = juce::jlimit (i0 + 1, kFftSize / 2, (int) std::ceil (f1 / binHz));
+            float mag;
+            if (i1 - i0 >= 2)
+            {
+                mag = 0.0f;
+                for (int k = i0; k < i1; ++k) mag = juce::jmax (mag, fftWork[(size_t) k]);
+            }
+            else
+            {
+                mag = fftWork[(size_t) b0] * (1.0f - fr) + fftWork[(size_t) (b0 + 1)] * fr;
+            }
+            const double db = juce::Decibels::gainToDecibels ((double) mag / (double) (kFftSize / 4), -80.0);
             mags.add (juce::jlimit (-60.0, 0.0, db));
         }
         auto* obj = new juce::DynamicObject();
