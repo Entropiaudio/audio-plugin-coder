@@ -906,17 +906,16 @@ function drawSpectrum(t) {
         const alpha = 0.30 * (1 - li / LAYERS) * (0.35 + 0.65 * amt);
         ctx.strokeStyle = c;
         ctx.globalAlpha = alpha;
-        // only where the bell actually rises — no full-width ghost lines
-        const cxN = fx(b.freq), halfN = (b.widthOct / 2) / Math.log2(FMAX / FMIN) * 1.8;
+        // offset scales with curve height: aura wraps the WHOLE bell,
+        // pinching to the baseline at the skirts (no floating lines)
+        const cxN = fx(b.freq), halfN = (b.widthOct / 2) / Math.log2(FMAX / FMIN) * 2.4;
         const x0 = clamp(cxN - halfN, 0, 1) * W, x1 = clamp(cxN + halfN, 0, 1) * W;
+        const peak = Math.max(b.lift / 100, 0.01);
         ctx.beginPath();
-        let pen = false;
         for (let px = x0; px <= x1; px += 3 * DPR) {
           const by = bellY(b, px / W);
-          if (by < 0.02) { pen = false; continue; }
-          const y = H - by * topH + off;
-          pen ? ctx.lineTo(px, y) : ctx.moveTo(px, y);
-          pen = true;
+          const y = H - by * topH + off * (by / peak);
+          px > x0 ? ctx.lineTo(px, y) : ctx.moveTo(px, y);
         }
         ctx.stroke();
       }
