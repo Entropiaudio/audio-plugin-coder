@@ -419,8 +419,8 @@
       linear-gradient(135deg, transparent 0 55%, var(--text-dim) 55% 60%, transparent 60% 75%, var(--text-dim) 75% 80%, transparent 80%);
   }
   .settings-btn {
-    position: absolute; bottom: 5px; right: 22px; z-index: 21;
-    width: 16px; height: 16px; padding: 1px;
+    position: absolute; bottom: 2px; right: 19px; z-index: 21;
+    width: 14px; height: 14px; padding: 1px;
     background: transparent; border: none; cursor: pointer;
     color: var(--text-dim);
   }
@@ -438,7 +438,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B16</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B17</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -577,7 +577,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B16";
+const ENTROPAN_BUILD = "B17";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -1177,6 +1177,7 @@ window.addEventListener("resize", sizeSpectrum);
 /* analyzer: real frames via "spectrum" event when embedded; fake otherwise */
 const anaBins = 256;
 const ana = new Float32Array(anaBins).fill(-60);
+const anaTarget = new Float32Array(anaBins).fill(-60);
 let lastSpectrumEvent = 0;
 if (EMBEDDED) {
   window.__JUCE__.backend.addEventListener("spectrum", data => {
@@ -1185,15 +1186,25 @@ if (EMBEDDED) {
       const m = arr.mags || arr;
       if (!m || !m.length) return;
       lastSpectrumEvent = performance.now();
+      // linear-interp resample (nearest-neighbour was the blocky look)
       for (let i = 0; i < anaBins; i++) {
-        const src = m[Math.min(m.length - 1, Math.floor(i / anaBins * m.length))];
-        ana[i] += (src - ana[i]) * 0.5;
+        const pos = i / (anaBins - 1) * (m.length - 1);
+        const i0 = Math.floor(pos), fr = pos - i0;
+        anaTarget[i] = m[i0] * (1 - fr) + m[Math.min(m.length - 1, i0 + 1)] * fr;
       }
     } catch {}
   });
 }
 function tickAnalyzer(t) {
-  if (EMBEDDED && performance.now() - lastSpectrumEvent < 500) return; // real data flowing
+  if (EMBEDDED && performance.now() - lastSpectrumEvent < 500) {
+    // real data: per-frame attack/release toward the latest frame —
+    // fast rise, relaxed fall = responsive AND smooth
+    for (let i = 0; i < anaBins; i++) {
+      const tgt = anaTarget[i];
+      ana[i] += (tgt - ana[i]) * (tgt > ana[i] ? 0.55 : 0.16);
+    }
+    return;
+  }
   for (let i = 0; i < anaBins; i++) {
     const x = i / anaBins;
     const f = xf(x);
@@ -1252,13 +1263,16 @@ function drawSpectrum(t) {
   drawGridCached(ctx, W, H);
   ctx.font = `${9 * DPR}px 'JetBrains Mono', ui-monospace, monospace`;
 
-  // analyzer fill
+  // analyzer fill — quadratic midpoint curve through the bins (no stair edges)
   ctx.beginPath(); ctx.moveTo(0, H);
-  for (let i = 0; i < anaBins; i++) {
-    const x = i / (anaBins - 1) * W;
-    const y = clamp(-ana[i] / 60, 0, 1) * H;
-    ctx.lineTo(x, y);
+  const ay = i => clamp(-ana[i] / 60, 0, 1) * H;
+  const axp = i => i / (anaBins - 1) * W;
+  ctx.lineTo(0, ay(0));
+  for (let i = 0; i < anaBins - 1; i++) {
+    const mx = (axp(i) + axp(i + 1)) / 2, my = (ay(i) + ay(i + 1)) / 2;
+    ctx.quadraticCurveTo(axp(i), ay(i), mx, my);
   }
+  ctx.lineTo(W, ay(anaBins - 1));
   ctx.lineTo(W, H); ctx.closePath();
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, "rgba(232,226,214,0.10)"); g.addColorStop(1, "rgba(232,226,214,0.0)");
@@ -1309,22 +1323,30 @@ function drawSpectrum(t) {
         cache.canvas.width = W; cache.canvas.height = H;
         const a = cache.canvas.getContext("2d");
         a.clearRect(0, 0, W, H);
-        const tracePath = close => {
+        // ctx.filter (CSS blur) is NOT supported by WKWebView — use the
+        // blurred SHADOW of the filled bell instead (shadowBlur is universal):
+        // fill the shape far off-canvas, let its shadow land here, then punch
+        // out the interior so only the halo on the boost/cut side survives.
+        const SHIFT = 4000;
+        const tracePath = (close, dx) => {
           a.beginPath();
-          a.moveTo(0, close === "down" ? H : 0);
-          a.lineTo(0, H - bellY(bi, 0) * topH);
+          a.moveTo(dx, close === "down" ? H : 0);
+          a.lineTo(dx, H - bellY(bi, 0) * topH);
           for (let px = 0; px <= W; px += 2 * DPR)
-            a.lineTo(px, H - bellY(bi, px / W) * topH);
-          a.lineTo(W, close === "down" ? H : 0);
+            a.lineTo(px + dx, H - bellY(bi, px / W) * topH);
+          a.lineTo(W + dx, close === "down" ? H : 0);
           a.closePath();
         };
-        a.filter = `blur(${blur / DPR}px)`;
+        a.save();
+        a.shadowColor = c;
+        a.shadowBlur = blur;
+        a.shadowOffsetX = SHIFT;
         a.fillStyle = c;
-        tracePath(boost ? "down" : "up");
-        a.fill(); a.fill();
-        a.filter = "none";
+        tracePath(boost ? "down" : "up", -SHIFT);
+        a.fill(); a.fill();                       // double shadow pass = stronger halo
+        a.restore();
         a.globalCompositeOperation = "destination-out";
-        tracePath(boost ? "down" : "up");
+        tracePath(boost ? "down" : "up", 0);
         a.fill(); a.fill(); a.fill();
         a.globalCompositeOperation = "source-over";
       }

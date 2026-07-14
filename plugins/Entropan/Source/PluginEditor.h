@@ -53,7 +53,7 @@ private:
 
     // ── UI telemetry (30 Hz): spectrum frames + per-band mod values ──
     void timerCallback() override;
-    static constexpr int kFftOrder = 11, kFftSize = 1 << kFftOrder, kSpectrumBins = 160;
+    static constexpr int kFftOrder = 11, kFftSize = 1 << kFftOrder, kSpectrumBins = 256;
     juce::dsp::FFT fft { kFftOrder };
     juce::dsp::WindowingFunction<float> window { kFftSize, juce::dsp::WindowingFunction<float>::hann };
     std::vector<float> fifoDrain, fftAccum, fftWork;

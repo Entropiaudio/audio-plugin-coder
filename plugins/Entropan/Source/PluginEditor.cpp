@@ -141,7 +141,7 @@ EntropanAudioProcessorEditor::EntropanAudioProcessorEditor (EntropanAudioProcess
     fifoDrain.resize (kFftSize);
     fftAccum.resize (kFftSize, 0.0f);
     fftWork.resize ((size_t) kFftSize * 2, 0.0f);
-    startTimerHz (30);
+    startTimerHz (60);   // smooth analyzer/scope motion
 }
 
 EntropanAudioProcessorEditor::~EntropanAudioProcessorEditor()
