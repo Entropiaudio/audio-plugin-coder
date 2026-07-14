@@ -1243,7 +1243,9 @@ spec.addEventListener("wheel", e => {
   const hit = bandAt(e);
   const i = hit >= 0 ? hit : ui.selected;
   const pb = P.bands[i];
-  pb.width.set(clamp(pb.width.get() - Math.sign(e.deltaY) * 0.1, 0.1, 4));
+  // gentle: ~0.03 oct per wheel notch, proportional + capped for trackpads
+  const step = clamp(e.deltaY * 0.0008, -0.03, 0.03);
+  pb.width.set(clamp(pb.width.get() - step, 0.1, 4));
   knobWidth.refresh();
   e.preventDefault();
 }, { passive: false });

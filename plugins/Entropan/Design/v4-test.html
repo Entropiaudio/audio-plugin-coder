@@ -1051,7 +1051,8 @@ spec.addEventListener("wheel", e => {
   const hit = bandAt(e);
   const i = hit >= 0 ? hit : state.selected;
   const b = state.bands[i];
-  b.widthOct = clamp(b.widthOct - Math.sign(e.deltaY) * 0.1, 0.1, 4);
+  const step = clamp(e.deltaY * 0.0008, -0.03, 0.03);
+  b.widthOct = clamp(b.widthOct - step, 0.1, 4);
   knobWidth.refresh();
   e.preventDefault();
 }, { passive: false });
