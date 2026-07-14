@@ -816,6 +816,10 @@ function sizeSpectrum() {
 }
 window.addEventListener("resize", sizeSpectrum);
 
+/* aura scratch canvas — glow composited alone, then stamped onto the spectrum */
+const auraCanvas = document.createElement("canvas");
+const auraCtx = auraCanvas.getContext("2d");
+
 /* fake analyzer: pink slope + moving bumps */
 const anaBins = 256;
 const ana = new Float32Array(anaBins).fill(-60);
@@ -895,48 +899,50 @@ function drawSpectrum(t) {
     ctx.fillStyle = ghost ? "#88837a" : "#fff"; ctx.fill();
 
     // gain status: smooth AURA hugging the bell — above = boost, below = cut.
-    // One-sided shadow-blur glow: stroke the curve far off-canvas, let its
-    // blurred shadow land here, clipped to one side of the curve. No banding.
+    // Perfect-glow recipe: blur a FILLED bell on a scratch canvas (glow radiates
+    // uniformly from the whole area — apex, slopes and skirts alike), then punch
+    // out the interior so only the halo on the boost/cut side survives.
     if (Math.abs(b.gain) > 0.05 && !ghost) {
-      const dir = b.gain > 0 ? -1 : 1;                    // boost glows upward
+      const boost = b.gain > 0;
       const amt = Math.abs(b.gain) / 6;                    // 0..1
-      const blur = (6 + amt * 26) * DPR;
-      const cxN = fx(b.freq), halfN = (b.widthOct / 2) / Math.log2(FMAX / FMIN) * 2.4;
-      const x0 = clamp(cxN - halfN, 0, 1) * W, x1 = clamp(cxN + halfN, 0, 1) * W;
-
-      ctx.save();
-      // clip: region strictly above (boost) or below (cut) the curve
-      ctx.beginPath();
-      for (let px = x0; px <= x1; px += 2 * DPR) {
-        const y = H - bellY(b, px / W) * topH + dir * 1.5 * DPR;
-        px > x0 ? ctx.lineTo(px, y) : ctx.moveTo(px, y);
+      const blur = (5 + amt * 22) * DPR;
+      if (auraCanvas.width !== W || auraCanvas.height !== H) {
+        auraCanvas.width = W; auraCanvas.height = H;
       }
-      const edgeY = dir < 0 ? 0 : H;
-      ctx.lineTo(x1, edgeY); ctx.lineTo(x0, edgeY); ctx.closePath();
-      ctx.clip();
+      const a = auraCtx;
+      a.clearRect(0, 0, W, H);
 
-      // off-canvas stroke, shadow lands in view — continuous gradient glow
-      const SHIFT = 10000 * DPR;
-      ctx.shadowColor = c;
-      ctx.shadowBlur = blur;
-      ctx.shadowOffsetX = SHIFT;
-      ctx.globalAlpha = 0.4 + 0.5 * amt;
-      ctx.strokeStyle = c;
-      ctx.lineWidth = 3 * DPR;
-      ctx.lineJoin = "round";
-      ctx.beginPath();
-      for (let px = x0; px <= x1; px += 2 * DPR) {
-        const y = H - bellY(b, px / W) * topH;
-        px > x0 ? ctx.lineTo(px - SHIFT, y) : ctx.moveTo(px - SHIFT, y);
-      }
-      ctx.stroke();
-      ctx.restore();
+      const tracePath = (cx2, close) => {          // bell curve + chosen closure
+        a.beginPath();
+        a.moveTo(0, close === "down" ? H : 0);
+        a.lineTo(0, H - bellY(b, 0) * topH);
+        for (let px = 0; px <= W; px += 2 * DPR)
+          a.lineTo(px, H - bellY(b, px / W) * topH);
+        a.lineTo(W, close === "down" ? H : 0);
+        a.closePath();
+      };
+
+      // 1) blurred fill of the bell side that "emits" the glow
+      a.filter = `blur(${blur / DPR}px)`;          // filter blur is in CSS px
+      a.fillStyle = c;
+      tracePath(null, boost ? "down" : "up");      // boost: bell body; cut: sky above
+      a.fill(); a.fill();                          // double pass = stronger core
+      a.filter = "none";
+
+      // 2) punch out the emitting side — halo remains on the other side only
+      a.globalCompositeOperation = "destination-out";
+      tracePath(null, boost ? "down" : "up");
+      a.fill(); a.fill(); a.fill();
+      a.globalCompositeOperation = "source-over";
+
+      ctx.globalAlpha = 0.55 + 0.45 * amt;
+      ctx.drawImage(auraCanvas, 0, 0);
       ctx.globalAlpha = 1;
 
       if (sel) {
         ctx.fillStyle = c + "cc";
         ctx.fillText((b.gain > 0 ? "+" : "") + b.gain.toFixed(1) + " dB",
-                     hx + 10 * DPR, hy + dir * (blur + 8 * DPR) + 3 * DPR);
+                     hx + 10 * DPR, hy + (boost ? -1 : 1) * (blur + 8 * DPR) + 3 * DPR);
       }
     }
 
