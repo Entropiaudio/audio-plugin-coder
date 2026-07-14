@@ -894,6 +894,26 @@ function drawSpectrum(t) {
     ctx.beginPath(); ctx.arc(hx, hy, 2 * DPR, 0, 7);
     ctx.fillStyle = ghost ? "#88837a" : "#fff"; ctx.fill();
 
+    // gain status: stem + arrowhead above/below the apex, length ∝ dB (±6)
+    if (Math.abs(b.gain) > 0.05 && !ghost) {
+      const dir = b.gain > 0 ? -1 : 1;                    // boost points up
+      const len = Math.abs(b.gain) / 6 * 20 * DPR;
+      const sy0 = hy + dir * 9 * DPR, sy1 = sy0 + dir * len;
+      ctx.strokeStyle = c + "dd"; ctx.lineWidth = 2 * DPR; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(hx, sy0); ctx.lineTo(hx, sy1); ctx.stroke();
+      ctx.fillStyle = c + "dd";
+      ctx.beginPath();
+      ctx.moveTo(hx, sy1 + dir * 5 * DPR);
+      ctx.lineTo(hx - 4 * DPR, sy1);
+      ctx.lineTo(hx + 4 * DPR, sy1);
+      ctx.closePath(); ctx.fill();
+      if (sel) {
+        ctx.fillStyle = c + "cc";
+        ctx.fillText((b.gain > 0 ? "+" : "") + b.gain.toFixed(1) + " dB",
+                     hx + 8 * DPR, sy1 + dir * 2 * DPR + 3 * DPR);
+      }
+    }
+
     if (ghost) return; // no pan trace / L-R on bypassed band
 
     // pan trace inside bell (amplitude = pan · MIX master)
