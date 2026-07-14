@@ -894,23 +894,37 @@ function drawSpectrum(t) {
     ctx.beginPath(); ctx.arc(hx, hy, 2 * DPR, 0, 7);
     ctx.fillStyle = ghost ? "#88837a" : "#fff"; ctx.fill();
 
-    // gain status: stem + arrowhead above/below the apex, length ∝ dB (±6)
+    // gain status: AURA hugging the bell — above = boost, below = cut, strength ∝ dB (±6)
     if (Math.abs(b.gain) > 0.05 && !ghost) {
-      const dir = b.gain > 0 ? -1 : 1;                    // boost points up
-      const len = Math.abs(b.gain) / 6 * 20 * DPR;
-      const sy0 = hy + dir * 9 * DPR, sy1 = sy0 + dir * len;
-      ctx.strokeStyle = c + "dd"; ctx.lineWidth = 2 * DPR; ctx.lineCap = "round";
-      ctx.beginPath(); ctx.moveTo(hx, sy0); ctx.lineTo(hx, sy1); ctx.stroke();
-      ctx.fillStyle = c + "dd";
-      ctx.beginPath();
-      ctx.moveTo(hx, sy1 + dir * 5 * DPR);
-      ctx.lineTo(hx - 4 * DPR, sy1);
-      ctx.lineTo(hx + 4 * DPR, sy1);
-      ctx.closePath(); ctx.fill();
+      const dir = b.gain > 0 ? -1 : 1;                    // boost glows upward
+      const amt = Math.abs(b.gain) / 6;                    // 0..1
+      const maxOff = amt * 26 * DPR;
+      const LAYERS = 6;
+      ctx.lineWidth = 2.2 * DPR; ctx.lineCap = "round";
+      for (let li = 1; li <= LAYERS; li++) {
+        const off = dir * maxOff * (li / LAYERS);
+        const alpha = 0.30 * (1 - li / LAYERS) * (0.35 + 0.65 * amt);
+        ctx.strokeStyle = c;
+        ctx.globalAlpha = alpha;
+        // only where the bell actually rises — no full-width ghost lines
+        const cxN = fx(b.freq), halfN = (b.widthOct / 2) / Math.log2(FMAX / FMIN) * 1.8;
+        const x0 = clamp(cxN - halfN, 0, 1) * W, x1 = clamp(cxN + halfN, 0, 1) * W;
+        ctx.beginPath();
+        let pen = false;
+        for (let px = x0; px <= x1; px += 3 * DPR) {
+          const by = bellY(b, px / W);
+          if (by < 0.02) { pen = false; continue; }
+          const y = H - by * topH + off;
+          pen ? ctx.lineTo(px, y) : ctx.moveTo(px, y);
+          pen = true;
+        }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
       if (sel) {
         ctx.fillStyle = c + "cc";
         ctx.fillText((b.gain > 0 ? "+" : "") + b.gain.toFixed(1) + " dB",
-                     hx + 8 * DPR, sy1 + dir * 2 * DPR + 3 * DPR);
+                     hx + 10 * DPR, hy + dir * (maxOff + 10 * DPR) + 3 * DPR);
       }
     }
 
