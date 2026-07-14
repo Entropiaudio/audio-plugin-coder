@@ -897,12 +897,21 @@ function drawSpectrum(t) {
     const cx = fx(b.freq), pan = b.pan * (state.mix / 100);
     const px2 = clamp(cx + pan * half, 0, 1) * W;
     const py = H - (b.lift / 100) * topH * 0.5;
-    ctx.strokeStyle = c + "cc"; ctx.lineWidth = 2 * DPR;
-    ctx.beginPath(); ctx.moveTo(px2, py - 7 * DPR); ctx.lineTo(px2, py + 7 * DPR); ctx.stroke();
+    // full rail (faint) = maximum possible swing
     ctx.strokeStyle = c + "44"; ctx.lineWidth = DPR;
     ctx.beginPath();
     ctx.moveTo(clamp(cx - half, 0, 1) * W, py); ctx.lineTo(clamp(cx + half, 0, 1) * W, py);
     ctx.stroke();
+    // effective range = depth · AMOUNT — global amount visible on every active band
+    const effHalf = half * (b.depth / 100) * (state.mix / 100);
+    const ex0 = clamp(cx - effHalf, 0, 1) * W, ex1 = clamp(cx + effHalf, 0, 1) * W;
+    ctx.strokeStyle = c + "88"; ctx.lineWidth = 3 * DPR;
+    ctx.beginPath(); ctx.moveTo(ex0, py); ctx.lineTo(ex1, py); ctx.stroke();
+    ctx.lineWidth = 1.5 * DPR; ctx.strokeStyle = c + "bb";
+    [ex0, ex1].forEach(xx => { ctx.beginPath(); ctx.moveTo(xx, py - 4 * DPR); ctx.lineTo(xx, py + 4 * DPR); ctx.stroke(); });
+    // live pan tick
+    ctx.strokeStyle = c + "cc"; ctx.lineWidth = 2 * DPR;
+    ctx.beginPath(); ctx.moveTo(px2, py - 7 * DPR); ctx.lineTo(px2, py + 7 * DPR); ctx.stroke();
     if (sel) {
       ctx.fillStyle = c + "88";
       ctx.fillText("L", clamp(cx - half, 0, 1) * W - 10 * DPR, py + 3 * DPR);
