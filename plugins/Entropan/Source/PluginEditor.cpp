@@ -113,7 +113,7 @@ EntropanAudioProcessorEditor::EntropanAudioProcessorEditor (EntropanAudioProcess
     // Saved size (Chaosverb pattern) — read BEFORE setResizeLimits clamps.
     const int savedW = audioProcessor.apvts.state.getProperty ("editorWidth",  900);
     const int savedH = audioProcessor.apvts.state.getProperty ("editorHeight", 560);
-    setResizable (true, false);
+    setResizable (true, true);   // host edge-drag + corner resizer
     setResizeLimits (720, 448, 1620, 1008);
     constrainer.setFixedAspectRatio (900.0 / 560.0);
     setConstrainer (&constrainer);

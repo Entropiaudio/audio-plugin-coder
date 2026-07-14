@@ -68,11 +68,14 @@
     font-size: 11px;
   }
 
+  /* Fixed 900×560 design space; JS scales the shell uniformly to the window
+     (Chaosverb currentScale pattern). Aspect is host-locked via constrainer. */
   .plugin-shell {
-    width: 100%; height: 100%;
+    width: 900px; height: 560px;
     display: flex; flex-direction: column;
     background: var(--bg-shell);
-    position: relative;
+    position: absolute; top: 0; left: 0;
+    transform-origin: top left;
   }
 
   /* ─── HEADER ─── */
@@ -245,12 +248,12 @@
   }
 
   /* mode chips */
-  .mode-chips { display: flex; gap: 4px; margin: 2px 0 8px 0; flex-wrap: wrap; }
+  .mode-chips { display: flex; gap: 3px; margin: 2px 0 8px 0; flex-wrap: nowrap; }
   .mode-chip {
-    font-family: inherit; font-size: 8.5px; letter-spacing: 1px;
+    font-family: inherit; font-size: 8px; letter-spacing: 0.8px;
     background: transparent; color: var(--text-dim);
     border: 1px solid var(--border-subtle); border-radius: 9px;
-    padding: 2.5px 10px; cursor: pointer;
+    padding: 2.5px 8px; cursor: pointer; white-space: nowrap; flex: 0 0 auto;
     transition: all var(--t-fast) var(--ease-editorial);
   }
 
@@ -1451,7 +1454,22 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
-sizeSpectrum();
+/* shell zoom: scale the fixed 900×560 layout to fill the window */
+const shellEl = document.getElementById("pluginShell");
+function fitShell() {
+  // documentElement.clientWidth is reliable in every WebView backend
+  // (window.innerWidth can be stale in some embedded contexts).
+  const vw = document.documentElement.clientWidth;
+  const vh = document.documentElement.clientHeight;
+  const scale = Math.min(vw / 900, vh / 560);
+  shellEl.style.transform = `scale(${scale})`;
+  shellEl.style.left = Math.max(0, (vw - 900 * scale) / 2) + "px";
+  shellEl.style.top  = Math.max(0, (vh - 560 * scale) / 2) + "px";
+  sizeSpectrum();
+}
+window.addEventListener("resize", fitShell);
+
+fitShell();
 refreshPanels();
 requestAnimationFrame(loop);
 </script>
