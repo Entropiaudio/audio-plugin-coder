@@ -1,0 +1,1459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Entropan</title>
+<style>
+  /* ─── BUNDLED VARIABLE FONTS (served from JUCE BinaryData) ─── */
+  @font-face {
+    font-family: 'Montserrat';
+    src: url('/fonts/Montserrat-Variable.woff2') format('woff2-variations');
+    font-weight: 100 900; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Fraunces';
+    src: url('/fonts/Fraunces-Variable.woff2') format('woff2-variations');
+    font-weight: 100 900; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/fonts/JetBrainsMono-Variable.woff2') format('woff2-variations');
+    font-weight: 100 800; font-style: normal; font-display: swap;
+  }
+
+  /* ─── DESIGN TOKENS — cloned from Chaosverb v1.0.18 ─── */
+  :root {
+    --bg-shell: #14110F;
+    --bg-card: #1C1916;
+    --bg-elevated: #24201D;
+    --border-subtle: #2e2a25;
+    --border-bright: #3e3a35;
+    --border-divider: #26221F;
+    --border-soft: rgba(255, 245, 230, 0.08);
+    --text-primary: #E8E2D6;
+    --text-secondary: #A8A29A;
+    --text-dim: #6A6258;
+    --text-faint: #403A32;
+    --accent: #D4A574;
+    --accent-bright: #E2BD96;
+    --accent-glow: rgba(212, 165, 116, 0.35);
+    --accent-tint: rgba(212, 165, 116, 0.08);
+    --accent-muted: rgba(212, 165, 116, 0.15);
+    --band-1: #3ab8d4;
+    --band-2: #8aaa7a;
+    --band-3: #5fc88a;
+    --band-4: #b06ed4;
+    --band-5: #d6884a;
+    --band-6: #D4A574;
+    --section-output: #c8c8d0;
+    --state-success: #6bff8e;
+    --state-warning: #ffb86b;
+    --state-error: #ff6b6b;
+    --t-fast: 120ms;
+    --t-base: 200ms;
+    --t-slow: 350ms;
+    --ease-editorial: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  html, body { height: 100%; margin: 0; padding: 0; }
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    user-select: none; -webkit-user-select: none;
+    cursor: default; overflow: hidden;
+    background: var(--bg-shell);
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', ui-monospace, 'Courier New', monospace;
+    font-size: 11px;
+  }
+
+  .plugin-shell {
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column;
+    background: var(--bg-shell);
+    position: relative;
+  }
+
+  /* ─── HEADER ─── */
+  .header {
+    height: 56px; flex: 0 0 56px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--border-divider);
+  }
+  .header-left { display: flex; flex-direction: column; gap: 2px; min-width: 210px; }
+  .plugin-title {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 300; font-size: 22px; line-height: 1;
+    color: var(--text-primary); letter-spacing: 0.5px;
+  }
+  .plugin-eyebrow {
+    font-size: 8.5px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--accent); opacity: 0.85;
+  }
+  .header-center { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .chaos-row { display: flex; align-items: center; gap: 6px; }
+  .mutate-btn {
+    font-family: inherit; font-size: 10px; letter-spacing: 3px;
+    color: var(--text-primary); background: transparent;
+    border: 1px solid var(--border-bright); border-radius: 14px;
+    padding: 5px 22px; cursor: pointer;
+    transition: all var(--t-base) var(--ease-editorial);
+  }
+  .mutate-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 12px var(--accent-glow); }
+  .undo-btn {
+    font-family: inherit; font-size: 12px; color: var(--text-dim);
+    background: transparent; border: 1px solid var(--border-subtle);
+    border-radius: 50%; width: 22px; height: 22px; cursor: pointer; line-height: 1;
+  }
+  .undo-btn:hover { color: var(--text-secondary); border-color: var(--border-bright); }
+  .preset-bar { position: relative; }
+  .preset-btn {
+    font-family: inherit; font-size: 9px; letter-spacing: 1px;
+    color: var(--text-dim); background: transparent;
+    border: 1px solid var(--border-subtle); border-radius: 10px;
+    padding: 3px 14px; cursor: pointer;
+  }
+  .preset-btn:hover { color: var(--text-secondary); border-color: var(--border-bright); }
+  .header-right { display: flex; align-items: center; gap: 14px; min-width: 210px; justify-content: flex-end; }
+  .seed-arrow {
+    font-family: inherit; background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 4px;
+    width: 16px; height: 16px; font-size: 9px; cursor: pointer; line-height: 1; padding: 0;
+  }
+  .seed-arrow:hover { color: var(--accent); border-color: var(--accent); }
+  .seed-val { font-size: 11px; color: var(--text-secondary); min-width: 26px; text-align: center; }
+
+  /* global speed — bright, unmissable */
+  .speed-box { display: flex; align-items: center; gap: 6px; }
+  .speed-label {
+    font-size: 8.5px; letter-spacing: 1.5px; color: var(--accent);
+    text-shadow: 0 0 8px var(--accent-glow);
+  }
+  .speed-val {
+    font-size: 8.5px; font-weight: 400; letter-spacing: 1.5px;
+    color: var(--accent);
+    text-shadow: 0 0 8px var(--accent-glow);
+    min-width: 26px; text-align: center;
+  }
+  .speed-arrow {
+    font-family: inherit; background: transparent; color: var(--accent);
+    border: 1px solid var(--accent-muted); border-radius: 4px;
+    width: 18px; height: 18px; font-size: 10px; cursor: pointer; line-height: 1; padding: 0;
+  }
+  .speed-arrow:hover { border-color: var(--accent); box-shadow: 0 0 8px var(--accent-glow); }
+
+  /* ─── SPECTRUM ─── */
+  .spectrum-wrap { flex: 1 1 auto; position: relative; margin: 10px 12px 0 12px; }
+  #spectrum {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle); border-radius: 8px;
+    cursor: crosshair;
+  }
+  .spectrum-hint {
+    position: absolute; bottom: 6px; left: 12px; z-index: 3;
+    font-size: 8.5px; letter-spacing: 0.5px; color: var(--text-faint);
+  }
+
+  /* floating band quick-menu */
+  .quick-menu {
+    position: absolute; z-index: 4; display: none;
+    width: 118px; padding: 5px 7px 6px 7px;
+    background: rgba(36, 32, 29, 0.92);
+    border: 1px solid var(--border-bright); border-radius: 7px;
+    backdrop-filter: blur(2px);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.45);
+  }
+  .quick-menu.visible { display: block; }
+  .qm-grip {
+    height: 8px; margin: -2px -4px 3px -4px; cursor: grab;
+    display: flex; align-items: center; justify-content: center; gap: 3px;
+  }
+  .qm-grip::before, .qm-grip::after {
+    content: ""; width: 22px; height: 2px; border-radius: 1px;
+    background: var(--border-bright);
+  }
+  .qm-grip:active { cursor: grabbing; }
+  .qm-row { position: relative; height: 17px; cursor: ew-resize; }
+  .qm-row + .qm-row { margin-top: 3px; }
+  .qm-label {
+    position: absolute; top: 0; left: 1px;
+    font-size: 7px; letter-spacing: 1px; color: var(--text-dim); text-transform: uppercase;
+  }
+  .qm-value { position: absolute; top: 0; right: 1px; font-size: 7.5px; color: var(--text-secondary); }
+  .qm-track {
+    position: absolute; left: 0; right: 0; bottom: 1px; height: 5px;
+    background: var(--bg-shell); border-radius: 3px; overflow: hidden;
+    border: 1px solid var(--border-divider);
+  }
+  .qm-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
+
+  /* ─── BOTTOM STRIP ─── */
+  .bottom {
+    flex: 0 0 180px;
+    min-height: 0; height: 180px;
+    display: flex; gap: 10px;
+    padding: 10px 12px 12px 12px;
+  }
+  .section-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle); border-radius: 8px;
+    padding: 8px 10px;
+    display: flex; flex-direction: column;
+    min-height: 0; overflow: hidden;
+  }
+  .section-label {
+    font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase;
+    opacity: 0.9; margin-bottom: 4px;
+  }
+  .sec-band { flex: 0 0 300px; }
+  .sec-mod  { flex: 1 1 auto; min-width: 0; }
+  .sec-out  { flex: 0 0 170px; }
+  .sec-out .section-label { color: var(--section-output); opacity: 0.7; }
+
+  .knob-row { display: flex; justify-content: space-around; align-items: center; flex: 1; }
+  .knob-wrap { display: flex; flex-direction: column; align-items: center; width: 64px; cursor: ns-resize; }
+  .knob-body { position: relative; width: 56px; height: 56px; }
+  .knob-body canvas { position: absolute; top: 0; left: 0; width: 56px; height: 56px; }
+  .knob-face {
+    position: absolute; top: 10px; left: 10px; width: 36px; height: 36px;
+    border-radius: 50%; background: #1f1c19;
+    border: 1px solid var(--border-bright);
+  }
+  .knob-indicator {
+    position: absolute; top: 50%; left: 50%; width: 4px; height: 4px;
+    margin: -2px 0 0 -2px; border-radius: 50%; background: #fff;
+  }
+  .knob-label { font-size: 8.5px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-dim); margin-top: 3px; }
+  .knob-value { font-size: 9.5px; color: #8a8378; margin-top: 1px; }
+
+  .toggle-btn {
+    font-family: inherit; font-size: 9px; letter-spacing: 1.5px;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 10px;
+    padding: 3px 12px; cursor: pointer; margin-top: 4px;
+    transition: all var(--t-fast) var(--ease-editorial);
+  }
+  .toggle-btn.active { color: var(--state-success); border-color: var(--state-success); }
+  .bypass-btn.active { color: var(--state-warning); border-color: var(--state-warning); }
+  .sec-out { position: relative; }
+  .sec-out .bypass-btn {
+    position: absolute; bottom: 7px; left: 50%; transform: translateX(-50%);
+    margin: 0;
+  }
+
+  /* mode chips */
+  .mode-chips { display: flex; gap: 4px; margin: 2px 0 8px 0; flex-wrap: wrap; }
+  .mode-chip {
+    font-family: inherit; font-size: 8.5px; letter-spacing: 1px;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 9px;
+    padding: 2.5px 10px; cursor: pointer;
+    transition: all var(--t-fast) var(--ease-editorial);
+  }
+
+  /* mod layout: scope left, content right */
+  .mod-body { display: flex; gap: 8px; flex: 1; min-height: 0; }
+  #scopeCanvas {
+    flex: 0 0 128px; min-height: 0; height: 100%;
+    border-radius: 6px; background: var(--bg-elevated);
+    border: 1px solid var(--border-divider);
+  }
+  .mod-right { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+
+  /* h-sliders */
+  .hslider-stack { display: flex; flex-direction: column; gap: 8px; flex: 1; justify-content: center; }
+  .hslider-row { display: flex; align-items: center; gap: 8px; }
+  .hslider { flex: 1; height: 22px; position: relative; cursor: ew-resize; }
+  .hslider .hs-label {
+    position: absolute; top: -1px; left: 2px;
+    font-size: 8px; letter-spacing: 1.5px; color: var(--text-dim); text-transform: uppercase;
+  }
+  .hslider .hs-value { position: absolute; top: -1px; right: 2px; font-size: 8.5px; color: var(--text-secondary); }
+  .hslider .hs-track {
+    position: absolute; left: 0; right: 0; bottom: 2px; height: 8px;
+    background: var(--bg-elevated); border-radius: 4px; overflow: hidden;
+    border: 1px solid var(--border-divider);
+  }
+  .hslider .hs-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+  .hslider.disabled { opacity: 0.35; pointer-events: none; }
+  .mode-toggle {
+    font-family: inherit; font-size: 8.5px; letter-spacing: 1px;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 9px;
+    width: 46px; padding: 3px 0; cursor: pointer;
+  }
+  .mode-toggle.active { color: var(--accent); border-color: var(--accent); }
+
+  /* step editor */
+  .step-editor { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 6px; }
+  .step-editor.visible { display: flex; }
+  #stepCanvas { flex: 1; min-height: 0; width: 100%; border-radius: 6px; background: var(--bg-elevated); border: 1px solid var(--border-divider); cursor: crosshair; }
+  .step-count-row { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
+  .step-count-row span { font-size: 8.5px; letter-spacing: 1px; color: var(--text-dim); }
+  .step-preset-sel {
+    font-family: inherit; font-size: 8px; letter-spacing: 0.5px;
+    background: var(--bg-elevated); color: var(--text-secondary);
+    border: 1px solid var(--border-subtle); border-radius: 8px;
+    padding: 2px 6px; cursor: pointer; margin-right: auto;
+  }
+  .step-save-btn {
+    font-family: inherit; font-size: 8px; letter-spacing: 1px;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 8px;
+    padding: 2px 8px; cursor: pointer;
+  }
+  .step-save-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* output */
+  .out-knob-row { display: flex; justify-content: space-around; align-items: center; flex: 1; }
+
+  /* overlays */
+  .mutation-flash {
+    position: absolute; inset: 0; z-index: 10; pointer-events: none;
+    background: radial-gradient(circle at 50% 12%, var(--accent-glow), transparent 60%);
+    opacity: 0; transition: opacity var(--t-slow) var(--ease-editorial);
+  }
+  .mutation-flash.fire { opacity: 1; transition: none; }
+  .bypass-dim {
+    position: absolute; inset: 0; z-index: 9; pointer-events: none;
+    background: rgba(20, 17, 15, 0.55); opacity: 0;
+    transition: opacity var(--t-base) var(--ease-editorial);
+  }
+  .bypass-dim.on { opacity: 1; }
+
+  .settings-btn {
+    position: absolute; bottom: 8px; right: 10px; z-index: 5;
+    width: 20px; height: 20px; padding: 2px;
+    background: transparent; border: none; cursor: pointer;
+    color: var(--text-faint);
+  }
+  .settings-btn:hover { color: var(--text-secondary); }
+  .settings-btn svg { width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+
+<div class="plugin-shell" id="pluginShell">
+  <div class="mutation-flash" id="mutationFlash"></div>
+  <div class="bypass-dim" id="bypassDim"></div>
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-left">
+      <div class="plugin-title">Entropan</div>
+      <div class="plugin-eyebrow">Entropia Audio &middot; V0.1.0</div>
+    </div>
+    <div class="header-center">
+      <div class="chaos-row">
+        <button class="undo-btn" id="undoBtn" title="Undo" disabled>↶</button>
+        <button class="mutate-btn" id="rerollBtn" title="Re-deal all random modulators">CHAOS</button>
+        <button class="undo-btn" id="redoBtn" title="Redo" disabled>↷</button>
+      </div>
+      <div class="preset-bar">
+        <button class="preset-btn" id="presetBtn">— select preset — ▾</button>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="speed-box" title="Global speed — multiplies every band's rate">
+        <span class="speed-label">GLOBAL SPEED</span>
+        <button class="speed-arrow" id="speedDown">‹</button>
+        <span class="speed-val" id="speedVal">×1</span>
+        <button class="speed-arrow" id="speedUp">›</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SPECTRUM -->
+  <div class="spectrum-wrap">
+    <canvas id="spectrum"></canvas>
+    <div class="quick-menu" id="quickMenu">
+      <div class="qm-grip" id="qmGrip" title="Drag to move"></div>
+      <div class="qm-row" id="qm_rate">
+        <div class="qm-label">RATE</div><div class="qm-value"></div>
+        <div class="qm-track"><div class="qm-fill"></div></div>
+      </div>
+      <div class="qm-row" id="qm_depth">
+        <div class="qm-label">DEPTH</div><div class="qm-value"></div>
+        <div class="qm-track"><div class="qm-fill"></div></div>
+      </div>
+      <div class="qm-row" id="qm_gain">
+        <div class="qm-label">GAIN</div><div class="qm-value"></div>
+        <div class="qm-track"><div class="qm-fill"></div></div>
+      </div>
+    </div>
+    <div class="spectrum-hint">double-click: add band · double-click tip: on/off · drag: freq/lift · scroll: width · steps: alt-click = divide</div>
+  </div>
+
+  <!-- BOTTOM STRIP -->
+  <div class="bottom">
+    <div class="section-col sec-band">
+      <div class="section-label" id="bandSecLabel">Band 1</div>
+      <div class="knob-row">
+        <div class="knob-wrap" id="knob_freq"></div>
+        <div class="knob-wrap" id="knob_bwidth"></div>
+        <div class="knob-wrap" id="knob_lift"></div>
+        <div class="knob-wrap" id="knob_depth"></div>
+      </div>
+    </div>
+
+    <div class="section-col sec-mod">
+      <div class="section-label" id="modSecLabel">Modulator</div>
+      <div class="mode-chips" id="modeChips"></div>
+      <div class="mod-body">
+        <canvas id="scopeCanvas"></canvas>
+        <div class="mod-right">
+          <div class="hslider-stack" id="sliderStack">
+            <div class="hslider-row">
+              <div class="hslider" id="hs_rate"></div>
+              <button class="mode-toggle" id="syncToggle">SYNC</button>
+            </div>
+            <div class="hslider-row">
+              <div class="hslider" id="hs_inertia"></div>
+              <div style="width:46px;"></div>
+            </div>
+            <div class="hslider-row">
+              <div class="hslider" id="hs_phase"></div>
+              <div style="width:46px;"></div>
+            </div>
+          </div>
+          <div class="step-editor" id="stepEditor">
+            <canvas id="stepCanvas"></canvas>
+            <div class="step-count-row">
+              <select class="step-preset-sel" id="stepPresetSel"></select>
+              <button class="step-save-btn" id="stepSaveBtn" title="Save current pattern as preset">SAVE</button>
+              <span>STEPS</span>
+              <button class="seed-arrow" id="stepDown">−</button>
+              <span class="seed-val" id="stepCount">8</span>
+              <button class="seed-arrow" id="stepUp">+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-col sec-out">
+      <div class="section-label">Output</div>
+      <div class="out-knob-row">
+        <div class="knob-wrap" id="knob_mix"></div>
+        <div class="knob-wrap" id="knob_output"></div>
+      </div>
+      <button class="toggle-btn bypass-btn" id="bypassBtn">BYPASS</button>
+    </div>
+  </div>
+
+  <button class="settings-btn" title="Settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
+</div>
+
+<script type="module">
+"use strict";
+import * as Juce from "./js/juce/index.js";
+
+/* ════════════════════════════════════════════════════════════════════
+   PARAMETER LAYER
+   Embedded in the plugin → JUCE relays (window.__JUCE__ present).
+   Opened in a plain browser → local mock values (design-preview parity).
+   All UI code below talks ONLY to the `P` wrapper API.
+   ════════════════════════════════════════════════════════════════════ */
+/* The JUCE frontend lib defines a placeholder window.__JUCE__ in plain
+   browsers; only the real native backend fills initialisationData.__juce__platform. */
+const EMBEDDED = typeof window.__JUCE__ !== "undefined"
+  && (window.__JUCE__.initialisationData?.__juce__platform?.length ?? 0) > 0;
+
+const DPR = window.devicePixelRatio || 1;
+const BAND_COLORS = ["#3ab8d4", "#8aaa7a", "#5fc88a", "#b06ed4", "#d6884a", "#D4A574"];
+const MODES = ["SINE", "TRI", "S&H", "DRIFT", "CHAOS", "STEPS"];
+const DIVS = ["1/16", "1/8", "1/4", "1/2", "1 BAR", "2 BAR", "4 BAR"];
+const DIV_HZ = [8, 4, 2, 1, 0.5, 0.25, 0.125]; // at 120 bpm — UI sim only
+const SPEEDS = [0.25, 0.5, 1, 2, 3, 4];
+const SPEED_LABELS = ["÷4", "÷2", "×1", "×2", "×3", "×4"];
+const FMIN = 20, FMAX = 20000;
+const RATE_MIN = 0.02, RATE_MAX = 1000;
+
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+/* denorm maps — MUST mirror the APVTS NormalisableRange definitions */
+const MAPS = {
+  lin:  (lo, hi) => ({ from: n => lo + n * (hi - lo), to: v => (v - lo) / (hi - lo) }),
+  log:  (lo, hi) => ({ from: n => lo * Math.pow(hi / lo, n), to: v => Math.log(v / lo) / Math.log(hi / lo) }),
+  int:  (lo, hi) => ({ from: n => Math.round(lo + n * (hi - lo)), to: v => (v - lo) / (hi - lo) })
+};
+
+/* param table: id → {kind, map, def(denorm)} */
+function bandIds(i) { const p = `b${i + 1}_`; return {
+  on:      { id: p + "on",      kind: "toggle", def: i === 0 },
+  freq:    { id: p + "freq",    kind: "slider", map: MAPS.log(FMIN, FMAX), def: [200, 500, 1000, 2000, 5000, 10000][i] },
+  width:   { id: p + "width",   kind: "slider", map: MAPS.log(0.1, 4), def: 1.0 },
+  lift:    { id: p + "lift",    kind: "slider", map: MAPS.lin(0, 100), def: 100 },
+  depth:   { id: p + "depth",   kind: "slider", map: MAPS.lin(0, 100), def: 50 },
+  gain:    { id: p + "gain",    kind: "slider", map: MAPS.lin(-6, 6), def: 0 },
+  mode:    { id: p + "mode",    kind: "combo",  def: 0 },
+  rate:    { id: p + "rate",    kind: "slider", map: MAPS.log(RATE_MIN, RATE_MAX), def: 0.5 },
+  ratemode:{ id: p + "ratemode",kind: "combo",  def: 0 },
+  div:     { id: p + "div",     kind: "combo",  def: 3 },
+  inertia: { id: p + "inertia", kind: "slider", map: MAPS.lin(0, 100), def: 60 },
+  phase:   { id: p + "phase",   kind: "slider", map: MAPS.lin(0, 360), def: 0 }
+}; }
+const GLOBALS = {
+  seed:   { id: "seed",   kind: "slider", map: MAPS.int(1, 128), def: 1 },
+  amount: { id: "amount", kind: "slider", map: MAPS.lin(0, 100), def: 100 },
+  speed:  { id: "speed",  kind: "combo",  def: 2 },
+  output: { id: "output", kind: "slider", map: MAPS.lin(-24, 12), def: 0 },
+  bypass: { id: "bypass", kind: "toggle", def: false }
+};
+
+/* wrapper: uniform get/set (denormalized) + change subscription */
+function makeParam(def) {
+  const listeners = [];
+  const notify = () => listeners.forEach(f => f());
+  if (EMBEDDED) {
+    if (def.kind === "slider") {
+      const st = Juce.getSliderState(def.id);
+      st.valueChangedEvent.addListener(notify);
+      return {
+        get: () => def.map.from(st.getNormalisedValue()),
+        set: v => st.setNormalisedValue(def.map.to(v)),
+        onChange: f => listeners.push(f)
+      };
+    }
+    if (def.kind === "toggle") {
+      const st = Juce.getToggleState(def.id);
+      st.valueChangedEvent.addListener(notify);
+      return { get: () => !!st.getValue(), set: v => st.setValue(!!v), onChange: f => listeners.push(f) };
+    }
+    const st = Juce.getComboBoxState(def.id);
+    st.valueChangedEvent.addListener(notify);
+    return {
+      get: () => st.getChoiceIndex ? st.getChoiceIndex() : Math.round(st.getNormalisedValue() * 100), // JUCE >= 8: index API
+      set: v => st.setChoiceIndex ? st.setChoiceIndex(v) : null,
+      onChange: f => listeners.push(f)
+    };
+  }
+  // standalone mock
+  let val = def.def;
+  return {
+    get: () => val,
+    set: v => { val = def.kind === "toggle" ? !!v : v; notify(); },
+    onChange: f => listeners.push(f)
+  };
+}
+
+const P = {
+  bands: Array.from({ length: 6 }, (_, i) => {
+    const defs = bandIds(i), out = {};
+    for (const k in defs) out[k] = makeParam(defs[k]);
+    return out;
+  }),
+  ...Object.fromEntries(Object.entries(GLOBALS).map(([k, d]) => [k, makeParam(d)]))
+};
+
+/* native bridges (no-ops in a plain browser) */
+const native = name => EMBEDDED ? Juce.getNativeFunction(name) : (async () => null);
+const rerollNative = native("reroll");
+const setStepsNative = native("setSteps");
+const getStepsNative = native("getSteps");
+
+/* ════════════════════════════════════════════════════════════════════
+   UI STATE (visual-only: selection, configured flags, step data mirror)
+   ════════════════════════════════════════════════════════════════════ */
+const ui = {
+  selected: 0,
+  bands: Array.from({ length: 6 }, (_, i) => ({
+    configured: i === 0,
+    stepCount: 8,
+    steps: Array.from({ length: 16 }, (_, k) => ({ subdiv: 1, vals: [Math.sin(k / 16 * Math.PI * 2), 0, 0, 0] })),
+    // local modulator sim (drives traces/scope until DSP telemetry lands)
+    pan: 0, target: 0, phi: Math.random(),
+    lz: { x: 0.1 + i * 0.03, y: 0, z: 0 }, lastDeal: -1, driftA: Math.random() * 100
+  }))
+};
+const B = () => ui.bands[ui.selected];
+const PB = () => P.bands[ui.selected];
+const bandColor = () => BAND_COLORS[ui.selected];
+
+/* mark configured when a band is (or becomes) enabled */
+P.bands.forEach((pb, i) => {
+  if (pb.on.get()) ui.bands[i].configured = true;
+  pb.on.onChange(() => { if (pb.on.get()) ui.bands[i].configured = true; refreshPanels(); });
+});
+
+/* push steps to the processor (debounced) */
+let stepsPushTimer = null;
+function pushSteps(i) {
+  if (!EMBEDDED) return;
+  clearTimeout(stepsPushTimer);
+  stepsPushTimer = setTimeout(() => {
+    const b = ui.bands[i];
+    setStepsNative(i, JSON.stringify({
+      count: b.stepCount,
+      steps: b.steps.slice(0, b.stepCount).map(s => ({ subdiv: s.subdiv, vals: s.vals.slice(0, s.subdiv) }))
+    })).catch(() => {});
+  }, 150);
+}
+/* pull steps on load */
+if (EMBEDDED) {
+  for (let i = 0; i < 6; i++) {
+    getStepsNative(i).then(json => {
+      if (!json) return;
+      try {
+        const d = JSON.parse(json);
+        if (!d || !d.steps) return;
+        const b = ui.bands[i];
+        b.stepCount = clamp(d.count || d.steps.length, 2, 16);
+        b.steps = d.steps.map(s => ({
+          subdiv: s.subdiv || 1,
+          vals: [...s.vals, 0, 0, 0, 0].slice(0, 4)
+        }));
+        while (b.steps.length < 16) b.steps.push({ subdiv: 1, vals: [0, 0, 0, 0] });
+        refreshPanels();
+      } catch {}
+    }).catch(() => {});
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   WIDGET FACTORIES (Chaosverb-clone rendering)
+   ════════════════════════════════════════════════════════════════════ */
+const div_ = cls => { const d = document.createElement("div"); if (cls) d.className = cls; return d; };
+
+function drawKnobArc(canvas, norm, color, sizePx) {
+  const ctx = canvas.getContext("2d");
+  const S = sizePx * DPR;
+  if (canvas.width !== S) { canvas.width = S; canvas.height = S; }
+  ctx.clearRect(0, 0, S, S);
+  const c = S / 2, r = S / 2 - 3 * DPR;
+  const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25, av = a0 + clamp(norm, 0, 1) * (a1 - a0);
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "#2a2622"; ctx.lineWidth = 3 * DPR;
+  ctx.beginPath(); ctx.arc(c, c, r, a0, a1); ctx.stroke();
+  [[6, 0.18], [3, 0.45], [1.6, 1]].forEach(([w, al]) => {
+    ctx.strokeStyle = color; ctx.globalAlpha = al; ctx.lineWidth = w * DPR;
+    ctx.beginPath(); ctx.arc(c, c, r, a0, av); ctx.stroke();
+  });
+  ctx.globalAlpha = 1;
+}
+
+/* knob bound to a getter/setter working in KNOB-NORM space (0..1) */
+function makeKnob(containerId, label, opts) {
+  const el = document.getElementById(containerId);
+  const size = 56;
+  const body = div_("knob-body");
+  const canvas = document.createElement("canvas");
+  const face = div_("knob-face");
+  const ind = div_("knob-indicator");
+  face.appendChild(ind);
+  body.appendChild(canvas); body.appendChild(face);
+  const labelEl = div_("knob-label"); labelEl.textContent = label;
+  const val = div_("knob-value");
+  el.appendChild(body); el.appendChild(labelEl); el.appendChild(val);
+
+  const k = {
+    el, color: opts.color,
+    refresh() {
+      const norm = opts.get();
+      drawKnobArc(canvas, norm, k.color, size);
+      ind.style.transform = `rotate(${-135 + clamp(norm, 0, 1) * 270}deg) translateY(-12px)`;
+      ind.style.boxShadow = `0 0 4px ${k.color}`;
+      val.textContent = opts.fmt();
+    }
+  };
+  let dragY = null, dragV = null;
+  el.addEventListener("mousedown", e => { dragY = e.clientY; dragV = opts.get(); e.preventDefault(); });
+  window.addEventListener("mousemove", e => {
+    if (dragY === null) return;
+    const fine = e.shiftKey ? 0.2 : 1;
+    opts.set(clamp(dragV + (dragY - e.clientY) / 140 * fine, 0, 1));
+    k.refresh();
+  });
+  window.addEventListener("mouseup", () => dragY = null);
+  el.addEventListener("dblclick", () => { opts.set(opts.def); k.refresh(); });
+  k.refresh();
+  return k;
+}
+
+function makeHSlider(id, label, opts) {
+  const el = document.getElementById(id);
+  const labelEl = div_("hs-label"); labelEl.textContent = label;
+  const val = div_("hs-value");
+  const track = div_("hs-track");
+  const fill = div_("hs-fill");
+  track.appendChild(fill);
+  el.appendChild(labelEl); el.appendChild(val); el.appendChild(track);
+  const s = {
+    el, color: opts.color,
+    refresh() {
+      const norm = clamp(opts.get(), 0, 1);
+      fill.style.width = (norm * 100) + "%";
+      fill.style.background = `linear-gradient(90deg, ${s.color}55, ${s.color})`;
+      val.textContent = opts.fmt();
+    }
+  };
+  let drag = false;
+  const setFromX = e => {
+    const r = track.getBoundingClientRect();
+    opts.set(clamp((e.clientX - r.left) / r.width, 0, 1));
+    s.refresh();
+  };
+  el.addEventListener("mousedown", e => { drag = true; setFromX(e); });
+  window.addEventListener("mousemove", e => drag && setFromX(e));
+  window.addEventListener("mouseup", () => drag = false);
+  s.refresh();
+  return s;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   CONTROL BINDINGS
+   ════════════════════════════════════════════════════════════════════ */
+const fx = f => Math.log(f / FMIN) / Math.log(FMAX / FMIN);
+const xf = x => FMIN * Math.pow(FMAX / FMIN, x);
+const fmtHz = f => f >= 1000 ? (f / 1000).toFixed(f < 10000 ? 1 : 0) + " kHz" : Math.round(f) + " Hz";
+const fmtRate = hz => hz >= 100 ? Math.round(hz) + " Hz" : hz >= 10 ? hz.toFixed(1) + " Hz" : hz.toFixed(2) + " Hz";
+
+/* Q display (EQ convention): clockwise = higher Q = narrower band. */
+const octToQ = n => Math.pow(2, n / 2) / (Math.pow(2, n) - 1);
+const OCT_MIN = 0.1, OCT_MAX = 4;
+const octToNorm = o => 1 - Math.log(o / OCT_MIN) / Math.log(OCT_MAX / OCT_MIN);
+const normToOct = n => OCT_MIN * Math.pow(OCT_MAX / OCT_MIN, 1 - n);
+
+const knobFreq = makeKnob("knob_freq", "FREQUENCY", {
+  color: bandColor(), def: fx(1000),
+  get: () => fx(PB().freq.get()),
+  set: n => PB().freq.set(xf(n)),
+  fmt: () => fmtHz(PB().freq.get())
+});
+const knobWidth = makeKnob("knob_bwidth", "Q", {
+  color: bandColor(), def: octToNorm(1),
+  get: () => octToNorm(PB().width.get()),
+  set: n => PB().width.set(normToOct(n)),
+  fmt: () => { const q = octToQ(PB().width.get()); return q >= 10 ? q.toFixed(1) : q.toFixed(2); }
+});
+const knobLift = makeKnob("knob_lift", "LIFT", {
+  color: bandColor(), def: 1,
+  get: () => PB().lift.get() / 100,
+  set: n => PB().lift.set(n * 100),
+  fmt: () => Math.round(PB().lift.get()) + "%"
+});
+const knobDepth = makeKnob("knob_depth", "DEPTH", {
+  color: bandColor(), def: 0.5,
+  get: () => PB().depth.get() / 100,
+  set: n => PB().depth.set(n * 100),
+  fmt: () => Math.round(PB().depth.get()) + "%"
+});
+const knobAmount = makeKnob("knob_mix", "AMOUNT", {
+  color: "#c8c8d0", def: 1,
+  get: () => P.amount.get() / 100,
+  set: n => P.amount.set(n * 100),
+  fmt: () => Math.round(P.amount.get()) + "%"
+});
+const knobOut = makeKnob("knob_output", "LEVEL", {
+  color: "#c8c8d0", def: (0 + 24) / 36,
+  get: () => (P.output.get() + 24) / 36,
+  set: n => P.output.set(-24 + n * 36),
+  fmt: () => P.output.get().toFixed(1) + " dB"
+});
+
+const hsRate = makeHSlider("hs_rate", "RATE", {
+  color: bandColor(),
+  get: () => {
+    const pb = PB(), rm = pb.ratemode.get();
+    if (rm === 0) return pb.div.get() / (DIVS.length - 1);
+    if (rm === 1) return Math.log(pb.rate.get() / RATE_MIN) / Math.log(RATE_MAX / RATE_MIN);
+    return 0.5;
+  },
+  set: n => {
+    const pb = PB(), rm = pb.ratemode.get();
+    if (rm === 0) pb.div.set(Math.round(n * (DIVS.length - 1)));
+    else if (rm === 1) pb.rate.set(RATE_MIN * Math.pow(RATE_MAX / RATE_MIN, n));
+  },
+  fmt: () => {
+    const pb = PB(), rm = pb.ratemode.get();
+    if (rm === 0) return DIVS[pb.div.get()];
+    if (rm === 1) return fmtRate(pb.rate.get());
+    return midiNoteName + " · " + Math.round(midiFreq) + " Hz";
+  }
+});
+const hsInertia = makeHSlider("hs_inertia", "INERTIA", {
+  color: bandColor(),
+  get: () => PB().inertia.get() / 100,
+  set: n => PB().inertia.set(n * 100),
+  fmt: () => Math.round(PB().inertia.get()) + "%"
+});
+const hsPhase = makeHSlider("hs_phase", "PHASE", {
+  color: bandColor(),
+  get: () => PB().phase.get() / 360,
+  set: n => PB().phase.set(n * 360),
+  fmt: () => Math.round(PB().phase.get()) + "°"
+});
+
+/* mode chips */
+const modeChipsEl = document.getElementById("modeChips");
+MODES.forEach((m, i) => {
+  const b = document.createElement("button");
+  b.className = "mode-chip"; b.textContent = m;
+  b.onclick = () => { PB().mode.set(i); refreshPanels(); };
+  modeChipsEl.appendChild(b);
+});
+
+document.getElementById("syncToggle").onclick = () => {
+  PB().ratemode.set((PB().ratemode.get() + 1) % 3); refreshPanels();
+};
+document.getElementById("bypassBtn").onclick = e => {
+  P.bypass.set(!P.bypass.get());
+  refreshPanels();
+};
+document.getElementById("rerollBtn").onclick = () => {
+  ui.bands.forEach(b => {
+    b.driftA = Math.random() * 100;
+    b.target = Math.random() * 2 - 1;
+    b.lz = { x: Math.random() * 0.4 - 0.2, y: 0, z: 0 };
+    b.lastDeal = -1;
+  });
+  rerollNative().catch(() => {});
+  const f = document.getElementById("mutationFlash");
+  f.classList.add("fire");
+  setTimeout(() => f.classList.remove("fire"), 60);
+};
+
+/* global speed stepper */
+const speedVal = document.getElementById("speedVal");
+function refreshSpeed() { speedVal.textContent = SPEED_LABELS[P.speed.get()] || "×1"; }
+document.getElementById("speedUp").onclick = () => { P.speed.set(Math.min(SPEEDS.length - 1, P.speed.get() + 1)); refreshSpeed(); };
+document.getElementById("speedDown").onclick = () => { P.speed.set(Math.max(0, P.speed.get() - 1)); refreshSpeed(); };
+P.speed.onChange(refreshSpeed);
+refreshSpeed();
+
+document.getElementById("stepUp").onclick = () => { B().stepCount = Math.min(16, B().stepCount + 1); pushSteps(ui.selected); refreshPanels(); };
+document.getElementById("stepDown").onclick = () => { B().stepCount = Math.max(2, B().stepCount - 1); pushSteps(ui.selected); refreshPanels(); };
+
+/* MIDI display placeholders (real values arrive via telemetry in later phase) */
+let midiNoteName = "—", midiFreq = 0;
+
+/* ════════════════════════════════════════════════════════════════════
+   PANEL REFRESH
+   ════════════════════════════════════════════════════════════════════ */
+function refreshPanels() {
+  const c = bandColor(), pb = PB(), b = B();
+  const bandLabel = document.getElementById("bandSecLabel");
+  bandLabel.textContent = "Band " + (ui.selected + 1);
+  bandLabel.style.color = c;
+  document.getElementById("modSecLabel").style.color = c;
+  [knobFreq, knobWidth, knobLift, knobDepth].forEach(k => { k.color = c; k.refresh(); });
+  [hsRate, hsInertia, hsPhase].forEach(s => { s.color = c; s.refresh(); });
+  knobAmount.refresh(); knobOut.refresh();
+  document.querySelectorAll(".mode-chip").forEach((el, i) => {
+    const on = i === pb.mode.get();
+    el.style.color = on ? "#14110F" : "";
+    el.style.background = on ? c : "";
+    el.style.borderColor = on ? c : "";
+  });
+  const rm = document.getElementById("syncToggle");
+  rm.textContent = ["SYNC", "FREE", "MIDI"][pb.ratemode.get()] || "SYNC";
+  rm.classList.toggle("active", pb.ratemode.get() !== 1);
+  const mode = pb.mode.get();
+  hsPhase.el.classList.toggle("disabled", mode >= 2 && mode <= 4);
+  document.getElementById("sliderStack").style.display = mode === 5 ? "none" : "flex";
+  document.getElementById("stepEditor").classList.toggle("visible", mode === 5);
+  document.getElementById("stepCount").textContent = b.stepCount;
+  const byp = document.getElementById("bypassBtn");
+  byp.classList.toggle("active", P.bypass.get());
+  document.getElementById("bypassDim").classList.toggle("on", P.bypass.get());
+}
+
+/* param changes from host (automation) → repaint panels */
+P.bands.forEach(pb => Object.values(pb).forEach(p => p.onChange(() => refreshPanels())));
+P.amount.onChange(() => knobAmount.refresh());
+P.output.onChange(() => knobOut.refresh());
+P.bypass.onChange(() => refreshPanels());
+
+/* ════════════════════════════════════════════════════════════════════
+   STEP EDITOR (slot-stable ratchets)
+   ════════════════════════════════════════════════════════════════════ */
+const stepCanvas = document.getElementById("stepCanvas");
+
+function stepSlotAt(b, cyclePos) {
+  const pos = ((cyclePos % 1) + 1) % 1 * b.stepCount;
+  const slot = Math.min(b.stepCount - 1, Math.floor(pos));
+  const frac = pos - slot;
+  const st = b.steps[slot];
+  const sub = Math.min(st.subdiv - 1, Math.floor(frac * st.subdiv));
+  return { slot, sub };
+}
+function stepValueAt(b, cyclePos) {
+  const { slot, sub } = stepSlotAt(b, cyclePos);
+  return b.steps[slot].vals[sub];
+}
+
+function drawSteps() {
+  const b = B(), r = stepCanvas.getBoundingClientRect();
+  if (r.width === 0) return;
+  const W = Math.round(r.width * DPR), H = Math.round(r.height * DPR);
+  if (stepCanvas.width !== W) { stepCanvas.width = W; stepCanvas.height = H; }
+  const ctx = stepCanvas.getContext("2d");
+  ctx.clearRect(0, 0, W, H);
+  ctx.strokeStyle = "#3e3a35"; ctx.lineWidth = DPR;
+  ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
+  const n = b.stepCount, c = bandColor();
+  const act = PB().on.get() ? stepSlotAt(b, (simClock * simRateHz(ui.selected)) + PB().phase.get() / 360) : { slot: -1, sub: -1 };
+  const slotW = W / n;
+  for (let i = 0; i < n; i++) {
+    const st = b.steps[i], subW = slotW / st.subdiv;
+    for (let m = 0; m < st.subdiv; m++) {
+      const v = st.vals[m];
+      const x = i * slotW + m * subW;
+      const y0 = H / 2, y1 = H / 2 - v * (H / 2 - 4 * DPR);
+      const hot = i === act.slot && m === act.sub;
+      ctx.fillStyle = c + (hot ? "cc" : "59");
+      ctx.fillRect(x + 1.5 * DPR, Math.min(y0, y1), Math.max(subW - 3 * DPR, DPR), Math.abs(y1 - y0) || DPR);
+    }
+    ctx.fillStyle = "#26221F";
+    ctx.fillRect(i * slotW, 0, DPR, H);
+    if (st.subdiv > 1) {
+      ctx.fillStyle = c + "ee";
+      for (let m = 0; m < st.subdiv; m++)
+        ctx.fillRect(i * slotW + m * subW + 1.5 * DPR, 2 * DPR, Math.max(subW - 3 * DPR, DPR), 2 * DPR);
+    }
+  }
+}
+
+let stepDrag = false;
+const stepHit = (b, xNorm) => stepSlotAt(b, clamp(xNorm, 0, 0.9999));
+const paintStep = e => {
+  const b = B(), r = stepCanvas.getBoundingClientRect();
+  const { slot, sub } = stepHit(b, (e.clientX - r.left) / r.width);
+  b.steps[slot].vals[sub] = clamp(-((e.clientY - r.top) / r.height * 2 - 1), -1, 1);
+  pushSteps(ui.selected);
+};
+stepCanvas.addEventListener("mousedown", e => {
+  if (e.altKey) { // divide slot in place: 1 → 2 → 4 → back. Neighbors stay put.
+    const b = B(), r = stepCanvas.getBoundingClientRect();
+    const { slot } = stepHit(b, (e.clientX - r.left) / r.width);
+    const st = b.steps[slot];
+    const next = st.subdiv === 1 ? 2 : st.subdiv === 2 ? 4 : 1;
+    for (let m = st.subdiv; m < next; m++) st.vals[m] = st.vals[m % st.subdiv];
+    st.subdiv = next;
+    pushSteps(ui.selected);
+    return;
+  }
+  stepDrag = true; paintStep(e);
+});
+window.addEventListener("mousemove", e => stepDrag && paintStep(e));
+window.addEventListener("mouseup", () => stepDrag = false);
+
+/* step pattern presets */
+const mkSlot = (v, subdiv = 1, vals = null) => ({ subdiv, vals: vals || [v, v, v, v] });
+const STEP_FACTORY = {
+  "Ramp Up":   n => Array.from({length: n}, (_, k) => mkSlot(-1 + 2 * k / (n - 1))),
+  "Ramp Down": n => Array.from({length: n}, (_, k) => mkSlot(1 - 2 * k / (n - 1))),
+  "Pyramid":   n => Array.from({length: n}, (_, k) => mkSlot(1 - 4 * Math.abs(k / (n - 1) - 0.5))),
+  "Ping-Pong": n => Array.from({length: n}, (_, k) => mkSlot(k % 2 ? 1 : -1)),
+  "Ratchet LR": n => Array.from({length: n}, (_, k) =>
+    k % 4 === 3 ? mkSlot(0, 4, [1, -1, 1, -1]) : k % 2 ? mkSlot(1) : mkSlot(-1)),
+};
+const stepPresetSel = document.getElementById("stepPresetSel");
+function userStepPresets() { try { return JSON.parse(localStorage.getItem("entropanStepPresets") || "{}"); } catch { return {}; } }
+function refreshStepPresetList() {
+  while (stepPresetSel.firstChild) stepPresetSel.removeChild(stepPresetSel.firstChild);
+  const mk = (label, val, dis) => { const o = document.createElement("option"); o.textContent = label; o.value = val; if (dis) o.disabled = true; stepPresetSel.appendChild(o); };
+  mk("— pattern —", "", true);
+  Object.keys(STEP_FACTORY).forEach(k => mk(k, "f:" + k));
+  Object.keys(userStepPresets()).forEach(k => mk("★ " + k, "u:" + k));
+  stepPresetSel.value = "";
+}
+stepPresetSel.addEventListener("change", () => {
+  const b = B(), v = stepPresetSel.value;
+  if (!v) return;
+  if (v.startsWith("f:")) b.steps = STEP_FACTORY[v.slice(2)](b.stepCount).concat(b.steps.slice(b.stepCount));
+  else {
+    const pat = userStepPresets()[v.slice(2)];
+    if (pat) { b.stepCount = pat.length; b.steps = pat.map(x => ({ subdiv: x.subdiv, vals: [...x.vals, 0, 0, 0, 0].slice(0, 4) })).concat(Array.from({length: Math.max(0, 16 - pat.length)}, () => mkSlot(0))); }
+  }
+  pushSteps(ui.selected);
+  refreshPanels();
+});
+document.getElementById("stepSaveBtn").addEventListener("click", () => {
+  const name = prompt("Preset name:");
+  if (!name) return;
+  const b = B(), all = userStepPresets();
+  all[name] = b.steps.slice(0, b.stepCount).map(x => ({ subdiv: x.subdiv, vals: x.vals.slice(0, x.subdiv) }));
+  localStorage.setItem("entropanStepPresets", JSON.stringify(all));
+  refreshStepPresetList();
+});
+refreshStepPresetList();
+
+/* ════════════════════════════════════════════════════════════════════
+   SPECTRUM CANVAS + GESTURES
+   ════════════════════════════════════════════════════════════════════ */
+const spec = document.getElementById("spectrum");
+function sizeSpectrum() {
+  const r = spec.getBoundingClientRect();
+  spec.width = Math.round(r.width * DPR);
+  spec.height = Math.round(r.height * DPR);
+}
+window.addEventListener("resize", sizeSpectrum);
+
+/* analyzer: real frames via "spectrum" event when embedded; fake otherwise */
+const anaBins = 256;
+const ana = new Float32Array(anaBins).fill(-60);
+let lastSpectrumEvent = 0;
+if (EMBEDDED) {
+  window.__JUCE__.backend.addEventListener("spectrum", data => {
+    try {
+      const arr = typeof data === "string" ? JSON.parse(data) : data;
+      const m = arr.mags || arr;
+      if (!m || !m.length) return;
+      lastSpectrumEvent = performance.now();
+      for (let i = 0; i < anaBins; i++) {
+        const src = m[Math.min(m.length - 1, Math.floor(i / anaBins * m.length))];
+        ana[i] += (src - ana[i]) * 0.5;
+      }
+    } catch {}
+  });
+}
+function tickAnalyzer(t) {
+  if (EMBEDDED && performance.now() - lastSpectrumEvent < 500) return; // real data flowing
+  for (let i = 0; i < anaBins; i++) {
+    const x = i / anaBins;
+    const f = xf(x);
+    const db = -14 - 12 * x
+      + 6 * Math.sin(x * 9 + t * 0.7)
+      + 4 * Math.sin(x * 23 - t * 1.3)
+      + (Math.random() - 0.5) * 3
+      + (f > 40 && f < 140 ? 8 : 0);
+    ana[i] += (db - ana[i]) * 0.18;
+  }
+}
+
+function bellY(i, x) {
+  const pb = P.bands[i];
+  const sigma = (pb.width.get() / 2) / Math.log2(FMAX / FMIN) * 2.2;
+  const d = (x - fx(pb.freq.get())) / sigma;
+  return Math.exp(-d * d) * (pb.lift.get() / 100);
+}
+
+/* aura scratch canvas */
+const auraCanvas = document.createElement("canvas");
+const auraCtx = auraCanvas.getContext("2d");
+
+function drawSpectrum(t) {
+  const ctx = spec.getContext("2d"), W = spec.width, H = spec.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // grid
+  ctx.strokeStyle = "#26221F"; ctx.lineWidth = DPR;
+  ctx.fillStyle = "#403A32"; ctx.font = `${9 * DPR}px 'JetBrains Mono', ui-monospace, monospace`;
+  [50, 100, 200, 500, 1000, 2000, 5000, 10000].forEach(f => {
+    const x = fx(f) * W;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+    ctx.fillText(f >= 1000 ? (f / 1000) + "k" : String(f), x + 3 * DPR, H - 5 * DPR);
+  });
+  for (let db = -48; db < 0; db += 12) {
+    const y = (db / -60) * H;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    ctx.fillText(String(db), W - 22 * DPR, y - 3 * DPR);
+  }
+
+  // analyzer fill
+  ctx.beginPath(); ctx.moveTo(0, H);
+  for (let i = 0; i < anaBins; i++) {
+    const x = i / (anaBins - 1) * W;
+    const y = clamp(-ana[i] / 60, 0, 1) * H;
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(W, H); ctx.closePath();
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, "rgba(232,226,214,0.10)"); g.addColorStop(1, "rgba(232,226,214,0.0)");
+  ctx.fillStyle = g; ctx.fill();
+  ctx.strokeStyle = "rgba(232,226,214,0.25)"; ctx.lineWidth = DPR; ctx.stroke();
+
+  const topH = H * 0.82;
+
+  // bells
+  for (let bi = 0; bi < 6; bi++) {
+    const pb = P.bands[bi], b = ui.bands[bi];
+    const on = pb.on.get();
+    if (!on && !b.configured) continue;
+    const c = BAND_COLORS[bi], sel = bi === ui.selected, ghost = !on;
+
+    ctx.beginPath(); ctx.moveTo(0, H);
+    for (let px = 0; px <= W; px += 2 * DPR) {
+      ctx.lineTo(px, H - bellY(bi, px / W) * topH);
+    }
+    ctx.lineTo(W, H); ctx.closePath();
+    ctx.fillStyle = c + (ghost ? "0f" : "2e"); ctx.fill();
+    ctx.strokeStyle = c + (ghost ? (sel ? "66" : "45") : (sel ? "ee" : "99"));
+    ctx.lineWidth = (sel ? 2 : 1.4) * DPR;
+    if (sel && !ghost) { ctx.shadowColor = c; ctx.shadowBlur = 8 * DPR; }
+    if (ghost) ctx.setLineDash([5 * DPR, 4 * DPR]);
+    ctx.stroke(); ctx.shadowBlur = 0; ctx.setLineDash([]);
+
+    // apex handle
+    const liftV = pb.lift.get(), freqV = pb.freq.get(), widthV = pb.width.get();
+    const hx = fx(freqV) * W, hy = H - (liftV / 100) * topH;
+    ctx.beginPath(); ctx.arc(hx, hy, (sel ? 6 : 4.5) * DPR, 0, 7);
+    ctx.fillStyle = c + (ghost ? "55" : "ff"); ctx.fill();
+    ctx.beginPath(); ctx.arc(hx, hy, 2 * DPR, 0, 7);
+    ctx.fillStyle = ghost ? "#88837a" : "#fff"; ctx.fill();
+
+    // gain aura — blur a filled bell, punch out the interior
+    const gainV = pb.gain.get();
+    if (Math.abs(gainV) > 0.05 && !ghost) {
+      const boost = gainV > 0;
+      const amt = Math.abs(gainV) / 6;
+      const blur = (5 + amt * 22) * DPR;
+      if (auraCanvas.width !== W || auraCanvas.height !== H) {
+        auraCanvas.width = W; auraCanvas.height = H;
+      }
+      const a = auraCtx;
+      a.clearRect(0, 0, W, H);
+      const tracePath = close => {
+        a.beginPath();
+        a.moveTo(0, close === "down" ? H : 0);
+        a.lineTo(0, H - bellY(bi, 0) * topH);
+        for (let px = 0; px <= W; px += 2 * DPR)
+          a.lineTo(px, H - bellY(bi, px / W) * topH);
+        a.lineTo(W, close === "down" ? H : 0);
+        a.closePath();
+      };
+      a.filter = `blur(${blur / DPR}px)`;
+      a.fillStyle = c;
+      tracePath(boost ? "down" : "up");
+      a.fill(); a.fill();
+      a.filter = "none";
+      a.globalCompositeOperation = "destination-out";
+      tracePath(boost ? "down" : "up");
+      a.fill(); a.fill(); a.fill();
+      a.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 0.55 + 0.45 * amt;
+      ctx.drawImage(auraCanvas, 0, 0);
+      ctx.globalAlpha = 1;
+      if (sel) {
+        ctx.fillStyle = c + "cc";
+        ctx.fillText((gainV > 0 ? "+" : "") + gainV.toFixed(1) + " dB",
+                     hx + 10 * DPR, hy + (boost ? -1 : 1) * (blur + 8 * DPR) + 3 * DPR);
+      }
+    }
+
+    if (ghost) continue;
+
+    // pan trace + amount-scaled effective range
+    const half = (widthV / 2) / Math.log2(FMAX / FMIN);
+    const cx = fx(freqV), pan = b.pan * (P.amount.get() / 100);
+    const px2 = clamp(cx + pan * half, 0, 1) * W;
+    const py = H - (liftV / 100) * topH * 0.5;
+    ctx.strokeStyle = c + "44"; ctx.lineWidth = DPR;
+    ctx.beginPath();
+    ctx.moveTo(clamp(cx - half, 0, 1) * W, py); ctx.lineTo(clamp(cx + half, 0, 1) * W, py);
+    ctx.stroke();
+    const effHalf = half * (pb.depth.get() / 100) * (P.amount.get() / 100);
+    const ex0 = clamp(cx - effHalf, 0, 1) * W, ex1 = clamp(cx + effHalf, 0, 1) * W;
+    ctx.strokeStyle = c + "88"; ctx.lineWidth = 3 * DPR;
+    ctx.beginPath(); ctx.moveTo(ex0, py); ctx.lineTo(ex1, py); ctx.stroke();
+    ctx.lineWidth = 1.5 * DPR; ctx.strokeStyle = c + "bb";
+    [ex0, ex1].forEach(xx => { ctx.beginPath(); ctx.moveTo(xx, py - 4 * DPR); ctx.lineTo(xx, py + 4 * DPR); ctx.stroke(); });
+    ctx.strokeStyle = c + "cc"; ctx.lineWidth = 2 * DPR;
+    ctx.beginPath(); ctx.moveTo(px2, py - 7 * DPR); ctx.lineTo(px2, py + 7 * DPR); ctx.stroke();
+    if (sel) {
+      ctx.fillStyle = c + "88";
+      ctx.fillText("L", clamp(cx - half, 0, 1) * W - 10 * DPR, py + 3 * DPR);
+      ctx.fillText("R", clamp(cx + half, 0, 1) * W + 4 * DPR, py + 3 * DPR);
+    }
+  }
+}
+
+/* gestures */
+let dragBand = -1, downPos = null, dragMoved = false;
+function bandAt(e) {
+  const r = spec.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+  let best = -1, bd = 0.05;
+  for (let i = 0; i < 6; i++) {
+    const pb = P.bands[i];
+    if (!pb.on.get() && !ui.bands[i].configured) continue;
+    const hx = fx(pb.freq.get()), hy = 1 - (pb.lift.get() / 100) * 0.82;
+    const d = Math.hypot(x - hx, y - hy);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+function bandBodyAt(e) {
+  const r = spec.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+  let best = -1, bd = 1e9;
+  for (let i = 0; i < 6; i++) {
+    const pb = P.bands[i];
+    if (!pb.on.get() && !ui.bands[i].configured) continue;
+    const cx = fx(pb.freq.get());
+    const half = (pb.width.get() / 2) / Math.log2(FMAX / FMIN) * 1.6;
+    if (Math.abs(x - cx) > half) continue;
+    const curveY = 1 - bellY(i, x) * 0.82;
+    if (y < curveY - 0.02) continue;
+    const d = Math.abs(x - cx);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+spec.addEventListener("mousedown", e => {
+  const hit = bandAt(e);
+  if (hit >= 0) {
+    dragBand = hit; dragMoved = false; downPos = [e.clientX, e.clientY];
+    ui.selected = hit; refreshPanels();
+    return;
+  }
+  const body = bandBodyAt(e);
+  if (body >= 0 && body !== ui.selected) { ui.selected = body; refreshPanels(); }
+});
+window.addEventListener("mousemove", e => {
+  if (dragBand < 0) return;
+  if (downPos && Math.hypot(e.clientX - downPos[0], e.clientY - downPos[1]) < 4) return;
+  dragMoved = true;
+  const r = spec.getBoundingClientRect();
+  const pb = P.bands[dragBand];
+  pb.freq.set(xf(clamp((e.clientX - r.left) / r.width, 0, 1)));
+  pb.lift.set(clamp((1 - (e.clientY - r.top) / r.height) / 0.82 * 100, 0, 100));
+  knobFreq.refresh(); knobLift.refresh();
+});
+window.addEventListener("mouseup", () => { dragBand = -1; downPos = null; });
+spec.addEventListener("dblclick", e => {
+  const hit = bandAt(e);
+  if (hit >= 0) { // double-click the tip = on/off toggle
+    const pb = P.bands[hit];
+    pb.on.set(!pb.on.get());
+    if (pb.on.get()) ui.bands[hit].configured = true;
+    ui.selected = hit; refreshPanels(); return;
+  }
+  let free = -1;
+  for (let i = 0; i < 6; i++) if (!P.bands[i].on.get() && !ui.bands[i].configured) { free = i; break; }
+  if (free < 0) return;
+  const r = spec.getBoundingClientRect();
+  const pb = P.bands[free];
+  pb.on.set(true); ui.bands[free].configured = true;
+  pb.freq.set(xf(clamp((e.clientX - r.left) / r.width, 0, 1)));
+  pb.lift.set(clamp((1 - (e.clientY - r.top) / r.height) / 0.82 * 100, 0, 100));
+  ui.selected = free;
+  refreshPanels();
+});
+spec.addEventListener("wheel", e => {
+  const hit = bandAt(e);
+  const i = hit >= 0 ? hit : ui.selected;
+  const pb = P.bands[i];
+  pb.width.set(clamp(pb.width.get() - Math.sign(e.deltaY) * 0.1, 0.1, 4));
+  knobWidth.refresh();
+  e.preventDefault();
+}, { passive: false });
+
+/* ════════════════════════════════════════════════════════════════════
+   QUICK MENU (floating, band-following, draggable offset)
+   ════════════════════════════════════════════════════════════════════ */
+const quickMenu = document.getElementById("quickMenu");
+const qmRate = document.getElementById("qm_rate");
+const qmDepth = document.getElementById("qm_depth");
+const qmGain = document.getElementById("qm_gain");
+let qmOffset = null;
+let qmAnchor = { x: 0, y: 0 };
+(() => {
+  const grip = document.getElementById("qmGrip");
+  let drag = null;
+  grip.addEventListener("mousedown", e => {
+    drag = [e.clientX - quickMenu.offsetLeft, e.clientY - quickMenu.offsetTop];
+    e.preventDefault(); e.stopPropagation();
+  });
+  window.addEventListener("mousemove", e => {
+    if (!drag) return;
+    qmOffset = {
+      dx: (e.clientX - drag[0]) - qmAnchor.x,
+      dy: (e.clientY - drag[1]) - qmAnchor.y
+    };
+  });
+  window.addEventListener("mouseup", () => drag = null);
+})();
+function qmRefreshRow(row, norm, text, color) {
+  row.querySelector(".qm-fill").style.width = (clamp(norm, 0, 1) * 100) + "%";
+  row.querySelector(".qm-fill").style.background = `linear-gradient(90deg, ${color}55, ${color})`;
+  row.querySelector(".qm-value").textContent = text;
+}
+function updateQuickMenu() {
+  const pb = PB(), wrap = spec.parentElement;
+  if (!pb.on.get()) { quickMenu.classList.remove("visible"); return; }
+  quickMenu.classList.add("visible");
+  const rw = wrap.clientWidth, rh = wrap.clientHeight;
+  const topH = 0.82;
+  const hx = fx(pb.freq.get()) * rw;
+  const py = (1 - (pb.lift.get() / 100) * topH * 0.5) * rh;
+  const half = (pb.width.get() / 2) / Math.log2(FMAX / FMIN) * rw;
+  let mx = hx + half + 10, my = py - 24;
+  if (mx + 122 > rw) mx = hx - half - 130;
+  mx = clamp(mx, 4, rw - 122);
+  my = clamp(my, 4, rh - 68);
+  qmAnchor = { x: mx, y: my };
+  if (qmOffset) {
+    mx = clamp(mx + qmOffset.dx, 0, rw - 122);
+    my = clamp(my + qmOffset.dy, 0, rh - 68);
+  }
+  quickMenu.style.left = mx + "px";
+  quickMenu.style.top = my + "px";
+  quickMenu.style.borderColor = bandColor() + "88";
+  const rm = pb.ratemode.get();
+  const rateNorm = rm === 0 ? pb.div.get() / (DIVS.length - 1)
+    : rm === 1 ? Math.log(pb.rate.get() / RATE_MIN) / Math.log(RATE_MAX / RATE_MIN) : 0.5;
+  const rateText = rm === 0 ? DIVS[pb.div.get()] : rm === 1 ? fmtRate(pb.rate.get()) : midiNoteName;
+  qmRefreshRow(qmRate, rateNorm, rateText, bandColor());
+  qmRefreshRow(qmDepth, pb.depth.get() / 100, Math.round(pb.depth.get()) + "%", bandColor());
+  const gv = pb.gain.get();
+  qmRefreshRow(qmGain, (gv + 6) / 12, (gv >= 0 ? "+" : "") + gv.toFixed(1) + " dB", bandColor());
+}
+function qmDragRow(row, apply) {
+  let drag = false;
+  const setFrom = e => {
+    const r = row.querySelector(".qm-track").getBoundingClientRect();
+    apply(clamp((e.clientX - r.left) / r.width, 0, 1));
+  };
+  row.addEventListener("mousedown", e => { drag = true; setFrom(e); e.stopPropagation(); e.preventDefault(); });
+  window.addEventListener("mousemove", e => drag && setFrom(e));
+  window.addEventListener("mouseup", () => drag = false);
+}
+qmDragRow(qmRate, n => {
+  const pb = PB(), rm = pb.ratemode.get();
+  if (rm === 0) pb.div.set(Math.round(n * (DIVS.length - 1)));
+  else if (rm === 1) pb.rate.set(RATE_MIN * Math.pow(RATE_MAX / RATE_MIN, n));
+  hsRate.refresh();
+});
+qmDragRow(qmDepth, n => { PB().depth.set(n * 100); knobDepth.refresh(); });
+qmDragRow(qmGain, n => { PB().gain.set(-6 + n * 12); });
+
+/* ════════════════════════════════════════════════════════════════════
+   SCOPE + LOCAL MODULATOR SIM
+   (visual stand-in; real per-band telemetry replaces `pan` when the
+   "modvals" event starts flowing from the processor)
+   ════════════════════════════════════════════════════════════════════ */
+const scopeCanvas = document.getElementById("scopeCanvas");
+const SCOPE_N = 240;
+let scopeBuf = new Float32Array(SCOPE_N);
+let scopeHead = 0, scopeBand = 0;
+let lastModEvent = 0;
+
+if (EMBEDDED) {
+  window.__JUCE__.backend.addEventListener("modvals", data => {
+    try {
+      const d = typeof data === "string" ? JSON.parse(data) : data;
+      if (!d || !d.pans) return;
+      lastModEvent = performance.now();
+      for (let i = 0; i < 6; i++) ui.bands[i].pan = d.pans[i] || 0;
+      if (d.midiNote !== undefined && d.midiNote >= 0) {
+        midiFreq = 440 * Math.pow(2, (d.midiNote - 69) / 12);
+        const names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+        midiNoteName = names[d.midiNote % 12] + (Math.floor(d.midiNote / 12) - 1);
+      }
+    } catch {}
+  });
+}
+
+function pushScope() {
+  if (scopeBand !== ui.selected) { scopeBuf.fill(0); scopeBand = ui.selected; }
+  scopeBuf[scopeHead] = PB().on.get() ? ui.bands[ui.selected].pan * (P.amount.get() / 100) : 0;
+  scopeHead = (scopeHead + 1) % SCOPE_N;
+}
+function drawScope() {
+  const r = scopeCanvas.getBoundingClientRect();
+  if (r.width === 0) return;
+  const W = Math.round(r.width * DPR), H = Math.round(r.height * DPR);
+  if (scopeCanvas.width !== W) { scopeCanvas.width = W; scopeCanvas.height = H; }
+  const ctx = scopeCanvas.getContext("2d"), c = bandColor();
+  const on = PB().on.get();
+  ctx.clearRect(0, 0, W, H);
+  ctx.strokeStyle = "#3e3a35"; ctx.lineWidth = DPR;
+  ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
+  ctx.strokeStyle = "#26221F";
+  [0.12, 0.88].forEach(fy => { ctx.beginPath(); ctx.moveTo(0, fy * H); ctx.lineTo(W, fy * H); ctx.stroke(); });
+  ctx.fillStyle = "#403A32"; ctx.font = `${7.5 * DPR}px 'JetBrains Mono', ui-monospace, monospace`;
+  ctx.fillText("L", 3 * DPR, 0.12 * H + 3 * DPR);
+  ctx.fillText("R", 3 * DPR, 0.88 * H + 3 * DPR);
+  ctx.strokeStyle = c + (on ? "dd" : "44"); ctx.lineWidth = 1.5 * DPR;
+  ctx.beginPath();
+  for (let i = 0; i < SCOPE_N; i++) {
+    const v = scopeBuf[(scopeHead + i) % SCOPE_N];
+    const x = i / (SCOPE_N - 1) * W;
+    const y = H / 2 - v * (H * 0.38);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  }
+  ctx.stroke();
+  const last = scopeBuf[(scopeHead + SCOPE_N - 1) % SCOPE_N];
+  ctx.beginPath(); ctx.arc(W - 3 * DPR, H / 2 - last * H * 0.38, 2.5 * DPR, 0, 7);
+  ctx.fillStyle = on ? "#fff" : "#88837a"; ctx.fill();
+}
+
+/* local sim (skipped for bands when live telemetry present) */
+let simClock = 0, lastT = performance.now();
+function simRateHz(i) {
+  const pb = P.bands[i], rm = pb.ratemode.get();
+  const base = rm === 0 ? DIV_HZ[pb.div.get()] : rm === 1 ? pb.rate.get() : (midiFreq || 220);
+  return base * (SPEEDS[P.speed.get()] || 1);
+}
+function rnd(seed) { const s = Math.sin(seed * 127.1) * 43758.5453; return s - Math.floor(s); }
+function tickMods(dt) {
+  if (EMBEDDED && performance.now() - lastModEvent < 300) return; // real telemetry flowing
+  for (let i = 0; i < 6; i++) {
+    const pb = P.bands[i], b = ui.bands[i];
+    if (!pb.on.get()) { b.pan = 0; continue; }
+    const f = Math.min(simRateHz(i), 30); // visual sim caps at 30 Hz (real DSP goes to audio rate)
+    b.phi = (b.phi + f * dt) % 1;
+    const ph = (b.phi + pb.phase.get() / 360) % 1;
+    switch (pb.mode.get()) {
+      case 0: b.target = Math.sin(ph * Math.PI * 2); break;
+      case 1: b.target = 1 - 4 * Math.abs(ph - 0.5); break;
+      case 2: {
+        const cell = Math.floor(simClock * f);
+        if (cell !== b.lastDeal) { b.lastDeal = cell; b.target = rnd(cell * 6 + i + P.seed.get() + b.driftA) * 2 - 1; }
+        break;
+      }
+      case 3: {
+        const tt = simClock * f, c0 = Math.floor(tt), fr = tt - c0;
+        const a = rnd(c0 * 6 + i + P.seed.get() + b.driftA) * 2 - 1;
+        const bb = rnd((c0 + 1) * 6 + i + P.seed.get() + b.driftA) * 2 - 1;
+        const sm = fr * fr * (3 - 2 * fr);
+        b.target = a + (bb - a) * sm; break;
+      }
+      case 4: {
+        const s = 10, r = 28, be = 8 / 3, sc = Math.min(0.02, dt * f * 1.2);
+        const { x, y, z } = b.lz;
+        b.lz.x = x + s * (y - x) * sc;
+        b.lz.y = y + (x * (r - z) - y) * sc;
+        b.lz.z = z + (x * y - be * z) * sc;
+        if (!isFinite(b.lz.x)) b.lz = { x: 0.1, y: 0, z: 0 };
+        b.target = clamp(b.lz.x / 18, -1, 1); break;
+      }
+      case 5: {
+        b.target = stepValueAt(b, (simClock * f) + pb.phase.get() / 360); break;
+      }
+    }
+    const slewT = 0.004 + Math.pow(pb.inertia.get() / 100, 2.2) * 2.0;
+    const k = 1 - Math.exp(-dt / slewT);
+    b.pan += (b.target * (pb.depth.get() / 100) - b.pan) * k;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   MAIN LOOP
+   ════════════════════════════════════════════════════════════════════ */
+function loop() {
+  const now = performance.now(), dt = Math.min(0.05, (now - lastT) / 1000);
+  lastT = now; simClock += dt;
+  tickAnalyzer(simClock);
+  tickMods(dt);
+  pushScope();
+  drawSpectrum(simClock);
+  drawScope();
+  updateQuickMenu();
+  if (PB().mode.get() === 5) drawSteps();
+  requestAnimationFrame(loop);
+}
+
+sizeSpectrum();
+refreshPanels();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
