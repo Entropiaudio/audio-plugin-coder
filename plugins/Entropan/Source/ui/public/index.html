@@ -438,7 +438,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B18</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B19</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -577,7 +577,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B18";
+const ENTROPAN_BUILD = "B19";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -709,7 +709,7 @@ const ui = {
     stepCount: 8,
     steps: Array.from({ length: 16 }, (_, k) => ({ subdiv: 1, vals: [Math.sin(k / 16 * Math.PI * 2), 0, 0, 0] })),
     // local modulator sim (drives traces/scope until DSP telemetry lands)
-    pan: 0, target: 0, phi: Math.random(),
+    pan: 0, target: 0, phi: Math.random(), livePhase: 0,
     lz: { x: 0.1 + i * 0.03, y: 0, z: 0 }, lastDeal: -1, driftA: Math.random() * 100
   }))
 };
@@ -720,15 +720,16 @@ const bandColor = () => BAND_COLORS[ui.selected];
 /* mark configured when a band is (or becomes) enabled */
 P.bands.forEach((pb, i) => {
   if (pb.on.get()) ui.bands[i].configured = true;
-  pb.on.onChange(() => { if (pb.on.get()) ui.bands[i].configured = true; refreshPanels(); });
+  // repaint is handled by the coalesced schedulePanels subscription below
+  pb.on.onChange(() => { if (pb.on.get()) ui.bands[i].configured = true; });
 });
 
 /* push steps to the processor (debounced) */
-let stepsPushTimer = null;
+const stepsPushTimers = [null, null, null, null, null, null];
 function pushSteps(i) {
   if (!EMBEDDED) return;
-  clearTimeout(stepsPushTimer);
-  stepsPushTimer = setTimeout(() => {
+  clearTimeout(stepsPushTimers[i]);
+  stepsPushTimers[i] = setTimeout(() => {
     const b = ui.bands[i];
     setStepsNative(i, JSON.stringify({
       count: b.stepCount,
@@ -1140,7 +1141,10 @@ function drawSteps() {
   ctx.strokeStyle = "#3e3a35"; ctx.lineWidth = DPR;
   ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
   const n = b.stepCount, c = bandColor();
-  const act = PB().on.get() ? stepSlotAt(b, (simClock * simRateHz(ui.selected)) + PB().phase.get() / 360) : { slot: -1, sub: -1 };
+  const telemetryLive = EMBEDDED && performance.now() - lastModEvent < 300;
+  const cyclePos = telemetryLive ? b.livePhase
+                                 : (simClock * simRateHz(ui.selected)) + PB().phase.get() / 360;
+  const act = PB().on.get() ? stepSlotAt(b, cyclePos) : { slot: -1, sub: -1 };
   const slotW = W / n;
   for (let i = 0; i < n; i++) {
     const st = b.steps[i], subW = slotW / st.subdiv;
@@ -1260,11 +1264,12 @@ if (EMBEDDED) {
   });
 }
 function tickAnalyzer(t) {
-  if (EMBEDDED && performance.now() - lastSpectrumEvent < 500) {
-    // real data: per-frame attack/release toward the latest frame —
-    // fast rise, relaxed fall = responsive AND smooth
+  if (EMBEDDED) {
+    const live = performance.now() - lastSpectrumEvent < 500;
+    // live: attack/release toward the latest frame (fast rise, relaxed fall).
+    // stale (audio stopped): decay to the floor — never invent motion.
     for (let i = 0; i < anaBins; i++) {
-      const tgt = anaTarget[i];
+      const tgt = live ? anaTarget[i] : -60;
       ana[i] += (tgt - ana[i]) * (tgt > ana[i] ? 0.55 : 0.16);
     }
     return;
@@ -1287,10 +1292,6 @@ function bellY(i, x) {
   const d = (x - fx(pb.freq.get())) / sigma;
   return Math.exp(-d * d) * (pb.lift.get() / 100);
 }
-
-/* aura scratch canvas */
-const auraCanvas = document.createElement("canvas");
-const auraCtx = auraCanvas.getContext("2d");
 
 /* per-band aura cache: the blur filter is expensive — re-render only when the
    bell/gain actually changes, then stamp the cached bitmap each frame */
@@ -1452,7 +1453,7 @@ function drawSpectrum(t) {
 }
 
 /* gestures */
-let dragBand = -1, downPos = null, dragMoved = false;
+let dragBand = -1, downPos = null;
 function bandAt(e) {
   const r = spec.getBoundingClientRect();
   const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
@@ -1488,7 +1489,7 @@ function bandBodyAt(e) {
 spec.addEventListener("mousedown", e => {
   const hit = bandAt(e);
   if (hit >= 0) {
-    dragBand = hit; dragMoved = false; downPos = [e.clientX, e.clientY];
+    dragBand = hit; downPos = [e.clientX, e.clientY];
     ui.selected = hit; ui.menuHidden = false; refreshPanels();
     return;
   }
@@ -1503,7 +1504,6 @@ spec.addEventListener("mousedown", e => {
 window.addEventListener("mousemove", e => {
   if (dragBand < 0) return;
   if (downPos && Math.hypot(e.clientX - downPos[0], e.clientY - downPos[1]) < 4) return;
-  dragMoved = true;
   const r = spec.getBoundingClientRect();
   const pb = P.bands[dragBand];
   pb.freq.set(xf(clamp((e.clientX - r.left) / r.width, 0, 1)));
@@ -1652,6 +1652,7 @@ if (EMBEDDED) {
       if (!d || !d.pans) return;
       lastModEvent = performance.now();
       for (let i = 0; i < 6; i++) ui.bands[i].pan = d.pans[i] || 0;
+      if (d.phases) for (let i = 0; i < 6; i++) ui.bands[i].livePhase = d.phases[i];
       if (d.midiNote !== undefined && d.midiNote >= 0) {
         midiFreq = 440 * Math.pow(2, (d.midiNote - 69) / 12);
         const names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
@@ -1703,7 +1704,7 @@ function simRateHz(i) {
   const base = rm === 0 ? DIV_HZ[pb.div.get()] : rm === 1 ? pb.rate.get() : (midiFreq || 220);
   return base * (SPEEDS[P.speed.get()] || 1);
 }
-function rnd(seed) { const s = Math.sin(seed * 127.1) * 43758.5453; return s - Math.floor(s); }
+function hash(seed) { const s = Math.sin(seed * 127.1) * 43758.5453; return s - Math.floor(s); }
 function tickMods(dt) {
   if (EMBEDDED && performance.now() - lastModEvent < 300) return; // real telemetry flowing
   for (let i = 0; i < 6; i++) {
@@ -1717,13 +1718,13 @@ function tickMods(dt) {
       case 1: b.target = 1 - 4 * Math.abs(ph - 0.5); break;
       case 2: {
         const cell = Math.floor(simClock * f);
-        if (cell !== b.lastDeal) { b.lastDeal = cell; b.target = rnd(cell * 6 + i + P.seed.get() + b.driftA) * 2 - 1; }
+        if (cell !== b.lastDeal) { b.lastDeal = cell; b.target = hash(cell * 6 + i + P.seed.get() + b.driftA) * 2 - 1; }
         break;
       }
       case 3: {
         const tt = simClock * f, c0 = Math.floor(tt), fr = tt - c0;
-        const a = rnd(c0 * 6 + i + P.seed.get() + b.driftA) * 2 - 1;
-        const bb = rnd((c0 + 1) * 6 + i + P.seed.get() + b.driftA) * 2 - 1;
+        const a = hash(c0 * 6 + i + P.seed.get() + b.driftA) * 2 - 1;
+        const bb = hash((c0 + 1) * 6 + i + P.seed.get() + b.driftA) * 2 - 1;
         const sm = fr * fr * (3 - 2 * fr);
         b.target = a + (bb - a) * sm; break;
       }
@@ -1901,8 +1902,9 @@ const setEditorSizeNative = native("setEditorSize");
   window.addEventListener("mouseup", () => drag = null);
 })();
 
-/* debug/testing handle (module scope is otherwise sealed) */
-window.__entropan = { version: ENTROPAN_BUILD, P, ui, spec, quickMenu, refreshPanels, drawScope, drawSpectrum, loopInfo: () => ({ lastFrame, simClock, loopCalls, loopErr, loopStarted }), kickLoop };
+/* debug/testing handle — browser-only (never exposed inside the plugin) */
+if (!EMBEDDED)
+  window.__entropan = { version: ENTROPAN_BUILD, P, ui, spec, quickMenu, refreshPanels, drawScope, drawSpectrum, loopInfo: () => ({ lastFrame, simClock, loopCalls, loopErr, loopStarted }), kickLoop };
 </script>
 </body>
 </html>

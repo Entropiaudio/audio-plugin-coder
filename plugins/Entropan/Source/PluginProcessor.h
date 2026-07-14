@@ -7,10 +7,11 @@
 /**
  * Entropan — band-targeted spectral panner (Entropia Audio).
  *
- * Phase 4.1: core DSP — serial Linkwitz-Riley splitter cascade with allpass
- * compensation, per-band lift split, equal-power pan (static target for now),
- * per-band gain, output/bypass stages. Null-tested (see Source/tests/).
- * Modulator engines land in Phase 4.2.
+ * Serial Linkwitz-Riley splitter cascade with allpass compensation, per-band
+ * lift split → equal-power pan → ±6 dB gain, six per-band modulator engines
+ * (Sine/Tri/S&H/Drift/Lorenz/Steps) evaluated per sample, PPQ sync + free +
+ * MIDI rate modes, global speed, snapshot undo/redo, analyzer + scope
+ * telemetry for the WebView UI. Gate: Source/tests/NullTest.cpp.
  */
 class EntropanAudioProcessor : public juce::AudioProcessor
 {
@@ -93,9 +94,8 @@ private:
             splitLo.prepare (spec);
             splitHi.prepare (spec);
             apLow.prepare (spec);
-            splitLo.setType (juce::dsp::LinkwitzRileyFilterType::lowpass);  // processSample gives both outs
-            splitHi.setType (juce::dsp::LinkwitzRileyFilterType::lowpass);
-            apLow.setType   (juce::dsp::LinkwitzRileyFilterType::allpass);
+            // (no setType needed — the two-output processSample always yields
+            //  the complementary LP/HP pair regardless of the filter type)
             const double sr = spec.sampleRate;
             lift.reset    (sr, 0.005);
             gainLin.reset (sr, 0.005);
@@ -176,6 +176,7 @@ public:
     // ── UI telemetry (Phase 4.3) ──
     std::atomic<int>   lastMidiNote { -1 };
     std::array<std::atomic<float>, kNumBands> modOutDepth {};   // post-slew mod × depth
+    std::array<std::atomic<float>, kNumBands> modPhase {};       // cycle phase 0..1 (steps highlight)
 
     // Analyzer tap: mono (L+R)/2 of the processed output, drained by the editor.
     int popAnalyzer (float* dest, int maxNum);
@@ -183,7 +184,7 @@ public:
     // Mod scope ring: every band sampled every 64 audio samples (~750 Hz).
     static constexpr int kScopeStride = 64, kScopeRingSize = 2048;
     std::array<std::array<float, kScopeRingSize>, kNumBands> scopeRing {};
-    std::atomic<int> scopeWrite { 0 };
+    std::atomic<juce::uint32> scopeWrite { 0 };
 
 private:
     void parseStepsSnapshot (int bandIndex);

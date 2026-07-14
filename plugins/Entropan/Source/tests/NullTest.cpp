@@ -365,6 +365,30 @@ int main()
         std::printf ("    d50=%.3f d90=%.3f undo=%.3f redo=%.3f\n", d50, d90, afterUndo, afterRedo);
     }
 
+    // ── T11: editor-size changes must NOT create undo steps; session load resets history ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        p.commitUndoIfChanged();                          // settle baseline
+        const bool undoBefore = p.canUndo();
+
+        p.apvts.state.setProperty ("editorWidth", 1200, nullptr);   // simulate resize
+        p.apvts.state.setProperty ("editorHeight", 747, nullptr);
+        p.commitUndoIfChanged();
+        const bool resizeMadeStep = p.canUndo() != undoBefore;      // must stay false
+
+        setParam (p, "b1_depth", 77.0f);                            // real edit
+        p.commitUndoIfChanged();
+        const bool editMadeStep = p.canUndo();
+
+        juce::MemoryBlock state;
+        p.getStateInformation (state);
+        p.setStateInformation (state.getData(), (int) state.getSize());  // host load
+        const bool historyCleared = ! p.canUndo() && ! p.canRedo();
+
+        ok &= check ("T11 undo ignores resize; load resets", ! resizeMadeStep && editMadeStep && historyCleared);
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }

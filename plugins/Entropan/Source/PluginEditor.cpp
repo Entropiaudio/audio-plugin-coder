@@ -191,24 +191,28 @@ void EntropanAudioProcessorEditor::timerCallback()
 
     // ── per-band mod values (post-slew × depth) + last MIDI note ──
     {
-        juce::Array<juce::var> pans;
+        juce::Array<juce::var> pans, phases;
         for (int i = 0; i < EntropanAudioProcessor::kNumBands; ++i)
+        {
             pans.add ((double) audioProcessor.modOutDepth[(size_t) i].load (std::memory_order_relaxed));
+            phases.add ((double) audioProcessor.modPhase[(size_t) i].load (std::memory_order_relaxed));
+        }
 
         auto* obj = new juce::DynamicObject();
         obj->setProperty ("pans", pans);
+        obj->setProperty ("phases", phases);
         obj->setProperty ("midiNote", audioProcessor.lastMidiNote.load());
         webView->emitEventIfBrowserIsVisible ("modvals", juce::var (obj));
     }
 
     // ── high-rate scope samples (all bands, ~750 Hz ring) ──
     {
-        const int w = audioProcessor.scopeWrite.load (std::memory_order_acquire);
-        int n = w - scopeReadPos;
+        const auto w = audioProcessor.scopeWrite.load (std::memory_order_acquire);
+        int n = (int) (juce::uint32) (w - scopeReadPos);   // wrap-safe unsigned delta
         if (n > 0)
         {
             n = juce::jmin (n, EntropanAudioProcessor::kScopeRingSize / 2);
-            const int startIdx = w - n;
+            const auto startIdx = w - (juce::uint32) n;
             juce::Array<juce::var> bandsArr;
             for (int i = 0; i < EntropanAudioProcessor::kNumBands; ++i)
             {
@@ -216,7 +220,7 @@ void EntropanAudioProcessorEditor::timerCallback()
                 vals.ensureStorageAllocated (n);
                 for (int k = 0; k < n; ++k)
                     vals.add ((double) audioProcessor.scopeRing[(size_t) i]
-                        [(size_t) ((startIdx + k) & (EntropanAudioProcessor::kScopeRingSize - 1))]);
+                        [(size_t) ((startIdx + (juce::uint32) k) & (EntropanAudioProcessor::kScopeRingSize - 1))]);
                 bandsArr.add (juce::var (vals));
             }
             scopeReadPos = w;
@@ -224,7 +228,7 @@ void EntropanAudioProcessorEditor::timerCallback()
             so->setProperty ("bands", bandsArr);
             webView->emitEventIfBrowserIsVisible ("scopevals", juce::var (so));
         }
-        else if (n < 0)
+        else if (n < 0)   // shouldn't happen with unsigned deltas; resync anyway
         {
             scopeReadPos = w;
         }
@@ -311,8 +315,11 @@ EntropanAudioProcessorEditor::getResource (const juce::String& url)
     // Root → index.html; otherwise match by original filename (all basenames
     // in the embedded set are unique: index.html, index.js,
     // check_native_interop.js, 3× .woff2).
-    const auto requested = url == "/" ? juce::String ("index.html")
-                                      : url.fromLastOccurrenceOf ("/", false, false);
+    auto clean = url.upToFirstOccurrenceOf ("?", false, false)
+                    .upToFirstOccurrenceOf ("#", false, false);
+    const auto requested = clean == "/" || clean.isEmpty()
+                             ? juce::String ("index.html")
+                             : clean.fromLastOccurrenceOf ("/", false, false);
 
     for (int i = 0; i < BinaryData::namedResourceListSize; ++i)
     {

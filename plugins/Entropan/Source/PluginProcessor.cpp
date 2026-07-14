@@ -37,6 +37,16 @@ namespace
     }
 
     inline float smoothstep01 (float t) { return t * t * (3.0f - 2.0f * t); }
+
+    // Editor window size lives in the same tree for persistence but must not
+    // take part in undo (a resize would otherwise create/restore undo steps).
+    juce::ValueTree stateForUndo (const juce::ValueTree& src)
+    {
+        auto v = src.createCopy();
+        v.removeProperty ("editorWidth", nullptr);
+        v.removeProperty ("editorHeight", nullptr);
+        return v;
+    }
 }
 
 //==============================================================================
@@ -68,13 +78,13 @@ EntropanAudioProcessor::EntropanAudioProcessor()
         }
     }
 
-    lastCommitted = apvts.copyState();   // undo baseline
+    lastCommitted = stateForUndo (apvts.copyState());   // undo baseline
 }
 
 //==============================================================================
 void EntropanAudioProcessor::commitUndoIfChanged()
 {
-    auto cur = apvts.copyState();
+    auto cur = stateForUndo (apvts.copyState());
     if (lastCommitted.isValid() && cur.isEquivalentTo (lastCommitted))
         return;   // nothing changed since the last commit — no phantom entry
     if (lastCommitted.isValid())
@@ -91,11 +101,14 @@ bool EntropanAudioProcessor::undoState()
 {
     if (undoStack.empty())
         return false;
-    redoStack.push_back (apvts.copyState());
+    redoStack.push_back (stateForUndo (apvts.copyState()));
     auto snap = undoStack.back();
     undoStack.pop_back();
+    // keep the live window size — snapshots carry no editor props
+    snap.setProperty ("editorWidth",  apvts.state.getProperty ("editorWidth",  900), nullptr);
+    snap.setProperty ("editorHeight", apvts.state.getProperty ("editorHeight", 560), nullptr);
     apvts.replaceState (snap);
-    lastCommitted = apvts.copyState();
+    lastCommitted = stateForUndo (apvts.copyState());
     for (int i = 0; i < kNumBands; ++i)
         parseStepsSnapshot (i);
     return true;
@@ -105,11 +118,13 @@ bool EntropanAudioProcessor::redoState()
 {
     if (redoStack.empty())
         return false;
-    undoStack.push_back (apvts.copyState());
+    undoStack.push_back (stateForUndo (apvts.copyState()));
     auto snap = redoStack.back();
     redoStack.pop_back();
+    snap.setProperty ("editorWidth",  apvts.state.getProperty ("editorWidth",  900), nullptr);
+    snap.setProperty ("editorHeight", apvts.state.getProperty ("editorHeight", 560), nullptr);
     apvts.replaceState (snap);
-    lastCommitted = apvts.copyState();
+    lastCommitted = stateForUndo (apvts.copyState());
     for (int i = 0; i < kNumBands; ++i)
         parseStepsSnapshot (i);
     return true;
@@ -208,8 +223,9 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     bypassSm.reset  (sampleRate, 0.030);
     amountSm.reset  (sampleRate, 0.020);
 
-    dryBuffer.setSize (2, samplesPerBlock);
+    dryBuffer.setSize (2, juce::jmax (samplesPerBlock * 2, 8192));   // headroom for hosts that exceed the prepared block
     analyzerStore.resize ((size_t) analyzerFifo.getTotalSize(), 0.0f);
+    scopePhase = kScopeStride;
 
     for (auto& m : mods)
         m = Modulator {};
@@ -417,6 +433,8 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const float e      = b.enable.getNextValue();
             const float liftV  = b.lift.getNextValue();
             const float gainV  = b.gainLin.getNextValue();
+            const float depthV = b.depth.getNextValue();   // advance even when
+                                                           // disabled — no lag on re-enable
 
             if (e < 1.0e-4f)
                 continue;   // fully disengaged: stage is a wire (filters stay cold)
@@ -485,7 +503,6 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
             // inertia slew (per-mode policy), then depth · master amount
             m.value += (m.target - m.value) * m.slewCoeff;
-            const float depthV = b.depth.getNextValue();
             const float panV = juce::jlimit (-1.0f, 1.0f, m.value * depthV * amountV);
 
             // 3-way split (processSample yields the complementary LP/HP pair)
@@ -523,7 +540,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         if (--scopePhase <= 0)
         {
             scopePhase = kScopeStride;
-            const int w = scopeWrite.load (std::memory_order_relaxed);
+            const auto w = scopeWrite.load (std::memory_order_relaxed);
             for (int i = 0; i < kNumBands; ++i)
                 scopeRing[(size_t) i][(size_t) (w & (kScopeRingSize - 1))] =
                     mods[(size_t) i].value * bands[(size_t) i].depth.getCurrentValue();
@@ -540,10 +557,14 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         right[s] = xr + (dryBuffer.getSample (1, s) - xr) * by;
     }
 
-    // ── UI telemetry: post-slew mod × depth, one snapshot per block ──
+    // ── UI telemetry: post-slew mod × depth + cycle phase, once per block ──
     for (int i = 0; i < kNumBands; ++i)
+    {
         modOutDepth[(size_t) i].store (mods[(size_t) i].value * bands[(size_t) i].depth.getCurrentValue(),
                                        std::memory_order_relaxed);
+        const double cyc = mods[(size_t) i].phase + (double) bb[(size_t) i].phaseOff;
+        modPhase[(size_t) i].store ((float) (cyc - std::floor (cyc)), std::memory_order_relaxed);
+    }
 
 
     // ── analyzer tap: mono of the processed output ──
@@ -636,6 +657,9 @@ void EntropanAudioProcessor::setStateInformation (const void* data, int sizeInBy
             apvts.replaceState (juce::ValueTree::fromXml (*xmlState));
             for (int i = 0; i < kNumBands; ++i)
                 parseStepsSnapshot (i);
+            undoStack.clear();
+            redoStack.clear();
+            lastCommitted = stateForUndo (apvts.copyState());
         }
     }
 }

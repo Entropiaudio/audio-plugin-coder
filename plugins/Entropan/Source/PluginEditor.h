@@ -51,14 +51,14 @@ private:
     std::optional<juce::WebBrowserComponent::Resource> getResource (const juce::String& url);
     static const char* mimeForExtension (const juce::String& ext);
 
-    // ── UI telemetry (30 Hz): spectrum frames + per-band mod values ──
+    // ── UI telemetry (60 Hz): spectrum frames + per-band mod values ──
     void timerCallback() override;
     static constexpr int kFftOrder = 11, kFftSize = 1 << kFftOrder, kSpectrumBins = 256;
     juce::dsp::FFT fft { kFftOrder };
     juce::dsp::WindowingFunction<float> window { kFftSize, juce::dsp::WindowingFunction<float>::hann };
     std::vector<float> fifoDrain, fftAccum, fftWork;
     int accumFill = 0;
-    int scopeReadPos = 0;
+    juce::uint32 scopeReadPos = 0;
 
     juce::ComponentBoundsConstrainer constrainer;
     EntropanAudioProcessor& audioProcessor;
