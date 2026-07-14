@@ -175,15 +175,16 @@ int main()
         setParam (p, "b1_depth", 100.0f);
         setParam (p, "amount", 100.0f);
         setParam (p, "b1_ratemode", 1.0f);
-        setParam (p, "b1_rate", 0.02f);
-        setParam (p, "b1_phase", 90.0f);
+        setParam (p, "b1_rate", 2.0f);        // fast enough that naive slew would shrink the swing
         setParam (p, "b1_inertia", 100.0f);   // ← the whole point
 
         juce::AudioBuffer<float> buf (2, kBlock);
         juce::MidiBuffer midi;
         double phase = 0.0;
         const double inc = 2.0 * juce::MathConstants<double>::pi * 1000.0 / kSampleRate;
-        double inE = 0, outLE = 0, outRE = 0;
+        // pan sweeps the full sine, so average energies cancel — instead track
+        // per-block L/R balance extremes: both rails must actually be reached.
+        double balMin = 1.0e9, balMax = -1.0e9;
         for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk)
         {
             for (int s = 0; s < kBlock; ++s)
@@ -195,16 +196,18 @@ int main()
             }
             p.processBlock (buf, midi);
             if (blk < kWarmBlocks) continue;
+            double eL = 1.0e-12, eR = 1.0e-12;
             for (int s = 0; s < kBlock; ++s)
             {
-                inE += 0.5;
-                outLE += juce::square ((double) buf.getSample (0, s));
-                outRE += juce::square ((double) buf.getSample (1, s));
+                eL += juce::square ((double) buf.getSample (0, s));
+                eR += juce::square ((double) buf.getSample (1, s));
             }
+            const double bal = dB (eR / eL);
+            balMin = juce::jmin (balMin, bal);
+            balMax = juce::jmax (balMax, bal);
         }
-        const double dL = dB (outLE / inE), dR = dB (outRE / inE);
-        ok &= check ("T7 full reach at inertia 100%", dL < -6.0 && dR > 2.0 && dR < 4.0);
-        std::printf ("    dL = %+.2f dB, dR = %+.2f dB\n", dL, dR);
+        ok &= check ("T7 full reach at inertia 100%", balMax > 8.0 && balMin < -8.0);
+        std::printf ("    balance extremes: %+.1f dB … %+.1f dB\n", balMin, balMax);
     }
 
     // ── T5: audio-rate sine mod (200 Hz) keeps total energy (equal-power law) ──
@@ -298,6 +301,40 @@ int main()
         const double dL = dB (outLE / inE), dR = dB (outRE / inE);
         ok &= check ("T8 steps pattern drives pan", dL < -6.0 && dR > 2.0 && dR < 4.0);
         std::printf ("    dL = %+.2f dB, dR = %+.2f dB\n", dL, dR);
+    }
+
+    // ── T9: CPU — 6 bands, mixed modes, 10 s @48k. Informational + ceiling. ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        for (int i = 0; i < 6; ++i)
+        {
+            const juce::String b = "b" + juce::String (i + 1) + "_";
+            setParam (p, b + "on", 1.0f);
+            setParam (p, b + "mode", (float) i);          // sine, tri, s&h, drift, chaos, steps
+            setParam (p, b + "ratemode", 1.0f);
+            setParam (p, b + "rate", i == 0 ? 200.0f : 2.0f);  // one audio-rate band
+            setParam (p, b + "depth", 100.0f);
+        }
+        juce::Random rng (7);
+        juce::AudioBuffer<float> buf (2, kBlock);
+        juce::MidiBuffer midi;
+        const int blocks = (int) (10.0 * kSampleRate / kBlock);
+        const auto t0 = juce::Time::getHighResolutionTicks();
+        for (int blk = 0; blk < blocks; ++blk)
+        {
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                auto* d = buf.getWritePointer (ch);
+                for (int s2 = 0; s2 < kBlock; ++s2)
+                    d[s2] = rng.nextFloat() * 2.0f - 1.0f;
+            }
+            p.processBlock (buf, midi);
+        }
+        const double secs = juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - t0);
+        const double rtPct = secs / 10.0 * 100.0;
+        ok &= check ("T9 CPU 6 bands (< 25% realtime)", rtPct < 25.0);
+        std::printf ("    %.2f%% of realtime (%.1f ms for 10 s)\n", rtPct, secs * 1000.0);
     }
 
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");

@@ -50,7 +50,9 @@ EntropanAudioProcessorEditor::EntropanAudioProcessorEditor (EntropanAudioProcess
     auto options = juce::WebBrowserComponent::Options {}
         .withBackend (juce::WebBrowserComponent::Options::Backend::webview2)
         .withWinWebView2Options (juce::WebBrowserComponent::Options::WinWebView2 {}
-            .withUserDataFolder (juce::File::getSpecialLocation (juce::File::tempDirectory)))
+            // unique per-instance folder — shared folder crashes multi-instance (kit gotcha)
+            .withUserDataFolder (juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                     .getChildFile ("Entropan-" + juce::Uuid().toString())))
         .withNativeIntegrationEnabled()
         .withResourceProvider ([this] (const auto& url) { return getResource (url); })
         .withNativeFunction ("reroll",
@@ -71,6 +73,23 @@ EntropanAudioProcessorEditor::EntropanAudioProcessorEditor (EntropanAudioProcess
             {
                 const int band = args.size() > 0 ? (int) args[0] : 0;
                 complete (audioProcessor.getStepsJson (band));
+            })
+        .withNativeFunction ("setEditorSize",
+            // AU hosts (Logic/Ableton) give no window-edge resize — the UI's
+            // corner grip drives the editor size through this call (kit gotcha).
+            [this] (const juce::Array<juce::var>& args, auto complete)
+            {
+                if (args.size() >= 2)
+                {
+                    const int w = juce::jlimit (720, 1620, (int) args[0]);
+                    const int h = juce::jlimit (448, 1008, (int) args[1]);
+                    juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<juce::AudioProcessorEditor> (this), w, h]
+                    {
+                        if (safe != nullptr)
+                            safe->setSize (w, h);
+                    });
+                }
+                complete (true);
             });
 
     for (auto& r : sliderRelays)  options = options.withOptionsFrom (*r);

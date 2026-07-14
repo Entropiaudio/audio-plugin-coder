@@ -24,7 +24,7 @@
    | Drift | Smoothed random walk (interpolated value-noise clocked by rate) |
    | Chaos | Lorenz system integrated at control rate; rate scales dt; x-component normalized to ±1 |
    | Steps | Sequencer 2–16 slots; slot = {subdiv ∈ 1/2/4, vals[subdiv]}; slot-stable grid (dividing a slot never moves neighbors); phase offsets start position |
-   - **Inertia** = one-pole slew on modulator output → pan target. 0% = instant snap, 100% ≈ 2 s glide (exp map). Reach-safe policy: bypassed for Sine/Tri; capped at interval/3.5 for S&H/Steps (target always reached); free for Drift/Chaos.
+   - **Inertia** = rate-relative one-pole slew (τ = inertia²·0.35/f_mod) + analytic reach compensation √(1+(2πfτ)²) — shapes the path, never the reach; ±1 clamp rails S&H/steps overshoot. Reach-safe policy: bypassed for Sine/Tri; capped at interval/3.5 for S&H/Steps (target always reached); free for Drift/Chaos.
    - **Depth**: `pan = mod · depth · mix_master` (`mix` = global master depth).
    - **Rate modes** (`_ratemode`): **Sync** — `AudioPlayHead` PPQ → interval boundaries for S&H/Steps, cycle length for Sine/Tri/Drift. **Free** — Hz up to audio rate (1 kHz): Sine/Tri evaluated per-sample above ~50 Hz (phase accumulator in process loop, AM/rotary territory); S&H/Drift/Chaos clocked per-sample with cheap ops. **MIDI** — rate = frequency of last MIDI note (mono, last-note priority; inertia acts as glide between notes).
    - **Global speed** (`speed` ÷4…×4): multiplies the effective rate of every band, all modes.

@@ -351,8 +351,19 @@
   }
   .bypass-dim.on { opacity: 1; }
 
+  .resize-grip {
+    position: absolute; bottom: 2px; right: 2px; z-index: 6;
+    width: 14px; height: 14px; cursor: nwse-resize;
+    opacity: 0.5;
+  }
+  .resize-grip:hover { opacity: 1; }
+  .resize-grip::before {
+    content: ""; position: absolute; inset: 0;
+    background:
+      linear-gradient(135deg, transparent 0 55%, var(--text-dim) 55% 60%, transparent 60% 75%, var(--text-dim) 75% 80%, transparent 80%);
+  }
   .settings-btn {
-    position: absolute; bottom: 8px; right: 10px; z-index: 5;
+    position: absolute; bottom: 8px; right: 30px; z-index: 5;
     width: 20px; height: 20px; padding: 2px;
     background: transparent; border: none; cursor: pointer;
     color: var(--text-faint);
@@ -471,6 +482,7 @@
     </div>
   </div>
 
+  <div class="resize-grip" id="resizeGrip" title="Drag to resize"></div>
   <button class="settings-btn" title="Settings">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
   </button>
@@ -1535,6 +1547,27 @@ window.addEventListener("resize", fitShell);
 fitShell();
 refreshPanels();
 requestAnimationFrame(loop);
+
+/* ── corner resize grip → native setEditorSize (AU hosts lack edge resize) ── */
+const setEditorSizeNative = native("setEditorSize");
+(() => {
+  const grip = document.getElementById("resizeGrip");
+  let drag = null;
+  grip.addEventListener("mousedown", e => {
+    drag = { x: e.screenX, y: e.screenY,
+             w: document.documentElement.clientWidth,
+             h: document.documentElement.clientHeight };
+    e.preventDefault(); e.stopPropagation();
+  });
+  window.addEventListener("mousemove", e => {
+    if (!drag) return;
+    const dw = e.screenX - drag.x;
+    let w = clamp(drag.w + dw, 720, 1620);
+    let h = Math.round(w * 560 / 900);          // aspect-locked
+    if (EMBEDDED) setEditorSizeNative(Math.round(w), h).catch(() => {});
+  });
+  window.addEventListener("mouseup", () => drag = null);
+})();
 
 /* debug/testing handle (module scope is otherwise sealed) */
 window.__entropan = { P, ui, spec, quickMenu, refreshPanels };

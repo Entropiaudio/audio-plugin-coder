@@ -75,6 +75,9 @@ private:
         juce::SmoothedValue<float> lift;      // 0..1
         juce::SmoothedValue<float> gainLin;   // linear, from ±6 dB
         juce::SmoothedValue<float> enable;    // 0..1 engage crossfade (~30 ms)
+        juce::SmoothedValue<float> depth;     // 0..1, per-sample (automation-safe)
+        float fLoCur = 100.0f, fHiCur = 400.0f;   // block-rate cutoff glide state
+        bool  cutoffsInit = false;
 
         void prepare (const juce::dsp::ProcessSpec& spec)
         {
@@ -88,6 +91,8 @@ private:
             lift.reset    (sr, 0.005);
             gainLin.reset (sr, 0.005);
             enable.reset  (sr, 0.030);
+            depth.reset   (sr, 0.020);
+            cutoffsInit = false;
         }
 
         void resetState()

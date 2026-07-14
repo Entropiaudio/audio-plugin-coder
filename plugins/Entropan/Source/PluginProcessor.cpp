@@ -267,8 +267,8 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         double cycPerSample = 0.0;    // free/MIDI: cycle increment per sample
         double quartersPerCycle = 1.0;// sync: musical cycle length
         float  phaseOff = 0.0f;
-        float  depth = 0.0f;
         float  lorenzDt = 0.0f;
+        float  reachComp = 1.0f;
     };
     std::array<BandBlock, kNumBands> bb;
 
@@ -286,11 +286,16 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // range with a guaranteed f_lo < f_hi ordering.
         const float freq  = pp.freq->load();
         const float width = pp.width->load();
-        const float fLo = juce::jlimit (20.0f, 20000.0f, freq * std::pow (2.0f, -width * 0.5f));
-        const float fHi = juce::jlimit (fLo * 1.02f, 20500.0f, freq * std::pow (2.0f,  width * 0.5f));
-        b.splitLo.setCutoffFrequency (fLo);
-        b.splitHi.setCutoffFrequency (fHi);
-        b.apLow.setCutoffFrequency  (fHi);
+        const float fLoT = juce::jlimit (20.0f, 20000.0f, freq * std::pow (2.0f, -width * 0.5f));
+        const float fHiT = juce::jlimit (fLoT * 1.02f, 20500.0f, freq * std::pow (2.0f,  width * 0.5f));
+        if (! b.cutoffsInit) { b.fLoCur = fLoT; b.fHiCur = fHiT; b.cutoffsInit = true; }
+        // block-rate glide (~40 ms) — no zipper while dragging freq/Q
+        const float ck = juce::jmin (1.0f, (float) numSamples / (0.040f * (float) currentSampleRate));
+        b.fLoCur += (fLoT - b.fLoCur) * ck;
+        b.fHiCur += (fHiT - b.fHiCur) * ck;
+        b.splitLo.setCutoffFrequency (b.fLoCur);
+        b.splitHi.setCutoffFrequency (b.fHiCur);
+        b.apLow.setCutoffFrequency  (b.fHiCur);
 
         b.lift.setTargetValue (pp.lift->load() * 0.01f);
         b.gainLin.setTargetValue (juce::Decibels::decibelsToGain (pp.gain->load()));
@@ -299,7 +304,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         cfg.mode     = (int) pp.mode->load();
         cfg.rateMode = (int) pp.ratemode->load();
         cfg.phaseOff = pp.phase->load() / 360.0f;
-        cfg.depth    = pp.depth->load() * 0.01f;
+        b.depth.setTargetValue (pp.depth->load() * 0.01f);
 
         double rateHz = 0.0;
         if (cfg.rateMode == 0)        // sync
@@ -432,9 +437,12 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     break;
             }
 
-            // inertia slew, then depth · master amount
+            // inertia slew (rate-relative) + reach compensation, then
+            // depth · master amount — inertia shapes the path, never the reach
             m.value += (m.target - m.value) * m.slewCoeff;
-            const float panV = juce::jlimit (-1.0f, 1.0f, m.value * cfg.depth * amountV);
+            const float depthV = b.depth.getNextValue();
+            const float shaped = juce::jlimit (-1.0f, 1.0f, m.value * cfg.reachComp);
+            const float panV = juce::jlimit (-1.0f, 1.0f, shaped * depthV * amountV);
 
             // 3-way split (processSample yields the complementary LP/HP pair)
             float lowL = 0, restL = 0, lowR = 0, restR = 0;
@@ -477,7 +485,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     // ── UI telemetry: post-slew mod × depth, one snapshot per block ──
     for (int i = 0; i < kNumBands; ++i)
-        modOutDepth[(size_t) i].store (mods[(size_t) i].value * bb[(size_t) i].depth,
+        modOutDepth[(size_t) i].store (mods[(size_t) i].value * bands[(size_t) i].depth.getCurrentValue(),
                                        std::memory_order_relaxed);
 
     // ── analyzer tap: mono of the processed output ──
