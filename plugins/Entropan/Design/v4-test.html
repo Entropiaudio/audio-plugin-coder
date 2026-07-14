@@ -300,7 +300,11 @@
 
   /* output */
   .out-knob-row { display: flex; justify-content: space-around; align-items: center; flex: 1; }
-  .out-col { display: flex; flex-direction: column; align-items: center; }
+  .sec-out { position: relative; }
+  .sec-out .bypass-btn {
+    position: absolute; bottom: 7px; left: 50%; transform: translateX(-50%);
+    margin: 0;
+  }
 
   /* overlays */
   .mutation-flash {
@@ -431,12 +435,10 @@
     <div class="section-col sec-out">
       <div class="section-label">Output</div>
       <div class="out-knob-row">
-        <div class="out-col">
-          <div class="knob-wrap" id="knob_mix"></div>
-          <button class="toggle-btn bypass-btn" id="bypassBtn" style="margin-top:2px;">BYPASS</button>
-        </div>
+        <div class="knob-wrap" id="knob_mix"></div>
         <div class="knob-wrap" id="knob_output"></div>
       </div>
+      <button class="toggle-btn bypass-btn" id="bypassBtn">BYPASS</button>
     </div>
   </div>
 
