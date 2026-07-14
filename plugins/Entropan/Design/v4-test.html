@@ -1093,7 +1093,8 @@ function drawScope() {
 const quickMenu = document.getElementById("quickMenu");
 const qmRate = document.getElementById("qm_rate");
 const qmDepth = document.getElementById("qm_depth");
-let qmManual = null; // {x,y} once user drags it — stops auto-follow
+let qmOffset = null;     // user offset RELATIVE to the band anchor — menu keeps following the band
+let qmAnchor = { x: 0, y: 0 }; // last auto-computed anchor (band-driven), used to derive the offset
 (() => {
   const grip = document.getElementById("qmGrip");
   let drag = null;
@@ -1103,10 +1104,9 @@ let qmManual = null; // {x,y} once user drags it — stops auto-follow
   });
   window.addEventListener("mousemove", e => {
     if (!drag) return;
-    const wrap = spec.parentElement;
-    qmManual = {
-      x: clamp(e.clientX - drag[0], 0, wrap.clientWidth - 122),
-      y: clamp(e.clientY - drag[1], 0, wrap.clientHeight - 52)
+    qmOffset = {
+      dx: (e.clientX - drag[0]) - qmAnchor.x,
+      dy: (e.clientY - drag[1]) - qmAnchor.y
     };
   });
   window.addEventListener("mouseup", () => drag = null);
@@ -1121,18 +1121,18 @@ function updateQuickMenu() {
   if (!b.on) { quickMenu.classList.remove("visible"); return; }
   quickMenu.classList.add("visible");
   const rw = wrap.clientWidth, rh = wrap.clientHeight;
-  let mx, my;
-  if (qmManual) { // user placed it — respect that
-    mx = qmManual.x; my = qmManual.y;
-  } else {
-    const topH = 0.82;
-    const hx = fx(b.freq) * rw;
-    const py = (1 - (b.lift / 100) * topH * 0.5) * rh; // pan-trace row
-    const half = (b.widthOct / 2) / Math.log2(FMAX / FMIN) * rw;
-    mx = hx + half + 10; my = py - 24;
-    if (mx + 122 > rw) mx = hx - half - 130;   // flip left if clipping
-    mx = clamp(mx, 4, rw - 122);
-    my = clamp(my, 4, rh - 48);
+  const topH = 0.82;
+  const hx = fx(b.freq) * rw;
+  const py = (1 - (b.lift / 100) * topH * 0.5) * rh; // pan-trace row
+  const half = (b.widthOct / 2) / Math.log2(FMAX / FMIN) * rw;
+  let mx = hx + half + 10, my = py - 24;
+  if (mx + 122 > rw) mx = hx - half - 130;   // flip left if clipping
+  mx = clamp(mx, 4, rw - 122);
+  my = clamp(my, 4, rh - 48);
+  qmAnchor = { x: mx, y: my };               // band-driven anchor
+  if (qmOffset) {                             // user offset rides along with the band
+    mx = clamp(mx + qmOffset.dx, 0, rw - 122);
+    my = clamp(my + qmOffset.dy, 0, rh - 52);
   }
   quickMenu.style.left = mx + "px";
   quickMenu.style.top = my + "px";
