@@ -118,7 +118,7 @@ int main()
         std::printf ("    dL = %+.4f dB, dR = %+.4f dB\n", dL, dR);
     }
 
-    // ── T4: in-band sine, full static pan right → sine leaves L, gains +3 dB in R ──
+    // ── T4: in-band sine, mod pinned hard right (sine mode, phase 90°, slow) ──
     {
         EntropanAudioProcessor p;
         p.prepareToPlay (kSampleRate, kBlock);
@@ -128,6 +128,10 @@ int main()
         setParam (p, "b1_lift", 100.0f);
         setParam (p, "b1_depth", 100.0f);
         setParam (p, "amount", 100.0f);
+        setParam (p, "b1_ratemode", 1.0f);   // free
+        setParam (p, "b1_rate", 0.02f);      // ~glacial: sin stays near +1 for the test
+        setParam (p, "b1_phase", 90.0f);
+        setParam (p, "b1_inertia", 0.0f);
 
         juce::AudioBuffer<float> buf (2, kBlock);
         juce::MidiBuffer midi;
@@ -157,6 +161,57 @@ int main()
         // hard right: L keeps only filter skirts (≪ −6 dB), R ≈ +3 dB (×√2)
         ok &= check ("T4 in-band sine pans hard right", dL < -6.0 && dR > 2.0 && dR < 4.0);
         std::printf ("    dL = %+.2f dB, dR = %+.2f dB\n", dL, dR);
+    }
+
+    // ── T5: audio-rate sine mod (200 Hz) keeps total energy (equal-power law) ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        setParam (p, "b1_on", 1.0f);
+        setParam (p, "b1_freq", 1000.0f);
+        setParam (p, "b1_width", 2.0f);
+        setParam (p, "b1_lift", 100.0f);
+        setParam (p, "b1_depth", 100.0f);
+        setParam (p, "b1_ratemode", 1.0f);
+        setParam (p, "b1_rate", 200.0f);     // audio-rate panning
+        setParam (p, "b1_inertia", 0.0f);
+        double maxDiff = 0;
+        const auto r = run (p, maxDiff);
+        const double dTot = dB ((r.outL + r.outR) / (r.inL + r.inR));
+        ok &= check ("T5 audio-rate mod keeps energy (<0.3 dB)", std::abs (dTot) < 0.3);
+        std::printf ("    dTotal = %+.4f dB\n", dTot);
+    }
+
+    // ── T6: S&H stateless streams → two runs are bit-identical ──
+    {
+        auto render = [] (std::vector<float>& out)
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (kSampleRate, kBlock);
+            setParam (p, "b1_on", 1.0f);
+            setParam (p, "b1_mode", 2.0f);       // S&H
+            setParam (p, "b1_ratemode", 1.0f);
+            setParam (p, "b1_rate", 8.0f);
+            setParam (p, "b1_depth", 100.0f);
+            juce::Random rng (0xBEEF);
+            juce::AudioBuffer<float> buf (2, kBlock);
+            juce::MidiBuffer midi;
+            for (int blk = 0; blk < 60; ++blk)
+            {
+                for (int ch = 0; ch < 2; ++ch)
+                {
+                    auto* d = buf.getWritePointer (ch);
+                    for (int s2 = 0; s2 < kBlock; ++s2)
+                        d[s2] = rng.nextFloat() * 2.0f - 1.0f;
+                }
+                p.processBlock (buf, midi);
+                for (int s2 = 0; s2 < kBlock; ++s2)
+                    out.push_back (buf.getSample (0, s2));
+            }
+        };
+        std::vector<float> a, b;
+        render (a); render (b);
+        ok &= check ("T6 S&H runs are deterministic", a == b);
     }
 
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");

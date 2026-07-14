@@ -74,7 +74,6 @@ private:
 
         juce::SmoothedValue<float> lift;      // 0..1
         juce::SmoothedValue<float> gainLin;   // linear, from ±6 dB
-        juce::SmoothedValue<float> pan;       // -1..+1 (Phase 4.1: static target)
         juce::SmoothedValue<float> enable;    // 0..1 engage crossfade (~30 ms)
 
         void prepare (const juce::dsp::ProcessSpec& spec)
@@ -88,7 +87,6 @@ private:
             const double sr = spec.sampleRate;
             lift.reset    (sr, 0.005);
             gainLin.reset (sr, 0.005);
-            pan.reset     (sr, 0.005);
             enable.reset  (sr, 0.030);
         }
 
@@ -100,8 +98,23 @@ private:
 
     std::array<BandDSP, kNumBands> bands;
 
+    //==============================================================================
+    // Per-band modulation engine (Phase 4.2). Evaluated PER SAMPLE — free mode
+    // reaches audio rate with no control-grid artifacts. Random modes use
+    // stateless cell hashes → loop-safe, reproducible per seed, re-rollable.
+    struct Modulator
+    {
+        double phase   = 0.0;    // cycle position 0..1 (free/MIDI accumulate; sync derives from PPQ)
+        float  value   = 0.0f;   // post-slew output (-1..1)
+        double lx = 0.1, ly = 0.0, lz = 0.0;   // Lorenz state
+        float  slewCoeff = 0.0f; // per-sample one-pole coefficient (from inertia)
+        float  target  = 0.0f;
+    };
+    std::array<Modulator, kNumBands> mods;
+
     juce::SmoothedValue<float> outGainSm;    // linear
     juce::SmoothedValue<float> bypassSm;     // 0 = process, 1 = bypassed
+    juce::SmoothedValue<float> amountSm;     // 0..1 master depth
     juce::AudioBuffer<float> dryBuffer;
 
     // Cached raw parameter pointers (hot path — no string lookups per block)
@@ -113,13 +126,26 @@ private:
         std::atomic<float>* lift;
         std::atomic<float>* depth;
         std::atomic<float>* gain;
+        std::atomic<float>* mode;
+        std::atomic<float>* rate;
+        std::atomic<float>* ratemode;
+        std::atomic<float>* div;
+        std::atomic<float>* inertia;
+        std::atomic<float>* phase;
     };
     std::array<BandParams, kNumBands> bandParams {};
     std::atomic<float>* pAmount = nullptr;
     std::atomic<float>* pOutput = nullptr;
     std::atomic<float>* pBypass = nullptr;
+    std::atomic<float>* pSeed   = nullptr;
+    std::atomic<float>* pSpeed  = nullptr;
+
+    // MIDI rate mode: last note frequency (Hz); 0 = no note yet (frozen).
+    float midiFreq = 0.0f;
+    std::atomic<int> lastMidiNote { -1 };    // for UI telemetry
 
     std::atomic<bool> rerollFlag { false };
+    int rerollOffset = 0;                    // hashed into random streams on CHAOS
     double currentSampleRate = 44100.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EntropanAudioProcessor)

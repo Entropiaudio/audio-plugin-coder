@@ -20,6 +20,22 @@ namespace
     const juce::StringArray kSpeedChoices   { "/4", "/2", "x1", "x2", "x3", "x4" };
 
     constexpr float kBandFreqDefaults[] = { 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f };
+
+    constexpr float  kSpeedFactors[] = { 0.25f, 0.5f, 1.0f, 2.0f, 3.0f, 4.0f };
+    constexpr double kDivQuarters[]  = { 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0 };  // 1/16 … 4 bars (4/4)
+
+    // Stateless cell hash → uniform [-1, 1]. Matches the UI-sim character:
+    // loop-safe (pure function of cell), reproducible per seed, re-rollable.
+    inline float cellNoise (juce::int64 cell, int band, int seed, int reroll)
+    {
+        juce::uint64 h = (juce::uint64) cell * 0x9E3779B97F4A7C15ULL
+                       ^ (juce::uint64) (band + 1) * 0xC2B2AE3D27D4EB4FULL
+                       ^ (juce::uint64) (seed + reroll * 131) * 0x165667B19E3779F9ULL;
+        h ^= h >> 33; h *= 0xFF51AFD7ED558CCDULL; h ^= h >> 33;
+        return (float) ((double) (h >> 11) / (double) (1ULL << 53)) * 2.0f - 1.0f;
+    }
+
+    inline float smoothstep01 (float t) { return t * t * (3.0f - 2.0f * t); }
 }
 
 //==============================================================================
@@ -139,13 +155,19 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
 
     outGainSm.reset (sampleRate, 0.010);
     bypassSm.reset  (sampleRate, 0.030);
+    amountSm.reset  (sampleRate, 0.020);
 
     dryBuffer.setSize (2, samplesPerBlock);
+
+    for (auto& m : mods)
+        m = Modulator {};
 
     // Cache raw parameter pointers once (RT-safe reads afterwards).
     pAmount = apvts.getRawParameterValue ("amount");
     pOutput = apvts.getRawParameterValue ("output");
     pBypass = apvts.getRawParameterValue ("bypass");
+    pSeed   = apvts.getRawParameterValue ("seed");
+    pSpeed  = apvts.getRawParameterValue ("speed");
     for (int i = 0; i < kNumBands; ++i)
     {
         const juce::String p = "b" + juce::String (i + 1) + "_";
@@ -155,7 +177,13 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
             apvts.getRawParameterValue (p + "width"),
             apvts.getRawParameterValue (p + "lift"),
             apvts.getRawParameterValue (p + "depth"),
-            apvts.getRawParameterValue (p + "gain")
+            apvts.getRawParameterValue (p + "gain"),
+            apvts.getRawParameterValue (p + "mode"),
+            apvts.getRawParameterValue (p + "rate"),
+            apvts.getRawParameterValue (p + "ratemode"),
+            apvts.getRawParameterValue (p + "div"),
+            apvts.getRawParameterValue (p + "inertia"),
+            apvts.getRawParameterValue (p + "phase")
         };
     }
 }
@@ -171,7 +199,6 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                            juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
-    juce::ignoreUnused (midiMessages);   // consumed by MIDI rate mode in 4.2
 
     const int numSamples = buffer.getNumSamples();
     if (numSamples == 0)
@@ -182,8 +209,42 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     if (rerollFlag.exchange (false))
     {
-        // Modulator random-state re-deal happens here once engines exist (4.2).
+        ++rerollOffset;   // shifts every random stream (S&H / Drift)
+        for (int i = 0; i < kNumBands; ++i)   // kick the Lorenz attractors
+        {
+            auto& m = mods[(size_t) i];
+            m.lx = 0.1 + 0.2 * (double) cellNoise (rerollOffset, i, (int) pSeed->load(), 0);
+            m.ly = 0.0; m.lz = 0.0;
+        }
     }
+
+    // ── MIDI rate mode: track last note-on (mono, last-note priority) ──
+    for (const auto meta : midiMessages)
+    {
+        const auto msg = meta.getMessage();
+        if (msg.isNoteOn())
+        {
+            const int note = msg.getNoteNumber();
+            midiFreq = (float) juce::MidiMessage::getMidiNoteInHertz (note);
+            lastMidiNote.store (note);
+        }
+    }
+    midiMessages.clear();   // consumed, not passed through
+
+    // ── transport ──
+    double bpm = 120.0, ppq = 0.0;
+    bool hasPpq = false, playing = false;
+    if (auto* ph = getPlayHead())
+    {
+        if (const auto pos = ph->getPosition())
+        {
+            if (const auto t = pos->getBpm())         bpm = *t;
+            if (const auto q = pos->getPpqPosition()) { ppq = *q; hasPpq = true; }
+            playing = pos->getIsPlaying();
+        }
+    }
+    bpm = juce::jlimit (20.0, 999.0, bpm);
+    const double quartersPerSample = (bpm / 60.0) / currentSampleRate;
 
     // ── dry copy for the bypass crossfade ──
     dryBuffer.setSize (2, numSamples, false, false, true);
@@ -191,12 +252,27 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         dryBuffer.copyFrom (ch, 0, buffer, ch, 0, numSamples);
 
     // ── per-block parameter targets ──
-    const float amount = pAmount->load() * 0.01f;
+    const int   seedV    = (int) pSeed->load();
+    const float speedV   = kSpeedFactors[juce::jlimit (0, 5, (int) pSpeed->load())];
+    amountSm.setTargetValue (pAmount->load() * 0.01f);
+
+    struct BandBlock   // per-block modulator config, gathered outside the sample loop
+    {
+        int    mode = 0, rateMode = 0;
+        double cycPerSample = 0.0;    // free/MIDI: cycle increment per sample
+        double quartersPerCycle = 1.0;// sync: musical cycle length
+        float  phaseOff = 0.0f;
+        float  depth = 0.0f;
+        float  lorenzDt = 0.0f;
+    };
+    std::array<BandBlock, kNumBands> bb;
 
     for (int i = 0; i < kNumBands; ++i)
     {
         auto& b  = bands[(size_t) i];
+        auto& m  = mods[(size_t) i];
         auto& pp = bandParams[(size_t) i];
+        auto& cfg = bb[(size_t) i];
 
         const bool on = pp.on->load() > 0.5f;
         b.enable.setTargetValue (on ? 1.0f : 0.0f);
@@ -214,9 +290,35 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         b.lift.setTargetValue (pp.lift->load() * 0.01f);
         b.gainLin.setTargetValue (juce::Decibels::decibelsToGain (pp.gain->load()));
 
-        // Phase 4.1: STATIC pan target = depth · amount (verifies the whole
-        // pan path audibly). Modulators replace this in Phase 4.2.
-        b.pan.setTargetValue (juce::jlimit (-1.0f, 1.0f, (pp.depth->load() * 0.01f) * amount));
+        // ── modulator config ──
+        cfg.mode     = (int) pp.mode->load();
+        cfg.rateMode = (int) pp.ratemode->load();
+        cfg.phaseOff = pp.phase->load() / 360.0f;
+        cfg.depth    = pp.depth->load() * 0.01f;
+
+        double rateHz = 0.0;
+        if (cfg.rateMode == 0)        // sync
+        {
+            cfg.quartersPerCycle = kDivQuarters[juce::jlimit (0, 6, (int) pp.div->load())] / speedV;
+            rateHz = (bpm / 60.0) / cfg.quartersPerCycle;
+        }
+        else if (cfg.rateMode == 1)   // free (up to audio rate)
+        {
+            rateHz = (double) pp.rate->load() * speedV;
+        }
+        else                          // MIDI: last note frequency (0 = frozen)
+        {
+            rateHz = (double) midiFreq * speedV;
+        }
+        cfg.cycPerSample = rateHz / currentSampleRate;
+
+        // Lorenz integration step scales with rate; clamped for stability.
+        cfg.lorenzDt = (float) juce::jmin (0.02, cfg.cycPerSample * 1.2);
+
+        // Inertia → per-sample one-pole coefficient (4 ms … ~2 s exp map)
+        const float inertia = pp.inertia->load() * 0.01f;
+        const float slewT = 0.004f + std::pow (inertia, 2.2f) * 2.0f;
+        m.slewCoeff = 1.0f - std::exp (-1.0f / (slewT * (float) currentSampleRate));
     }
 
     outGainSm.setTargetValue (juce::Decibels::decibelsToGain (pOutput->load()));
@@ -229,18 +331,72 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     for (int s = 0; s < numSamples; ++s)
     {
         float xl = left[s], xr = right[s];
+        const float amountV = amountSm.getNextValue();
 
         for (int i = 0; i < kNumBands; ++i)
         {
-            auto& b = bands[(size_t) i];
+            auto& b   = bands[(size_t) i];
+            auto& m   = mods[(size_t) i];
+            auto& cfg = bb[(size_t) i];
 
             const float e      = b.enable.getNextValue();
             const float liftV  = b.lift.getNextValue();
             const float gainV  = b.gainLin.getNextValue();
-            const float panV   = b.pan.getNextValue();
 
             if (e < 1.0e-4f)
                 continue;   // fully disengaged: stage is a wire (filters stay cold)
+
+            // ── modulator tick (per sample) ──
+            if (cfg.rateMode == 0 && hasPpq && playing)
+            {
+                // Sync while rolling: phase is a pure function of song position
+                // → loop jumps and relocates land exactly on the grid.
+                const double q = ppq + (double) s * quartersPerSample;
+                m.phase = q / cfg.quartersPerCycle;
+            }
+            else
+            {
+                m.phase += cfg.cycPerSample;   // free-run (also sync w/ stopped transport)
+            }
+
+            const double cyc = m.phase + (double) cfg.phaseOff;
+            const double frac = cyc - std::floor (cyc);
+            const auto   cell = (juce::int64) std::floor (cfg.mode == 3 ? cyc : m.phase); // drift interpolates on offset cycle
+
+            switch (cfg.mode)
+            {
+                case 0: m.target = std::sin ((float) frac * juce::MathConstants<float>::twoPi); break;
+                case 1: m.target = 1.0f - 4.0f * std::abs ((float) frac - 0.5f); break;
+                case 2: // S&H: new deal each cycle boundary (phase-offset agnostic)
+                    m.target = cellNoise ((juce::int64) std::floor (m.phase), i, seedV, rerollOffset);
+                    break;
+                case 3: // Drift: value-noise between cell endpoints
+                {
+                    const float a = cellNoise (cell,     i, seedV, rerollOffset);
+                    const float c = cellNoise (cell + 1, i, seedV, rerollOffset);
+                    m.target = a + (c - a) * smoothstep01 ((float) frac);
+                    break;
+                }
+                case 4: // Chaos: Lorenz, x-component normalised
+                {
+                    const float dt = cfg.lorenzDt;
+                    const double nx = m.lx + 10.0 * (m.ly - m.lx) * dt;
+                    const double ny = m.ly + (m.lx * (28.0 - m.lz) - m.ly) * dt;
+                    const double nz = m.lz + (m.lx * m.ly - (8.0 / 3.0) * m.lz) * dt;
+                    m.lx = nx; m.ly = ny; m.lz = nz;
+                    if (! std::isfinite (m.lx)) { m.lx = 0.1; m.ly = 0.0; m.lz = 0.0; }
+                    m.target = juce::jlimit (-1.0f, 1.0f, (float) (m.lx / 18.0));
+                    break;
+                }
+                case 5: // Steps: engine lands in Phase 4.3 — hold centre
+                default:
+                    m.target = 0.0f;
+                    break;
+            }
+
+            // inertia slew, then depth · master amount
+            m.value += (m.target - m.value) * m.slewCoeff;
+            const float panV = juce::jlimit (-1.0f, 1.0f, m.value * cfg.depth * amountV);
 
             // 3-way split (processSample yields the complementary LP/HP pair)
             float lowL = 0, restL = 0, lowR = 0, restR = 0;
