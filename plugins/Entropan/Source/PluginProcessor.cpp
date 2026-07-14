@@ -608,6 +608,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             for (int i = 0; i < kNumBands; ++i)
                 scopeRing[(size_t) i][(size_t) (w & (kScopeRingSize - 1))] =
                     mods[(size_t) i].value * bands[(size_t) i].depth.getCurrentValue();
+            envScopeRing[(size_t) (w & (kScopeRingSize - 1))] = globalEnv;
             scopeWrite.store (w + 1, std::memory_order_release);
         }
 

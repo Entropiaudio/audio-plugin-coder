@@ -201,6 +201,7 @@ public:
     // Mod scope ring: every band sampled every 64 audio samples (~750 Hz).
     static constexpr int kScopeStride = 64, kScopeRingSize = 2048;
     std::array<std::array<float, kScopeRingSize>, kNumBands> scopeRing {};
+    std::array<float, kScopeRingSize> envScopeRing {};   // global envelope-follower output
     std::atomic<juce::uint32> scopeWrite { 0 };
 
 private:

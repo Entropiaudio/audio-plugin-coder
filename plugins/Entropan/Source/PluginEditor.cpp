@@ -223,9 +223,15 @@ void EntropanAudioProcessorEditor::timerCallback()
                         [(size_t) ((startIdx + (juce::uint32) k) & (EntropanAudioProcessor::kScopeRingSize - 1))]);
                 bandsArr.add (juce::var (vals));
             }
+            juce::Array<juce::var> envArr;
+            envArr.ensureStorageAllocated (n);
+            for (int k = 0; k < n; ++k)
+                envArr.add ((double) audioProcessor.envScopeRing
+                    [(size_t) ((startIdx + (juce::uint32) k) & (EntropanAudioProcessor::kScopeRingSize - 1))]);
             scopeReadPos = w;
             auto* so = new juce::DynamicObject();
             so->setProperty ("bands", bandsArr);
+            so->setProperty ("env", envArr);
             webView->emitEventIfBrowserIsVisible ("scopevals", juce::var (so));
         }
         else if (n < 0)   // shouldn't happen with unsigned deltas; resync anyway

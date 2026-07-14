@@ -434,7 +434,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B23</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B24</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -569,7 +569,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B23";
+const ENTROPAN_BUILD = "B24";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -1656,6 +1656,7 @@ qmDragRow(qmGain, n => { PB().gain.set(-6 + n * 12); });
 const scopeCanvas = document.getElementById("scopeCanvas");
 const SCOPE_N = 240;
 let scopeBuf = new Float32Array(SCOPE_N);
+let envBuf = new Float32Array(SCOPE_N);   // global envelope-follower shape (Env mode)
 let scopeHead = 0, scopeBand = 0;
 let lastModEvent = 0;
 
@@ -1666,9 +1667,10 @@ if (EMBEDDED) {
       const d = typeof data === "string" ? JSON.parse(data) : data;
       if (!d || !d.bands) return;
       lastScopeVals = performance.now();
-      const sel = d.bands[ui.selected] || [];
+      const sel = d.bands[ui.selected] || [], env = d.env || [];
       for (let k = 0; k < sel.length; k++) {
         scopeBuf[scopeHead] = (PB().on.get() ? sel[k] : 0) * (P.amount.get() / 100);
+        envBuf[scopeHead] = env[k] || 0;
         scopeHead = (scopeHead + 1) % SCOPE_N;
       }
     } catch {}
@@ -1690,9 +1692,11 @@ if (EMBEDDED) {
 }
 
 function pushScope() {
-  if (scopeBand !== ui.selected) { scopeBuf.fill(0); scopeBand = ui.selected; }
+  if (scopeBand !== ui.selected) { scopeBuf.fill(0); envBuf.fill(0); scopeBand = ui.selected; }
   if (EMBEDDED && performance.now() - lastScopeVals < 300) return; // real 750 Hz feed active
   scopeBuf[scopeHead] = PB().on.get() ? ui.bands[ui.selected].pan * (P.amount.get() / 100) : 0;
+  // preview-only fake envelope so the Env scope isn't dead in a plain browser
+  envBuf[scopeHead] = clamp(0.5 + 0.35 * Math.sin(simClock * 1.7) + 0.15 * Math.sin(simClock * 5.3), 0, 1);
   scopeHead = (scopeHead + 1) % SCOPE_N;
 }
 function drawScope() {
@@ -1703,11 +1707,40 @@ function drawScope() {
   const ctx = scopeCanvas.getContext("2d"), c = bandColor();
   const on = PB().on.get();
   ctx.clearRect(0, 0, W, H);
+  ctx.font = `${7.5 * DPR}px 'JetBrains Mono', ui-monospace, monospace`;
+
+  if (PB().mode.get() === 6) {
+    // ── ENVELOPE scope: 0 at bottom → 1 at top, filled ──
+    ctx.strokeStyle = "#26221F"; ctx.lineWidth = DPR;
+    [0.25, 0.5, 0.75].forEach(fy => { ctx.beginPath(); ctx.moveTo(0, fy * H); ctx.lineTo(W, fy * H); ctx.stroke(); });
+    ctx.fillStyle = "#403A32"; ctx.fillText("ENV", 3 * DPR, 10 * DPR);
+    ctx.beginPath(); ctx.moveTo(0, H);
+    for (let i = 0; i < SCOPE_N; i++) {
+      const v = clamp(envBuf[(scopeHead + i) % SCOPE_N], 0, 1);
+      ctx.lineTo(i / (SCOPE_N - 1) * W, H - v * (H * 0.92) - 2 * DPR);
+    }
+    ctx.lineTo(W, H); ctx.closePath();
+    ctx.fillStyle = c + (on ? "2e" : "12"); ctx.fill();
+    ctx.strokeStyle = c + (on ? "dd" : "55"); ctx.lineWidth = 1.5 * DPR;
+    ctx.beginPath();
+    for (let i = 0; i < SCOPE_N; i++) {
+      const v = clamp(envBuf[(scopeHead + i) % SCOPE_N], 0, 1);
+      const x = i / (SCOPE_N - 1) * W, y = H - v * (H * 0.92) - 2 * DPR;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+    const last = clamp(envBuf[(scopeHead + SCOPE_N - 1) % SCOPE_N], 0, 1);
+    ctx.beginPath(); ctx.arc(W - 3 * DPR, H - last * (H * 0.92) - 2 * DPR, 2.5 * DPR, 0, 7);
+    ctx.fillStyle = on ? "#fff" : "#88837a"; ctx.fill();
+    return;
+  }
+
+  // ── PAN scope: L (top) / centre / R (bottom) ──
   ctx.strokeStyle = "#3e3a35"; ctx.lineWidth = DPR;
   ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
   ctx.strokeStyle = "#26221F";
   [0.12, 0.88].forEach(fy => { ctx.beginPath(); ctx.moveTo(0, fy * H); ctx.lineTo(W, fy * H); ctx.stroke(); });
-  ctx.fillStyle = "#403A32"; ctx.font = `${7.5 * DPR}px 'JetBrains Mono', ui-monospace, monospace`;
+  ctx.fillStyle = "#403A32";
   ctx.fillText("L", 3 * DPR, 0.12 * H + 3 * DPR);
   ctx.fillText("R", 3 * DPR, 0.88 * H + 3 * DPR);
   ctx.strokeStyle = c + (on ? "dd" : "44"); ctx.lineWidth = 1.5 * DPR;
