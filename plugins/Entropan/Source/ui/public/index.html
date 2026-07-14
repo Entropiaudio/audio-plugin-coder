@@ -434,7 +434,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B24</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B25</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -499,7 +499,7 @@
             </div>
             <div class="hslider-row">
               <div class="hslider" id="hs_inertia"></div>
-              <div style="width:46px;"></div>
+              <button class="mode-toggle" id="polToggle" data-tip="Bipolar (L↔R) or Unipolar (centre→one side)">BI</button>
             </div>
             <div class="hslider-row">
               <div class="hslider" id="hs_phase"></div>
@@ -569,7 +569,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B24";
+const ENTROPAN_BUILD = "B25";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -615,7 +615,8 @@ function bandIds(i) { const p = `b${i + 1}_`; return {
   ratemode:{ id: p + "ratemode",kind: "combo",  def: 0 },
   div:     { id: p + "div",     kind: "combo",  def: 3 },
   inertia: { id: p + "inertia", kind: "slider", map: MAPS.lin(0, 100), def: 60 },
-  phase:   { id: p + "phase",   kind: "slider", map: MAPS.lin(0, 360), def: 0 }
+  phase:   { id: p + "phase",   kind: "slider", map: MAPS.lin(0, 360), def: 0 },
+  uni:     { id: p + "uni",     kind: "toggle", def: false }
 }; }
 const GLOBALS = {
   seed:   { id: "seed",   kind: "slider", map: MAPS.int(1, 128), def: 1 },
@@ -1036,6 +1037,7 @@ document.getElementById("bypassBtn").onclick = e => {
   P.bypass.set(!P.bypass.get());
   refreshPanels();
 };
+document.getElementById("polToggle").onclick = () => { PB().uni.set(!PB().uni.get()); refreshPanels(); };
 function rnd(a, b) { return a + Math.random() * (b - a); }
 document.getElementById("rerollBtn").onclick = () => {
   // randomize every option of each ENABLED band (freq/Q/lift/depth/gain +
@@ -1116,6 +1118,9 @@ function refreshPanels() {
   document.getElementById("sliderStack").style.display = mode === 5 ? "none" : "flex";
   document.getElementById("stepEditor").classList.toggle("visible", mode === 5);
   document.getElementById("stepCount").textContent = b.stepCount;
+  const pol = document.getElementById("polToggle");
+  pol.textContent = pb.uni.get() ? "UNI" : "BI";
+  pol.classList.toggle("active", pb.uni.get());
   const byp = document.getElementById("bypassBtn");
   byp.classList.toggle("active", P.bypass.get());
   document.getElementById("bypassDim").classList.toggle("on", P.bypass.get());
@@ -1451,7 +1456,7 @@ function drawSpectrum(t) {
 
     // pan trace + amount-scaled effective range
     const half = (widthV / 2) / Math.log2(FMAX / FMIN);
-    const cx = fx(freqV), pan = b.pan * (P.amount.get() / 100);
+    const cx = fx(freqV), pan = panVis(bi) * (P.amount.get() / 100);
     const px2 = clamp(cx + pan * half, 0, 1) * W;
     const py = H - (liftV / 100) * topH * 0.5;
     ctx.strokeStyle = c + "44"; ctx.lineWidth = DPR;
@@ -1691,10 +1696,11 @@ if (EMBEDDED) {
   });
 }
 
+const panVis = i => { const v = ui.bands[i].pan; return P.bands[i].uni.get() ? (v + 1) * 0.5 : v; };
 function pushScope() {
   if (scopeBand !== ui.selected) { scopeBuf.fill(0); envBuf.fill(0); scopeBand = ui.selected; }
   if (EMBEDDED && performance.now() - lastScopeVals < 300) return; // real 750 Hz feed active
-  scopeBuf[scopeHead] = PB().on.get() ? ui.bands[ui.selected].pan * (P.amount.get() / 100) : 0;
+  scopeBuf[scopeHead] = PB().on.get() ? panVis(ui.selected) * (P.amount.get() / 100) : 0;
   // preview-only fake envelope so the Env scope isn't dead in a plain browser
   envBuf[scopeHead] = clamp(0.5 + 0.35 * Math.sin(simClock * 1.7) + 0.15 * Math.sin(simClock * 5.3), 0, 1);
   scopeHead = (scopeHead + 1) % SCOPE_N;

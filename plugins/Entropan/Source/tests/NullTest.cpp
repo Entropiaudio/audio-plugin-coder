@@ -426,6 +426,28 @@ int main()
         std::printf ("    R/L energy ratio = %.2f\n", outRE / juce::jmax(1e-9, outLE));
     }
 
+    // ── T14: unipolar modulator biases the pan to one side (never crosses centre) ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        setParam (p, "b1_on", 1.0f);
+        setParam (p, "b1_freq", 1000.0f); setParam (p, "b1_width", 2.0f);
+        setParam (p, "b1_lift", 100.0f);  setParam (p, "b1_depth", 100.0f);
+        setParam (p, "b1_ratemode", 1.0f); setParam (p, "b1_rate", 0.5f);
+        setParam (p, "b1_inertia", 0.0f);  setParam (p, "b1_uni", 1.0f);   // unipolar
+        juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+        double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate;
+        double outLE = 0, outRE = 0;
+        for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk) {
+            for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+            p.processBlock (buf, midi);
+            if (blk < kWarmBlocks) continue;
+            for (int s = 0; s < kBlock; ++s) { outLE += juce::square((double)buf.getSample(0,s)); outRE += juce::square((double)buf.getSample(1,s)); }
+        }
+        ok &= check ("T14 unipolar biases pan to one side", outRE > outLE * 1.08);
+        std::printf ("    R/L energy = %.2f (bipolar would be ~1)\n", outRE / juce::jmax(1e-9, outLE));
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }

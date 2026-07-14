@@ -222,6 +222,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::crea
             juce::ParameterID { p + "phase", 1 }, label + "Phase",
             juce::NormalisableRange<float> (0.0f, 360.0f, 0.1f), 0.0f,
             juce::AudioParameterFloatAttributes().withLabel ("deg")));
+        params.push_back (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID { p + "uni", 1 }, label + "Unipolar", false));
     }
 
     return { params.begin(), params.end() };
@@ -287,7 +289,8 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
             apvts.getRawParameterValue (p + "ratemode"),
             apvts.getRawParameterValue (p + "div"),
             apvts.getRawParameterValue (p + "inertia"),
-            apvts.getRawParameterValue (p + "phase")
+            apvts.getRawParameterValue (p + "phase"),
+            apvts.getRawParameterValue (p + "uni")
         };
     }
 }
@@ -367,6 +370,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         double quartersPerCycle = 1.0;// sync: musical cycle length
         float  phaseOff = 0.0f;
         float  lorenzDt = 0.0f;
+        bool   uni = false;
     };
     std::array<BandBlock, kNumBands> bb;
 
@@ -402,6 +406,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         cfg.mode     = (int) pp.mode->load();
         cfg.rateMode = (int) pp.ratemode->load();
         cfg.phaseOff = pp.phase->load() / 360.0f;
+        cfg.uni      = pp.uni->load() > 0.5f;
         b.depth.setTargetValue (pp.depth->load() * 0.01f);
 
         double rateHz = 0.0;
@@ -607,7 +612,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const auto w = scopeWrite.load (std::memory_order_relaxed);
             for (int i = 0; i < kNumBands; ++i)
                 scopeRing[(size_t) i][(size_t) (w & (kScopeRingSize - 1))] =
-                    mods[(size_t) i].value * bands[(size_t) i].depth.getCurrentValue();
+                    mods[(size_t) i].panOut * bands[(size_t) i].depth.getCurrentValue();
             envScopeRing[(size_t) (w & (kScopeRingSize - 1))] = globalEnv;
             scopeWrite.store (w + 1, std::memory_order_release);
         }
@@ -643,7 +648,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // ── UI telemetry: post-slew mod × depth + cycle phase, once per block ──
     for (int i = 0; i < kNumBands; ++i)
     {
-        modOutDepth[(size_t) i].store (mods[(size_t) i].value * bands[(size_t) i].depth.getCurrentValue(),
+        modOutDepth[(size_t) i].store (mods[(size_t) i].panOut * bands[(size_t) i].depth.getCurrentValue(),
                                        std::memory_order_relaxed);
         const double cyc = mods[(size_t) i].phase + (double) bb[(size_t) i].phaseOff;
         modPhase[(size_t) i].store ((float) (cyc - std::floor (cyc)), std::memory_order_relaxed);

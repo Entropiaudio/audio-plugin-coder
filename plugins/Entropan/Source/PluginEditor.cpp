@@ -41,8 +41,11 @@ juce::StringArray EntropanAudioProcessorEditor::toggleParamIds()
 {
     juce::StringArray ids { "bypass", "env_rms" };
     for (int i = 1; i <= EntropanAudioProcessor::kNumBands; ++i)
+    {
         ids.add ("b" + juce::String (i) + "_on");
-    return ids;   // 2 + 6 = 8
+        ids.add ("b" + juce::String (i) + "_uni");
+    }
+    return ids;   // 2 + 6×2 = 14
 }
 
 //==============================================================================

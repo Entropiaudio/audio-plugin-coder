@@ -123,6 +123,7 @@ private:
         double lx = 0.1, ly = 0.0, lz = 0.0;   // Lorenz state
         float  slewCoeff = 0.0f; // per-sample one-pole coefficient (from inertia)
         float  target  = 0.0f;
+        float  panOut  = 0.0f;   // uni/bipolar-transformed output (for scope/telemetry)
     };
     std::array<Modulator, kNumBands> mods;
 
@@ -146,6 +147,7 @@ private:
         std::atomic<float>* div;
         std::atomic<float>* inertia;
         std::atomic<float>* phase;
+        std::atomic<float>* uni;
     };
     std::array<BandParams, kNumBands> bandParams {};
     std::atomic<float>* pAmount = nullptr;
