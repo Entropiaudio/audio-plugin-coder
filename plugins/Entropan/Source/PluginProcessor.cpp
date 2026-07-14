@@ -581,8 +581,13 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             // side (works for every mode, incl. Env). Bias offsets the resting
             // centre. panOut = the final pan, so scope/telemetry show it exactly.
             m.value += (m.target - m.value) * m.slewCoeff;
-            const float mv   = cfg.uni ? (m.value + 1.0f) * 0.5f : m.value;
-            const float panV = juce::jlimit (-1.0f, 1.0f, biasV + mv * depthV * amountV);
+            const float mv    = cfg.uni ? (m.value + 1.0f) * 0.5f : m.value;
+            // Limit bias to the headroom left by the swing so bias + full swing
+            // never crosses ±1 (no rail-clipping / flattened modulation).
+            const float reach   = juce::jlimit (0.0f, 1.0f, depthV * amountV);
+            const float biasMax = 1.0f - reach;
+            const float biasC   = juce::jlimit (-biasMax, biasMax, biasV);
+            const float panV = juce::jlimit (-1.0f, 1.0f, biasC + mv * depthV * amountV);
             m.panOut = panV;
 
             // 3-way split (processSample yields the complementary LP/HP pair)

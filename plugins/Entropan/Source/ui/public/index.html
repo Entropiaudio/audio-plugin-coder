@@ -434,7 +434,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B26</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B27</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -573,7 +573,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B26";
+const ENTROPAN_BUILD = "B27";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -1462,8 +1462,8 @@ function drawSpectrum(t) {
     // pan trace: full L/R rail, effective range centred on BIAS, live tick
     const half = (widthV / 2) / Math.log2(FMAX / FMIN);
     const cx = fx(freqV);
-    const biasN = pb.bias.get() / 100;                       // -1..1 rest position
     const reach = (pb.depth.get() / 100) * (P.amount.get() / 100);  // half-swing
+    const biasN = clamp(pb.bias.get() / 100, -(1 - reach), 1 - reach); // limited to headroom
     const finalPan = ui.bands[bi].pan;                        // final pan from telemetry/sim
     const px2 = clamp(cx + finalPan * half, 0, 1) * W;
     const py = H - (liftV / 100) * topH * 0.5;
@@ -1618,6 +1618,7 @@ function qmRefreshRow(row, norm, text, color) {
   row.querySelector(".qm-fill").style.background = `linear-gradient(90deg, ${color}55, ${color})`;
   row.querySelector(".qm-value").textContent = text;
 }
+const biasHeadroom = pb => Math.max(0, 1 - (pb.depth.get() / 100) * (P.amount.get() / 100)); // 0..1
 function updateQuickMenu() {
   const pb = PB(), wrap = spec.parentElement;
   if (!pb.on.get() || ui.menuHidden) { quickMenu.classList.remove("visible"); return; }
@@ -1647,8 +1648,10 @@ function updateQuickMenu() {
   qmRefreshRow(qmDepth, pb.depth.get() / 100, Math.round(pb.depth.get()) + "%", bandColor());
   const gv = pb.gain.get();
   qmRefreshRow(qmGain, (gv + 6) / 12, (gv >= 0 ? "+" : "") + gv.toFixed(1) + " dB", bandColor());
-  const bs = pb.bias.get();
-  qmRefreshRow(qmBias, (bs + 100) / 200, (bs > 0 ? "R" : bs < 0 ? "L" : "C") + " " + Math.abs(Math.round(bs)) + "%", bandColor());
+  const hr = biasHeadroom(pb), hrPct = hr * 100;
+  const bs = hrPct > 0 ? clamp(pb.bias.get(), -hrPct, hrPct) : 0;
+  const norm = hrPct > 0 ? (bs + hrPct) / (2 * hrPct) : 0.5;
+  qmRefreshRow(qmBias, norm, (bs > 0 ? "R" : bs < 0 ? "L" : "C") + " " + Math.abs(Math.round(bs)) + "%", bandColor());
 }
 function qmDragRow(row, apply) {
   let drag = false;
@@ -1668,7 +1671,7 @@ qmDragRow(qmRate, n => {
 });
 qmDragRow(qmDepth, n => { PB().depth.set(n * 100); knobDepth.refresh(); });
 qmDragRow(qmGain, n => { PB().gain.set(-6 + n * 12); });
-qmDragRow(qmBias, n => { PB().bias.set(-100 + n * 200); });
+qmDragRow(qmBias, n => { const hr = biasHeadroom(PB()) * 100; PB().bias.set(-hr + n * 2 * hr); });
 
 /* ════════════════════════════════════════════════════════════════════
    SCOPE + LOCAL MODULATOR SIM
