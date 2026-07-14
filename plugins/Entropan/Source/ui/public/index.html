@@ -438,7 +438,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B17</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B18</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -577,7 +577,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B17";
+const ENTROPAN_BUILD = "B18";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -694,6 +694,9 @@ const native = name => EMBEDDED ? Juce.getNativeFunction(name) : (async () => nu
 const rerollNative = native("reroll");
 const setStepsNative = native("setSteps");
 const getStepsNative = native("getSteps");
+const commitUndoNative = native("commitUndo");
+const undoNative = native("undo");
+const redoNative = native("redo");
 
 /* ════════════════════════════════════════════════════════════════════
    UI STATE (visual-only: selection, configured flags, step data mirror)
@@ -733,8 +736,9 @@ function pushSteps(i) {
     })).catch(() => {});
   }, 150);
 }
-/* pull steps on load */
-if (EMBEDDED) {
+/* pull step data from the processor (load + after undo/redo restore) */
+function reloadAllSteps() {
+  if (!EMBEDDED) return;
   for (let i = 0; i < 6; i++) {
     getStepsNative(i).then(json => {
       if (!json) return;
@@ -752,6 +756,45 @@ if (EMBEDDED) {
       } catch {}
     }).catch(() => {});
   }
+}
+reloadAllSteps();
+
+/* ── UNDO / REDO ──
+   The processor snapshots full APVTS state; we commit (debounced) after every
+   edit gesture. A no-op gesture is filtered host-side (compare vs lastCommitted),
+   so a plain window 'mouseup' is a safe universal commit trigger. */
+const undoBtn = document.getElementById("undoBtn");
+const redoBtn = document.getElementById("redoBtn");
+function setUndoButtons(st) {
+  if (!st) return;
+  undoBtn.disabled = !st.canUndo;
+  redoBtn.disabled = !st.canRedo;
+}
+let commitTimer = null;
+function scheduleCommit() {
+  if (!EMBEDDED) return;
+  clearTimeout(commitTimer);
+  commitTimer = setTimeout(() => {
+    commitUndoNative().then(setUndoButtons).catch(() => {});
+  }, 160);   // let param round-trips settle before snapshotting
+}
+window.addEventListener("mouseup", scheduleCommit);
+undoBtn.addEventListener("click", () => { if (EMBEDDED && !undoBtn.disabled) undoNative().then(setUndoButtons).catch(() => {}); });
+redoBtn.addEventListener("click", () => { if (EMBEDDED && !redoBtn.disabled) redoNative().then(setUndoButtons).catch(() => {}); });
+window.addEventListener("keydown", e => {
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    if (e.shiftKey) redoBtn.click(); else undoBtn.click();
+  }
+});
+if (EMBEDDED) {
+  window.__JUCE__.backend.addEventListener("stateReloaded", () => {
+    // params already updated via attachments — resync UI-local state + steps
+    for (let i = 0; i < 6; i++) if (P.bands[i].on.get()) ui.bands[i].configured = true;
+    reloadAllSteps();
+    refreshPanels();
+  });
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -974,7 +1017,26 @@ document.getElementById("bypassBtn").onclick = e => {
   P.bypass.set(!P.bypass.get());
   refreshPanels();
 };
+function rnd(a, b) { return a + Math.random() * (b - a); }
 document.getElementById("rerollBtn").onclick = () => {
+  // randomize every option of each ENABLED band (freq/Q/lift/depth/gain +
+  // full modulation engine). Bands stay on; undo restores in one step.
+  for (let i = 0; i < 6; i++) {
+    const pb = P.bands[i];
+    if (!pb.on.get()) continue;
+    pb.freq.set(80 * Math.pow(12000 / 80, Math.random()));   // log-uniform
+    pb.width.set(rnd(0.3, 3.0));
+    pb.lift.set(rnd(55, 100));
+    pb.depth.set(rnd(30, 100));
+    pb.gain.set(rnd(-3, 3));
+    pb.mode.set(Math.floor(Math.random() * 6));
+    pb.ratemode.set(Math.random() < 0.75 ? 0 : 1);           // mostly synced
+    pb.div.set(Math.floor(Math.random() * 7));
+    pb.rate.set(rnd(0.1, 8));
+    pb.inertia.set(rnd(0, 100));
+    pb.phase.set(rnd(0, 360));
+  }
+  // re-deal internal random states (S&H/Drift/Chaos) too
   ui.bands.forEach(b => {
     b.driftA = Math.random() * 100;
     b.target = Math.random() * 2 - 1;
@@ -982,6 +1044,8 @@ document.getElementById("rerollBtn").onclick = () => {
     b.lastDeal = -1;
   });
   rerollNative().catch(() => {});
+  schedulePanels();
+  scheduleCommit();
   const f = document.getElementById("mutationFlash");
   f.classList.add("fire");
   setTimeout(() => f.classList.remove("fire"), 60);

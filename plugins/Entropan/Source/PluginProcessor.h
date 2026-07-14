@@ -60,6 +60,15 @@ public:
     // Re-roll (CHAOS button): re-deal random modulator states at next tick.
     void requestReroll() { rerollFlag.store (true); }
 
+    // ── Undo / redo (message-thread only) ──
+    // Full APVTS-state snapshots (params + step JSON). The editor commits a
+    // snapshot after each edit gesture (compare-and-push against lastCommitted).
+    void commitUndoIfChanged();
+    bool undoState();
+    bool redoState();
+    bool canUndo() const { return ! undoStack.empty(); }
+    bool canRedo() const { return ! redoStack.empty(); }
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
@@ -151,6 +160,10 @@ private:
     std::atomic<bool> rerollFlag { false };
     int rerollOffset = 0;                    // hashed into random streams on CHAOS
     double currentSampleRate = 44100.0;
+
+    std::vector<juce::ValueTree> undoStack, redoStack;
+    juce::ValueTree lastCommitted;
+    static constexpr int kUndoDepth = 128;
 
 public:
     //==============================================================================

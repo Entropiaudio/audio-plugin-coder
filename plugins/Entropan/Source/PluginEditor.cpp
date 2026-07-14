@@ -1,6 +1,17 @@
 #include "PluginEditor.h"
 #include "BinaryData.h"
 
+namespace
+{
+    juce::var makeUndoState (bool canUndo, bool canRedo)
+    {
+        auto* o = new juce::DynamicObject();
+        o->setProperty ("canUndo", canUndo);
+        o->setProperty ("canRedo", canRedo);
+        return juce::var (o);
+    }
+}
+
 //==============================================================================
 juce::StringArray EntropanAudioProcessorEditor::sliderParamIds()
 {
@@ -90,6 +101,28 @@ EntropanAudioProcessorEditor::EntropanAudioProcessorEditor (EntropanAudioProcess
                     });
                 }
                 complete (true);
+            })
+        .withNativeFunction ("commitUndo",
+            [this] (const juce::Array<juce::var>&, auto complete)
+            {
+                audioProcessor.commitUndoIfChanged();
+                complete (makeUndoState (audioProcessor.canUndo(), audioProcessor.canRedo()));
+            })
+        .withNativeFunction ("undo",
+            [this] (const juce::Array<juce::var>&, auto complete)
+            {
+                const bool ok = audioProcessor.undoState();
+                if (ok && webView != nullptr)
+                    webView->emitEventIfBrowserIsVisible ("stateReloaded", juce::var());
+                complete (makeUndoState (audioProcessor.canUndo(), audioProcessor.canRedo()));
+            })
+        .withNativeFunction ("redo",
+            [this] (const juce::Array<juce::var>&, auto complete)
+            {
+                const bool ok = audioProcessor.redoState();
+                if (ok && webView != nullptr)
+                    webView->emitEventIfBrowserIsVisible ("stateReloaded", juce::var());
+                complete (makeUndoState (audioProcessor.canUndo(), audioProcessor.canRedo()));
             });
 
     for (auto& r : sliderRelays)  options = options.withOptionsFrom (*r);

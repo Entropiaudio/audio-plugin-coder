@@ -337,6 +337,34 @@ int main()
         std::printf ("    %.2f%% of realtime (%.1f ms for 10 s)\n", rtPct, secs * 1000.0);
     }
 
+    // ── T10: undo / redo restores full state (params + steps) ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        auto depth = [&] { return p.apvts.getParameter ("b1_depth")->getValue(); };
+
+        setParam (p, "b1_on", 1.0f);
+        setParam (p, "b1_depth", 50.0f);
+        p.commitUndoIfChanged();                 // baseline: depth 50
+        const float d50 = depth();
+
+        setParam (p, "b1_depth", 90.0f);
+        p.commitUndoIfChanged();                 // edit: depth 90
+        const float d90 = depth();
+
+        const bool u1 = p.undoState();           // → back to 50
+        const float afterUndo = depth();
+        const bool r1 = p.redoState();           // → forward to 90
+        const float afterRedo = depth();
+
+        const bool pass = u1 && r1
+            && std::abs (afterUndo - d50) < 1.0e-4f
+            && std::abs (afterRedo - d90) < 1.0e-4f
+            && p.canUndo();                       // 50-checkpoint still available
+        ok &= check ("T10 undo/redo restores state", pass);
+        std::printf ("    d50=%.3f d90=%.3f undo=%.3f redo=%.3f\n", d50, d90, afterUndo, afterRedo);
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }

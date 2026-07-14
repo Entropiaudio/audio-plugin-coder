@@ -67,6 +67,52 @@ EntropanAudioProcessor::EntropanAudioProcessor()
             parseStepsSnapshot (i);
         }
     }
+
+    lastCommitted = apvts.copyState();   // undo baseline
+}
+
+//==============================================================================
+void EntropanAudioProcessor::commitUndoIfChanged()
+{
+    auto cur = apvts.copyState();
+    if (lastCommitted.isValid() && cur.isEquivalentTo (lastCommitted))
+        return;   // nothing changed since the last commit — no phantom entry
+    if (lastCommitted.isValid())
+    {
+        undoStack.push_back (lastCommitted);
+        if ((int) undoStack.size() > kUndoDepth)
+            undoStack.erase (undoStack.begin());
+    }
+    lastCommitted = cur;
+    redoStack.clear();
+}
+
+bool EntropanAudioProcessor::undoState()
+{
+    if (undoStack.empty())
+        return false;
+    redoStack.push_back (apvts.copyState());
+    auto snap = undoStack.back();
+    undoStack.pop_back();
+    apvts.replaceState (snap);
+    lastCommitted = apvts.copyState();
+    for (int i = 0; i < kNumBands; ++i)
+        parseStepsSnapshot (i);
+    return true;
+}
+
+bool EntropanAudioProcessor::redoState()
+{
+    if (redoStack.empty())
+        return false;
+    undoStack.push_back (apvts.copyState());
+    auto snap = redoStack.back();
+    redoStack.pop_back();
+    apvts.replaceState (snap);
+    lastCommitted = apvts.copyState();
+    for (int i = 0; i < kNumBands; ++i)
+        parseStepsSnapshot (i);
+    return true;
 }
 
 //==============================================================================
