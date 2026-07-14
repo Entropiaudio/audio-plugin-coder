@@ -70,12 +70,14 @@
 
   /* Fixed 900×560 design space; JS scales the shell uniformly to the window
      (Chaosverb currentScale pattern). Aspect is host-locked via constrainer. */
+  body { display: flex; align-items: center; justify-content: center; }
   .plugin-shell {
     width: 900px; height: 560px;
     display: flex; flex-direction: column;
     background: var(--bg-shell);
-    position: absolute; top: 0; left: 0;
-    transform-origin: top left;
+    position: relative;
+    /* scaled via CSS zoom (kit pattern) — reflows layout, so canvases size
+       to the real on-screen pixels and stay DPI-sharp at every scale */
   }
 
   /* ─── HEADER ─── */
@@ -351,6 +353,60 @@
   }
   .bypass-dim.on { opacity: 1; }
 
+  /* ─── SETTINGS POPOVER (Chaosverb feature set) ─── */
+  .settings-popover {
+    position: absolute; bottom: 30px; right: 10px; z-index: 20;
+    width: 190px; padding: 10px 12px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-bright); border-radius: 8px;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.5);
+    display: none;
+  }
+  .settings-popover.open { display: block; }
+  .settings-popover h3 {
+    margin: 0 0 8px 0; font-size: 9px; font-weight: 400;
+    letter-spacing: 2px; text-transform: uppercase; color: var(--accent);
+  }
+  .settings-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 0; border-bottom: 1px solid var(--border-divider);
+  }
+  .settings-row:last-child { border-bottom: none; }
+  .settings-row-label { font-size: 8.5px; letter-spacing: 1px; color: var(--text-secondary); }
+  .settings-row-value { font-size: 8.5px; color: var(--text-secondary); min-width: 30px; text-align: center; }
+  .settings-toggle {
+    width: 26px; height: 14px; border-radius: 7px; cursor: pointer;
+    background: var(--bg-shell); border: 1px solid var(--border-subtle);
+    position: relative; padding: 0;
+  }
+  .settings-toggle::after {
+    content: ""; position: absolute; top: 1.5px; left: 2px;
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--text-dim);
+    transition: left var(--t-fast) var(--ease-editorial), background var(--t-fast);
+  }
+  .settings-toggle.on { border-color: var(--accent); }
+  .settings-toggle.on::after { left: 13px; background: var(--accent); }
+  .settings-preset-btn, .settings-mini-btn {
+    font-family: inherit; font-size: 8px; letter-spacing: 0.5px;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 6px;
+    padding: 2px 7px; cursor: pointer;
+  }
+  .settings-preset-btn:hover, .settings-mini-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .settings-size-row { display: flex; gap: 4px; padding: 6px 0; border-bottom: 1px solid var(--border-divider); }
+
+  /* floating tooltip — native title doesn't render inside WKWebView */
+  .ui-tooltip {
+    position: fixed; z-index: 50; pointer-events: none;
+    background: var(--bg-card); border: 1px solid var(--border-bright);
+    color: var(--text-primary); border-radius: 6px;
+    font-size: 8.5px; letter-spacing: 0.4px; padding: 4px 8px;
+    max-width: 200px; opacity: 0;
+    transition: opacity var(--t-fast) var(--ease-editorial);
+  }
+  .ui-tooltip.visible { opacity: 1; }
+
   .resize-grip {
     position: absolute; bottom: 2px; right: 2px; z-index: 6;
     width: 14px; height: 14px; cursor: nwse-resize;
@@ -363,10 +419,10 @@
       linear-gradient(135deg, transparent 0 55%, var(--text-dim) 55% 60%, transparent 60% 75%, var(--text-dim) 75% 80%, transparent 80%);
   }
   .settings-btn {
-    position: absolute; bottom: 8px; right: 30px; z-index: 5;
-    width: 20px; height: 20px; padding: 2px;
+    position: absolute; bottom: 5px; right: 22px; z-index: 21;
+    width: 16px; height: 16px; padding: 1px;
     background: transparent; border: none; cursor: pointer;
-    color: var(--text-faint);
+    color: var(--text-dim);
   }
   .settings-btn:hover { color: var(--text-secondary); }
   .settings-btn svg { width: 100%; height: 100%; }
@@ -482,8 +538,32 @@
     </div>
   </div>
 
+  <div class="settings-popover" id="settingsPopover">
+    <h3>Settings</h3>
+    <div class="settings-row">
+      <span class="settings-row-label">Tooltips</span>
+      <button class="settings-toggle" id="tooltipsToggle"></button>
+    </div>
+    <div>
+      <div class="settings-row-label" style="padding-top:6px;">Window Size</div>
+      <div class="settings-size-row">
+        <button class="settings-preset-btn" data-w="720"  data-h="448">SM</button>
+        <button class="settings-preset-btn" data-w="900"  data-h="560">MD</button>
+        <button class="settings-preset-btn" data-w="1200" data-h="747">LG</button>
+        <button class="settings-preset-btn" data-w="1500" data-h="933">XL</button>
+      </div>
+    </div>
+    <div class="settings-row">
+      <span class="settings-row-label">Brightness</span>
+      <div style="display:flex; align-items:center; gap:5px;">
+        <button class="settings-mini-btn" id="brightnessDown">−</button>
+        <span class="settings-row-value" id="brightnessValue">100%</span>
+        <button class="settings-mini-btn" id="brightnessUp">+</button>
+      </div>
+    </div>
+  </div>
   <div class="resize-grip" id="resizeGrip" title="Drag to resize"></div>
-  <button class="settings-btn" title="Settings">
+  <button class="settings-btn" id="settingsBtn" title="Settings">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
   </button>
 </div>
@@ -822,7 +902,7 @@ const knobOut = makeKnob("knob_output", "LEVEL", {
   color: "#c8c8d0", def: (0 + 24) / 36,
   get: () => (P.output.get() + 24) / 36,
   set: n => P.output.set(-24 + n * 36),
-  fmt: () => P.output.get().toFixed(1) + " dB"
+  fmt: () => { const v = P.output.get(); return (Math.abs(v) < 0.05 ? 0 : v).toFixed(1) + " dB"; }
 });
 
 const hsRate = makeHSlider("hs_rate", "RATE", {
@@ -1108,23 +1188,40 @@ function bellY(i, x) {
 const auraCanvas = document.createElement("canvas");
 const auraCtx = auraCanvas.getContext("2d");
 
+/* per-band aura cache: the blur filter is expensive — re-render only when the
+   bell/gain actually changes, then stamp the cached bitmap each frame */
+const auraCache = Array.from({ length: 6 }, () => ({ key: "", canvas: document.createElement("canvas") }));
+
+/* static grid cache (redrawn on resize only) */
+let gridCache = null;
+function drawGridCached(ctx, W, H) {
+  if (!gridCache || gridCache.width !== W || gridCache.height !== H) {
+    gridCache = document.createElement("canvas");
+    gridCache.width = W; gridCache.height = H;
+    const g = gridCache.getContext("2d");
+    g.strokeStyle = "#26221F"; g.lineWidth = DPR;
+    g.fillStyle = "#403A32"; g.font = `${9 * DPR}px 'JetBrains Mono', ui-monospace, monospace`;
+    [50, 100, 200, 500, 1000, 2000, 5000, 10000].forEach(f => {
+      const x = fx(f) * W;
+      g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke();
+      g.fillText(f >= 1000 ? (f / 1000) + "k" : String(f), x + 3 * DPR, H - 5 * DPR);
+    });
+    for (let db = -48; db < 0; db += 12) {
+      const y = (db / -60) * H;
+      g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke();
+      g.fillText(String(db), W - 22 * DPR, y - 3 * DPR);
+    }
+  }
+  ctx.drawImage(gridCache, 0, 0);
+}
+
 function drawSpectrum(t) {
   const ctx = spec.getContext("2d"), W = spec.width, H = spec.height;
   ctx.clearRect(0, 0, W, H);
 
-  // grid
-  ctx.strokeStyle = "#26221F"; ctx.lineWidth = DPR;
-  ctx.fillStyle = "#403A32"; ctx.font = `${9 * DPR}px 'JetBrains Mono', ui-monospace, monospace`;
-  [50, 100, 200, 500, 1000, 2000, 5000, 10000].forEach(f => {
-    const x = fx(f) * W;
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
-    ctx.fillText(f >= 1000 ? (f / 1000) + "k" : String(f), x + 3 * DPR, H - 5 * DPR);
-  });
-  for (let db = -48; db < 0; db += 12) {
-    const y = (db / -60) * H;
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-    ctx.fillText(String(db), W - 22 * DPR, y - 3 * DPR);
-  }
+  // grid (cached bitmap)
+  drawGridCached(ctx, W, H);
+  ctx.font = `${9 * DPR}px 'JetBrains Mono', ui-monospace, monospace`;
 
   // analyzer fill
   ctx.beginPath(); ctx.moveTo(0, H);
@@ -1153,12 +1250,13 @@ function drawSpectrum(t) {
       ctx.lineTo(px, H - bellY(bi, px / W) * topH);
     }
     ctx.lineTo(W, H); ctx.closePath();
-    ctx.fillStyle = c + (ghost ? "0f" : "2e"); ctx.fill();
-    ctx.strokeStyle = c + (ghost ? (sel ? "66" : "45") : (sel ? "ee" : "99"));
+    // bypassed band: same shape, just drained of energy — dimmer fill/stroke,
+    // no dash, no glow
+    ctx.fillStyle = c + (ghost ? "14" : "2e"); ctx.fill();
+    ctx.strokeStyle = c + (ghost ? (sel ? "5a" : "3c") : (sel ? "ee" : "99"));
     ctx.lineWidth = (sel ? 2 : 1.4) * DPR;
     if (sel && !ghost) { ctx.shadowColor = c; ctx.shadowBlur = 8 * DPR; }
-    if (ghost) ctx.setLineDash([5 * DPR, 4 * DPR]);
-    ctx.stroke(); ctx.shadowBlur = 0; ctx.setLineDash([]);
+    ctx.stroke(); ctx.shadowBlur = 0;
 
     // apex handle
     const liftV = pb.lift.get(), freqV = pb.freq.get(), widthV = pb.width.get();
@@ -1168,37 +1266,41 @@ function drawSpectrum(t) {
     ctx.beginPath(); ctx.arc(hx, hy, 2 * DPR, 0, 7);
     ctx.fillStyle = ghost ? "#88837a" : "#fff"; ctx.fill();
 
-    // gain aura — blur a filled bell, punch out the interior
+    // gain aura — expensive blur render is CACHED per band; re-rendered only
+    // when bell geometry or gain changes, stamped as a bitmap every frame
     const gainV = pb.gain.get();
     if (Math.abs(gainV) > 0.05 && !ghost) {
       const boost = gainV > 0;
       const amt = Math.abs(gainV) / 6;
       const blur = (5 + amt * 22) * DPR;
-      if (auraCanvas.width !== W || auraCanvas.height !== H) {
-        auraCanvas.width = W; auraCanvas.height = H;
+      const cache = auraCache[bi];
+      const key = [W, H, gainV.toFixed(2), freqV.toFixed(1), widthV.toFixed(3), liftV.toFixed(1)].join("|");
+      if (cache.key !== key) {
+        cache.key = key;
+        cache.canvas.width = W; cache.canvas.height = H;
+        const a = cache.canvas.getContext("2d");
+        a.clearRect(0, 0, W, H);
+        const tracePath = close => {
+          a.beginPath();
+          a.moveTo(0, close === "down" ? H : 0);
+          a.lineTo(0, H - bellY(bi, 0) * topH);
+          for (let px = 0; px <= W; px += 2 * DPR)
+            a.lineTo(px, H - bellY(bi, px / W) * topH);
+          a.lineTo(W, close === "down" ? H : 0);
+          a.closePath();
+        };
+        a.filter = `blur(${blur / DPR}px)`;
+        a.fillStyle = c;
+        tracePath(boost ? "down" : "up");
+        a.fill(); a.fill();
+        a.filter = "none";
+        a.globalCompositeOperation = "destination-out";
+        tracePath(boost ? "down" : "up");
+        a.fill(); a.fill(); a.fill();
+        a.globalCompositeOperation = "source-over";
       }
-      const a = auraCtx;
-      a.clearRect(0, 0, W, H);
-      const tracePath = close => {
-        a.beginPath();
-        a.moveTo(0, close === "down" ? H : 0);
-        a.lineTo(0, H - bellY(bi, 0) * topH);
-        for (let px = 0; px <= W; px += 2 * DPR)
-          a.lineTo(px, H - bellY(bi, px / W) * topH);
-        a.lineTo(W, close === "down" ? H : 0);
-        a.closePath();
-      };
-      a.filter = `blur(${blur / DPR}px)`;
-      a.fillStyle = c;
-      tracePath(boost ? "down" : "up");
-      a.fill(); a.fill();
-      a.filter = "none";
-      a.globalCompositeOperation = "destination-out";
-      tracePath(boost ? "down" : "up");
-      a.fill(); a.fill(); a.fill();
-      a.globalCompositeOperation = "source-over";
       ctx.globalAlpha = 0.55 + 0.45 * amt;
-      ctx.drawImage(auraCanvas, 0, 0);
+      ctx.drawImage(cache.canvas, 0, 0);
       ctx.globalAlpha = 1;
       if (sel) {
         ctx.fillStyle = c + "cc";
@@ -1516,17 +1618,23 @@ function tickMods(dt) {
 /* ════════════════════════════════════════════════════════════════════
    MAIN LOOP
    ════════════════════════════════════════════════════════════════════ */
-function loop() {
+let lastFrame = 0, loopCalls = 0, loopErr = null;
+function loop(ts) {
+  loopCalls++;
+  requestAnimationFrame(loop);
+  if (ts - lastFrame < 30) return;      // ~33 fps cap — WKWebView-friendly
+  lastFrame = ts;
   const now = performance.now(), dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now; simClock += dt;
   tickAnalyzer(simClock);
   tickMods(dt);
   pushScope();
-  drawSpectrum(simClock);
-  drawScope();
-  updateQuickMenu();
-  if (PB().mode.get() === 5) drawSteps();
-  requestAnimationFrame(loop);
+  try {
+    drawSpectrum(simClock);
+    drawScope();
+    updateQuickMenu();
+    if (PB().mode.get() === 5) drawSteps();
+  } catch (e) { loopErr = e.message + " | " + (e.stack || "").split("\n")[1]; }
 }
 
 /* shell zoom: scale the fixed 900×560 layout to fill the window */
@@ -1536,17 +1644,96 @@ function fitShell() {
   // (window.innerWidth can be stale in some embedded contexts).
   const vw = document.documentElement.clientWidth;
   const vh = document.documentElement.clientHeight;
-  const scale = Math.min(vw / 900, vh / 560);
-  shellEl.style.transform = `scale(${scale})`;
-  shellEl.style.left = Math.max(0, (vw - 900 * scale) / 2) + "px";
-  shellEl.style.top  = Math.max(0, (vh - 560 * scale) / 2) + "px";
+  const scale = (vw > 0 && vh > 0) ? Math.min(vw / 900, vh / 560) : 1;  // pre-layout guard
+  shellEl.style.zoom = scale;          // kit pattern: crisp canvases, no bitmap upscale
   sizeSpectrum();
+  gridCache = null;                     // grid depends on canvas size
 }
+window.addEventListener("load", fitShell);
+requestAnimationFrame(fitShell);        // re-fit once real layout metrics exist
 window.addEventListener("resize", fitShell);
 
 fitShell();
 refreshPanels();
-requestAnimationFrame(loop);
+
+/* Robust animation kick: some embedded WebViews drop rAF callbacks queued
+   during module evaluation — arm from a macrotask and from the load event,
+   idempotently. */
+let loopStarted = false;
+function kickLoop() {
+  if (loopStarted) return;
+  loopStarted = true;
+  lastT = performance.now();
+  requestAnimationFrame(loop);
+}
+setTimeout(kickLoop, 0);
+window.addEventListener("load", kickLoop);
+
+/* ── SETTINGS (Chaosverb set: tooltips, window size presets, brightness) ── */
+const settingsPopover = document.getElementById("settingsPopover");
+document.getElementById("settingsBtn").addEventListener("click", e => {
+  settingsPopover.classList.toggle("open");
+  e.stopPropagation();
+});
+document.addEventListener("mousedown", e => {
+  if (settingsPopover.classList.contains("open")
+      && !settingsPopover.contains(e.target)
+      && e.target.id !== "settingsBtn")
+    settingsPopover.classList.remove("open");
+});
+
+const settings = (() => {
+  try { return JSON.parse(localStorage.getItem("entropanSettings") || "{}"); } catch { return {}; }
+})();
+function saveSettings() { try { localStorage.setItem("entropanSettings", JSON.stringify(settings)); } catch {} }
+
+/* brightness */
+let brightness = clamp(settings.brightness ?? 100, 70, 130);
+const brightnessValue = document.getElementById("brightnessValue");
+function applyBrightness() {
+  shellEl.style.filter = brightness === 100 ? "" : `brightness(${brightness}%)`;
+  brightnessValue.textContent = brightness + "%";
+  settings.brightness = brightness; saveSettings();
+}
+document.getElementById("brightnessUp").addEventListener("click", () => { brightness = clamp(brightness + 5, 70, 130); applyBrightness(); });
+document.getElementById("brightnessDown").addEventListener("click", () => { brightness = clamp(brightness - 5, 70, 130); applyBrightness(); });
+applyBrightness();
+
+/* window size presets → native editor resize */
+document.querySelectorAll(".settings-preset-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    if (EMBEDDED) setEditorSizeNative(parseInt(btn.dataset.w), parseInt(btn.dataset.h)).catch(() => {});
+  });
+});
+
+/* tooltips: custom floating div (WKWebView doesn't render native title) */
+let tooltipsEnabled = settings.tooltips !== false;
+const tooltipsToggle = document.getElementById("tooltipsToggle");
+function applyTooltipsToggle() {
+  tooltipsToggle.classList.toggle("on", tooltipsEnabled);
+  settings.tooltips = tooltipsEnabled; saveSettings();
+}
+tooltipsToggle.addEventListener("click", () => { tooltipsEnabled = !tooltipsEnabled; applyTooltipsToggle(); });
+applyTooltipsToggle();
+
+const tipEl = document.createElement("div");
+tipEl.className = "ui-tooltip";
+document.body.appendChild(tipEl);
+/* move titles to data-tip once (kills the broken native path) */
+document.querySelectorAll("[title]").forEach(el => {
+  el.dataset.tip = el.getAttribute("title");
+  el.removeAttribute("title");
+});
+document.addEventListener("mouseover", e => {
+  const t = e.target.closest("[data-tip]");
+  if (!t || !tooltipsEnabled) { tipEl.classList.remove("visible"); return; }
+  tipEl.textContent = t.dataset.tip;
+  const r = t.getBoundingClientRect();
+  tipEl.style.left = Math.min(Math.max(4, r.left + r.width / 2 - 60), document.documentElement.clientWidth - 130) + "px";
+  tipEl.style.top = Math.max(4, r.top - 26) + "px";
+  tipEl.classList.add("visible");
+});
+document.addEventListener("mouseout", () => tipEl.classList.remove("visible"));
 
 /* ── corner resize grip → native setEditorSize (AU hosts lack edge resize) ── */
 const setEditorSizeNative = native("setEditorSize");
@@ -1570,7 +1757,7 @@ const setEditorSizeNative = native("setEditorSize");
 })();
 
 /* debug/testing handle (module scope is otherwise sealed) */
-window.__entropan = { P, ui, spec, quickMenu, refreshPanels };
+window.__entropan = { P, ui, spec, quickMenu, refreshPanels, drawScope, drawSpectrum, loopInfo: () => ({ lastFrame, simClock, loopCalls, loopErr, loopStarted }), kickLoop };
 </script>
 </body>
 </html>
