@@ -434,7 +434,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B27</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B28</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -509,6 +509,10 @@
               <div class="hslider" id="hs_phase"></div>
               <div style="width:46px;"></div>
             </div>
+            <div class="hslider-row" id="envGainRow" style="display:none;">
+              <div class="hslider" id="hs_envgain"></div>
+              <div style="width:46px;"></div>
+            </div>
           </div>
           <div class="step-editor" id="stepEditor">
             <canvas id="stepCanvas"></canvas>
@@ -573,7 +577,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B27";
+const ENTROPAN_BUILD = "B28";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -633,6 +637,7 @@ const GLOBALS = {
   envRel:  { id: "env_rel", kind: "slider", map: MAPS.log(5, 2000), def: 150 },
   envScf:  { id: "env_scf", kind: "slider", map: MAPS.log(20, 2000), def: 20 },
   envRms:  { id: "env_rms", kind: "toggle", def: false },
+  envGain: { id: "env_gain", kind: "slider", map: MAPS.lin(0, 36), def: 0 },
   output: { id: "output", kind: "slider", map: MAPS.lin(-24, 12), def: 0 },
   bypass: { id: "bypass", kind: "toggle", def: false }
 };
@@ -1024,6 +1029,12 @@ const hsPhase = makeHSlider("hs_phase", "PHASE", {
   set: n => isEnv() ? P.envScf.set(ENV_SCF.from(n)) : PB().phase.set(n * 360),
   fmt: () => isEnv() ? (P.envScf.get() >= 1000 ? (P.envScf.get()/1000).toFixed(1)+"k" : Math.round(P.envScf.get())+"Hz") : Math.round(PB().phase.get()) + "°"
 });
+const hsEnvGain = makeHSlider("hs_envgain", "GAIN", {
+  color: bandColor(),
+  get: () => P.envGain.get() / 36,
+  set: n => P.envGain.set(n * 36),
+  fmt: () => "+" + Math.round(P.envGain.get()) + " dB"
+});
 
 /* mode chips */
 const modeChipsEl = document.getElementById("modeChips");
@@ -1121,6 +1132,8 @@ function refreshPanels() {
     hsInertia.el.classList.toggle("disabled", mode <= 1);
   }
   document.getElementById("sliderStack").style.display = mode === 5 ? "none" : "flex";
+  document.getElementById("envGainRow").style.display = mode === 6 ? "flex" : "none";
+  if (mode === 6) { hsEnvGain.color = c; hsEnvGain.refresh(); }
   document.getElementById("stepEditor").classList.toggle("visible", mode === 5);
   document.getElementById("stepCount").textContent = b.stepCount;
   const pol = document.getElementById("polToggle");
@@ -1682,6 +1695,7 @@ const scopeCanvas = document.getElementById("scopeCanvas");
 const SCOPE_N = 240;
 let scopeBuf = new Float32Array(SCOPE_N);
 let envBuf = new Float32Array(SCOPE_N);   // global envelope-follower shape (Env mode)
+let envHead = 0, envDecim = 0; const ENV_DECIM = 6;   // longer time window for the env scope
 let scopeHead = 0, scopeBand = 0;
 let lastModEvent = 0;
 
@@ -1695,8 +1709,8 @@ if (EMBEDDED) {
       const sel = d.bands[ui.selected] || [], env = d.env || [];
       for (let k = 0; k < sel.length; k++) {
         scopeBuf[scopeHead] = PB().on.get() ? sel[k] : 0;   // already the final pan
-        envBuf[scopeHead] = env[k] || 0;
         scopeHead = (scopeHead + 1) % SCOPE_N;
+        if (++envDecim >= ENV_DECIM) { envDecim = 0; envBuf[envHead] = env[k] || 0; envHead = (envHead + 1) % SCOPE_N; }
       }
     } catch {}
   });
@@ -1717,12 +1731,14 @@ if (EMBEDDED) {
 }
 
 function pushScope() {
-  if (scopeBand !== ui.selected) { scopeBuf.fill(0); envBuf.fill(0); scopeBand = ui.selected; }
+  if (scopeBand !== ui.selected) { scopeBuf.fill(0); envBuf.fill(0); envHead = 0; scopeBand = ui.selected; }
   if (EMBEDDED && performance.now() - lastScopeVals < 300) return; // real 750 Hz feed active
   scopeBuf[scopeHead] = PB().on.get() ? ui.bands[ui.selected].pan : 0;
-  // preview-only fake envelope so the Env scope isn't dead in a plain browser
-  envBuf[scopeHead] = clamp(0.5 + 0.35 * Math.sin(simClock * 1.7) + 0.15 * Math.sin(simClock * 5.3), 0, 1);
   scopeHead = (scopeHead + 1) % SCOPE_N;
+  // preview-only fake envelope (decimated for a slower window)
+  if (++envDecim >= ENV_DECIM) { envDecim = 0;
+    envBuf[envHead] = clamp(0.5 + 0.35 * Math.sin(simClock * 1.7) + 0.15 * Math.sin(simClock * 5.3), 0, 1);
+    envHead = (envHead + 1) % SCOPE_N; }
 }
 function drawScope() {
   const r = scopeCanvas.getBoundingClientRect();
@@ -1741,7 +1757,7 @@ function drawScope() {
     ctx.fillStyle = "#403A32"; ctx.fillText("ENV", 3 * DPR, 10 * DPR);
     ctx.beginPath(); ctx.moveTo(0, H);
     for (let i = 0; i < SCOPE_N; i++) {
-      const v = clamp(envBuf[(scopeHead + i) % SCOPE_N], 0, 1);
+      const v = clamp(envBuf[(envHead + i) % SCOPE_N], 0, 1);
       ctx.lineTo(i / (SCOPE_N - 1) * W, H - v * (H * 0.92) - 2 * DPR);
     }
     ctx.lineTo(W, H); ctx.closePath();
@@ -1749,12 +1765,12 @@ function drawScope() {
     ctx.strokeStyle = c + (on ? "dd" : "55"); ctx.lineWidth = 1.5 * DPR;
     ctx.beginPath();
     for (let i = 0; i < SCOPE_N; i++) {
-      const v = clamp(envBuf[(scopeHead + i) % SCOPE_N], 0, 1);
+      const v = clamp(envBuf[(envHead + i) % SCOPE_N], 0, 1);
       const x = i / (SCOPE_N - 1) * W, y = H - v * (H * 0.92) - 2 * DPR;
       i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
     }
     ctx.stroke();
-    const last = clamp(envBuf[(scopeHead + SCOPE_N - 1) % SCOPE_N], 0, 1);
+    const last = clamp(envBuf[(envHead + SCOPE_N - 1) % SCOPE_N], 0, 1);
     ctx.beginPath(); ctx.arc(W - 3 * DPR, H - last * (H * 0.92) - 2 * DPR, 2.5 * DPR, 0, 7);
     ctx.fillStyle = on ? "#fff" : "#88837a"; ctx.fill();
     return;

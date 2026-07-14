@@ -164,6 +164,7 @@ private:
     std::atomic<float>* pEnvRel  = nullptr;
     std::atomic<float>* pEnvScf  = nullptr;
     std::atomic<float>* pEnvRms  = nullptr;
+    std::atomic<float>* pEnvGain = nullptr;
 
     // Envelope follower (global detection circuit — feeds every Env-mode band).
     float envScLp = 0.0f;   // sidechain HPF one-pole state

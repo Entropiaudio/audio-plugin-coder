@@ -178,6 +178,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::crea
         juce::AudioParameterFloatAttributes().withLabel ("Hz")));
     params.push_back (std::make_unique<juce::AudioParameterBool> (
         juce::ParameterID { "env_rms", 1 }, "Env RMS", false));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { "env_gain", 1 }, "Env Gain",
+        juce::NormalisableRange<float> (0.0f, 36.0f, 0.01f), 0.0f,
+        juce::AudioParameterFloatAttributes().withLabel ("dB")));
 
     // ─── Per band (12 × 6 = 72) ───
     for (int i = 0; i < kNumBands; ++i)
@@ -278,6 +282,7 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     pEnvRel  = apvts.getRawParameterValue ("env_rel");
     pEnvScf  = apvts.getRawParameterValue ("env_scf");
     pEnvRms  = apvts.getRawParameterValue ("env_rms");
+    pEnvGain = apvts.getRawParameterValue ("env_gain");
     for (int i = 0; i < kNumBands; ++i)
     {
         const juce::String p = "b" + juce::String (i + 1) + "_";
@@ -464,13 +469,14 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const float envAtkC = 1.0f - std::exp (-1.0f / (juce::jmax (1.0f, pEnvAtk->load()) * 0.001f * (float) currentSampleRate));
     const float envRelC = 1.0f - std::exp (-1.0f / (juce::jmax (1.0f, pEnvRel->load()) * 0.001f * (float) currentSampleRate));
     const float envScC  = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * pEnvScf->load() / (float) currentSampleRate);
+    const float envGainLin = juce::Decibels::decibelsToGain (pEnvGain->load());   // detector drive
 
     // ── wow & flutter setup ──
     const float wowAmt  = pWow->load()     * 0.01f;
     const float flutAmt = pFlutter->load() * 0.01f;
     const bool  wfOn    = (wowAmt > 0.001f || flutAmt > 0.001f);
     wfEngage.setTargetValue (wfOn ? 1.0f : 0.0f);
-    const double wowInc  = 0.7  / currentSampleRate;   // ~0.7 Hz wow
+    const double wowInc  = 0.4  / currentSampleRate;   // ~0.4 Hz wow (slow tape drift)
     const double flutInc = 6.3  / currentSampleRate;   // ~6.3 Hz flutter
     const float  baseDelay   = 0.010f * (float) currentSampleRate;  // ~10 ms centre
     const float  wowDepthS   = wowAmt  * 0.006f * (float) currentSampleRate; // up to 6 ms
@@ -487,7 +493,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
         // envelope detector (from the pre-process input copy)
         {
-            const float inMono = 0.5f * (dryBuffer.getSample (0, s) + dryBuffer.getSample (1, s));
+            const float inMono = 0.5f * (dryBuffer.getSample (0, s) + dryBuffer.getSample (1, s)) * envGainLin;
             envScLp += envScC * (inMono - envScLp);      // one-pole LP …
             const float hp = inMono - envScLp;           // … input minus LP = SC high-pass
             const float det = envRms ? hp * hp : std::abs (hp);

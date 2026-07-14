@@ -15,14 +15,14 @@ namespace
 //==============================================================================
 juce::StringArray EntropanAudioProcessorEditor::sliderParamIds()
 {
-    juce::StringArray ids { "seed", "amount", "output", "wow", "flutter", "env_atk", "env_rel", "env_scf" };
+    juce::StringArray ids { "seed", "amount", "output", "wow", "flutter", "env_atk", "env_rel", "env_scf", "env_gain" };
     for (int i = 1; i <= EntropanAudioProcessor::kNumBands; ++i)
     {
         const juce::String p = "b" + juce::String (i) + "_";
         for (auto* s : { "freq", "width", "lift", "depth", "gain", "rate", "inertia", "phase", "bias" })
             ids.add (p + s);
     }
-    return ids;   // 8 + 6×9 = 62
+    return ids;   // 9 + 6×9 = 63
 }
 
 juce::StringArray EntropanAudioProcessorEditor::comboParamIds()
