@@ -224,6 +224,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::crea
             juce::AudioParameterFloatAttributes().withLabel ("deg")));
         params.push_back (std::make_unique<juce::AudioParameterBool> (
             juce::ParameterID { p + "uni", 1 }, label + "Unipolar", false));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { p + "bias", 1 }, label + "Bias",
+            juce::NormalisableRange<float> (-100.0f, 100.0f, 0.01f), 0.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("%")));
     }
 
     return { params.begin(), params.end() };
@@ -290,7 +294,8 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
             apvts.getRawParameterValue (p + "div"),
             apvts.getRawParameterValue (p + "inertia"),
             apvts.getRawParameterValue (p + "phase"),
-            apvts.getRawParameterValue (p + "uni")
+            apvts.getRawParameterValue (p + "uni"),
+            apvts.getRawParameterValue (p + "bias")
         };
     }
 }
@@ -408,6 +413,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         cfg.phaseOff = pp.phase->load() / 360.0f;
         cfg.uni      = pp.uni->load() > 0.5f;
         b.depth.setTargetValue (pp.depth->load() * 0.01f);
+        b.bias.setTargetValue (juce::jlimit (-1.0f, 1.0f, pp.bias->load() * 0.01f));
 
         double rateHz = 0.0;
         if (cfg.rateMode == 0)        // sync
@@ -500,7 +506,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const float liftV  = b.lift.getNextValue();
             const float gainV  = b.gainLin.getNextValue();
             const float depthV = b.depth.getNextValue();   // advance even when
-                                                           // disabled — no lag on re-enable
+            const float biasV  = b.bias.getNextValue();    // disabled — no lag on re-enable
 
             if (e < 1.0e-4f)
                 continue;   // fully disengaged: stage is a wire (filters stay cold)
@@ -570,9 +576,14 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     break;
             }
 
-            // inertia slew (per-mode policy), then depth · master amount
+            // inertia slew → uni/bipolar transform → static bias → depth·amount.
+            // Bipolar: swing L↔R through centre. Unipolar: (v+1)/2 = centre→one
+            // side (works for every mode, incl. Env). Bias offsets the resting
+            // centre. panOut = the final pan, so scope/telemetry show it exactly.
             m.value += (m.target - m.value) * m.slewCoeff;
-            const float panV = juce::jlimit (-1.0f, 1.0f, m.value * depthV * amountV);
+            const float mv   = cfg.uni ? (m.value + 1.0f) * 0.5f : m.value;
+            const float panV = juce::jlimit (-1.0f, 1.0f, biasV + mv * depthV * amountV);
+            m.panOut = panV;
 
             // 3-way split (processSample yields the complementary LP/HP pair)
             float lowL = 0, restL = 0, lowR = 0, restR = 0;
@@ -612,7 +623,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const auto w = scopeWrite.load (std::memory_order_relaxed);
             for (int i = 0; i < kNumBands; ++i)
                 scopeRing[(size_t) i][(size_t) (w & (kScopeRingSize - 1))] =
-                    mods[(size_t) i].panOut * bands[(size_t) i].depth.getCurrentValue();
+                    mods[(size_t) i].panOut;   // already the final pan (bias + depth·amount)
             envScopeRing[(size_t) (w & (kScopeRingSize - 1))] = globalEnv;
             scopeWrite.store (w + 1, std::memory_order_release);
         }
@@ -648,8 +659,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // ── UI telemetry: post-slew mod × depth + cycle phase, once per block ──
     for (int i = 0; i < kNumBands; ++i)
     {
-        modOutDepth[(size_t) i].store (mods[(size_t) i].panOut * bands[(size_t) i].depth.getCurrentValue(),
-                                       std::memory_order_relaxed);
+        modOutDepth[(size_t) i].store (mods[(size_t) i].panOut, std::memory_order_relaxed);
         const double cyc = mods[(size_t) i].phase + (double) bb[(size_t) i].phaseOff;
         modPhase[(size_t) i].store ((float) (cyc - std::floor (cyc)), std::memory_order_relaxed);
     }

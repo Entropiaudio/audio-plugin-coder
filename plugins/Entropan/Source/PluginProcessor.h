@@ -86,6 +86,7 @@ private:
         juce::SmoothedValue<float> gainLin;   // linear, from ±6 dB
         juce::SmoothedValue<float> enable;    // 0..1 engage crossfade (~30 ms)
         juce::SmoothedValue<float> depth;     // 0..1, per-sample (automation-safe)
+        juce::SmoothedValue<float> bias;      // -1..1 static pan offset (resting position)
         float fLoCur = 100.0f, fHiCur = 400.0f;   // block-rate cutoff glide state
         bool  cutoffsInit = false;
 
@@ -101,6 +102,7 @@ private:
             gainLin.reset (sr, 0.005);
             enable.reset  (sr, 0.030);
             depth.reset   (sr, 0.020);
+            bias.reset    (sr, 0.020);
             cutoffsInit = false;
         }
 
@@ -148,6 +150,7 @@ private:
         std::atomic<float>* inertia;
         std::atomic<float>* phase;
         std::atomic<float>* uni;
+        std::atomic<float>* bias;
     };
     std::array<BandParams, kNumBands> bandParams {};
     std::atomic<float>* pAmount = nullptr;

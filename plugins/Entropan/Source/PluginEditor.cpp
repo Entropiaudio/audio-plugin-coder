@@ -19,10 +19,10 @@ juce::StringArray EntropanAudioProcessorEditor::sliderParamIds()
     for (int i = 1; i <= EntropanAudioProcessor::kNumBands; ++i)
     {
         const juce::String p = "b" + juce::String (i) + "_";
-        for (auto* s : { "freq", "width", "lift", "depth", "gain", "rate", "inertia", "phase" })
+        for (auto* s : { "freq", "width", "lift", "depth", "gain", "rate", "inertia", "phase", "bias" })
             ids.add (p + s);
     }
-    return ids;   // 8 + 6×8 = 56
+    return ids;   // 8 + 6×9 = 62
 }
 
 juce::StringArray EntropanAudioProcessorEditor::comboParamIds()

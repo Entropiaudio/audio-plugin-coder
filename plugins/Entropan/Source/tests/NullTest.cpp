@@ -448,6 +448,27 @@ int main()
         std::printf ("    R/L energy = %.2f (bipolar would be ~1)\n", outRE / juce::jmax(1e-9, outLE));
     }
 
+    // ── T15: bias offsets the resting pan (depth 0 → pan pinned at bias) ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        setParam (p, "b1_on", 1.0f);
+        setParam (p, "b1_freq", 1000.0f); setParam (p, "b1_width", 2.0f);
+        setParam (p, "b1_lift", 100.0f);  setParam (p, "b1_depth", 0.0f);   // no swing
+        setParam (p, "b1_bias", 100.0f);  // hard right
+        juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+        double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate;
+        double outLE = 0, outRE = 0;
+        for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk) {
+            for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+            p.processBlock (buf, midi);
+            if (blk < kWarmBlocks) continue;
+            for (int s = 0; s < kBlock; ++s) { outLE += juce::square((double)buf.getSample(0,s)); outRE += juce::square((double)buf.getSample(1,s)); }
+        }
+        ok &= check ("T15 bias pins pan (depth 0, bias +100)", dB(outLE/(outLE+outRE)) < -12.0 && outRE > outLE * 10.0);
+        std::printf ("    R/L = %.1f\n", outRE / juce::jmax(1e-9, outLE));
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }

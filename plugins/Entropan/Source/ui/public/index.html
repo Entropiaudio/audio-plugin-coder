@@ -434,7 +434,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B25</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B26</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -468,6 +468,10 @@
       </div>
       <div class="qm-row" id="qm_gain">
         <div class="qm-label">GAIN</div><div class="qm-value"></div>
+        <div class="qm-track"><div class="qm-fill"></div></div>
+      </div>
+      <div class="qm-row" id="qm_bias">
+        <div class="qm-label">BIAS</div><div class="qm-value"></div>
         <div class="qm-track"><div class="qm-fill"></div></div>
       </div>
     </div>
@@ -569,7 +573,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B25";
+const ENTROPAN_BUILD = "B26";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -616,7 +620,8 @@ function bandIds(i) { const p = `b${i + 1}_`; return {
   div:     { id: p + "div",     kind: "combo",  def: 3 },
   inertia: { id: p + "inertia", kind: "slider", map: MAPS.lin(0, 100), def: 60 },
   phase:   { id: p + "phase",   kind: "slider", map: MAPS.lin(0, 360), def: 0 },
-  uni:     { id: p + "uni",     kind: "toggle", def: false }
+  uni:     { id: p + "uni",     kind: "toggle", def: false },
+  bias:    { id: p + "bias",    kind: "slider", map: MAPS.lin(-100, 100), def: 0 }
 }; }
 const GLOBALS = {
   seed:   { id: "seed",   kind: "slider", map: MAPS.int(1, 128), def: 1 },
@@ -708,7 +713,7 @@ const ui = {
     stepCount: 8,
     steps: Array.from({ length: 16 }, (_, k) => ({ subdiv: 1, vals: [Math.sin(k / 16 * Math.PI * 2), 0, 0, 0] })),
     // local modulator sim (drives traces/scope until DSP telemetry lands)
-    pan: 0, target: 0, phi: Math.random(), livePhase: 0,
+    pan: 0, mod: 0, target: 0, phi: Math.random(), livePhase: 0,
     lz: { x: 0.1 + i * 0.03, y: 0, z: 0 }, lastDeal: -1, driftA: Math.random() * 100
   }))
 };
@@ -1454,21 +1459,29 @@ function drawSpectrum(t) {
 
     if (ghost) continue;
 
-    // pan trace + amount-scaled effective range
+    // pan trace: full L/R rail, effective range centred on BIAS, live tick
     const half = (widthV / 2) / Math.log2(FMAX / FMIN);
-    const cx = fx(freqV), pan = panVis(bi) * (P.amount.get() / 100);
-    const px2 = clamp(cx + pan * half, 0, 1) * W;
+    const cx = fx(freqV);
+    const biasN = pb.bias.get() / 100;                       // -1..1 rest position
+    const reach = (pb.depth.get() / 100) * (P.amount.get() / 100);  // half-swing
+    const finalPan = ui.bands[bi].pan;                        // final pan from telemetry/sim
+    const px2 = clamp(cx + finalPan * half, 0, 1) * W;
     const py = H - (liftV / 100) * topH * 0.5;
-    ctx.strokeStyle = c + "44"; ctx.lineWidth = DPR;
+    // full rail (faint)
+    ctx.strokeStyle = c + "33"; ctx.lineWidth = DPR;
     ctx.beginPath();
     ctx.moveTo(clamp(cx - half, 0, 1) * W, py); ctx.lineTo(clamp(cx + half, 0, 1) * W, py);
     ctx.stroke();
-    const effHalf = half * (pb.depth.get() / 100) * (P.amount.get() / 100);
-    const ex0 = clamp(cx - effHalf, 0, 1) * W, ex1 = clamp(cx + effHalf, 0, 1) * W;
+    // effective swing range around the bias centre
+    const ex0 = clamp(cx + (biasN - reach) * half, 0, 1) * W, ex1 = clamp(cx + (biasN + reach) * half, 0, 1) * W;
     ctx.strokeStyle = c + "88"; ctx.lineWidth = 3 * DPR;
     ctx.beginPath(); ctx.moveTo(ex0, py); ctx.lineTo(ex1, py); ctx.stroke();
     ctx.lineWidth = 1.5 * DPR; ctx.strokeStyle = c + "bb";
     [ex0, ex1].forEach(xx => { ctx.beginPath(); ctx.moveTo(xx, py - 4 * DPR); ctx.lineTo(xx, py + 4 * DPR); ctx.stroke(); });
+    // bias centre marker (hollow) + live pan tick (solid)
+    const bx = clamp(cx + biasN * half, 0, 1) * W;
+    ctx.strokeStyle = c + "66"; ctx.lineWidth = DPR;
+    ctx.beginPath(); ctx.moveTo(bx, py - 5 * DPR); ctx.lineTo(bx, py + 5 * DPR); ctx.stroke();
     ctx.strokeStyle = c + "cc"; ctx.lineWidth = 2 * DPR;
     ctx.beginPath(); ctx.moveTo(px2, py - 7 * DPR); ctx.lineTo(px2, py + 7 * DPR); ctx.stroke();
     if (sel) {
@@ -1581,6 +1594,7 @@ const quickMenu = document.getElementById("quickMenu");
 const qmRate = document.getElementById("qm_rate");
 const qmDepth = document.getElementById("qm_depth");
 const qmGain = document.getElementById("qm_gain");
+const qmBias = document.getElementById("qm_bias");
 let qmOffset = null;
 let qmAnchor = { x: 0, y: 0 };
 (() => {
@@ -1616,11 +1630,11 @@ function updateQuickMenu() {
   let mx = hx + half + 10, my = py - 24;
   if (mx + 122 > rw) mx = hx - half - 130;
   mx = clamp(mx, 4, rw - 122);
-  my = clamp(my, 4, rh - 68);
+  my = clamp(my, 4, rh - 86);
   qmAnchor = { x: mx, y: my };
   if (qmOffset) {
     mx = clamp(mx + qmOffset.dx, 0, rw - 122);
-    my = clamp(my + qmOffset.dy, 0, rh - 68);
+    my = clamp(my + qmOffset.dy, 0, rh - 86);
   }
   quickMenu.style.left = mx + "px";
   quickMenu.style.top = my + "px";
@@ -1633,6 +1647,8 @@ function updateQuickMenu() {
   qmRefreshRow(qmDepth, pb.depth.get() / 100, Math.round(pb.depth.get()) + "%", bandColor());
   const gv = pb.gain.get();
   qmRefreshRow(qmGain, (gv + 6) / 12, (gv >= 0 ? "+" : "") + gv.toFixed(1) + " dB", bandColor());
+  const bs = pb.bias.get();
+  qmRefreshRow(qmBias, (bs + 100) / 200, (bs > 0 ? "R" : bs < 0 ? "L" : "C") + " " + Math.abs(Math.round(bs)) + "%", bandColor());
 }
 function qmDragRow(row, apply) {
   let drag = false;
@@ -1652,6 +1668,7 @@ qmDragRow(qmRate, n => {
 });
 qmDragRow(qmDepth, n => { PB().depth.set(n * 100); knobDepth.refresh(); });
 qmDragRow(qmGain, n => { PB().gain.set(-6 + n * 12); });
+qmDragRow(qmBias, n => { PB().bias.set(-100 + n * 200); });
 
 /* ════════════════════════════════════════════════════════════════════
    SCOPE + LOCAL MODULATOR SIM
@@ -1674,7 +1691,7 @@ if (EMBEDDED) {
       lastScopeVals = performance.now();
       const sel = d.bands[ui.selected] || [], env = d.env || [];
       for (let k = 0; k < sel.length; k++) {
-        scopeBuf[scopeHead] = (PB().on.get() ? sel[k] : 0) * (P.amount.get() / 100);
+        scopeBuf[scopeHead] = PB().on.get() ? sel[k] : 0;   // already the final pan
         envBuf[scopeHead] = env[k] || 0;
         scopeHead = (scopeHead + 1) % SCOPE_N;
       }
@@ -1696,11 +1713,10 @@ if (EMBEDDED) {
   });
 }
 
-const panVis = i => { const v = ui.bands[i].pan; return P.bands[i].uni.get() ? (v + 1) * 0.5 : v; };
 function pushScope() {
   if (scopeBand !== ui.selected) { scopeBuf.fill(0); envBuf.fill(0); scopeBand = ui.selected; }
   if (EMBEDDED && performance.now() - lastScopeVals < 300) return; // real 750 Hz feed active
-  scopeBuf[scopeHead] = PB().on.get() ? panVis(ui.selected) * (P.amount.get() / 100) : 0;
+  scopeBuf[scopeHead] = PB().on.get() ? ui.bands[ui.selected].pan : 0;
   // preview-only fake envelope so the Env scope isn't dead in a plain browser
   envBuf[scopeHead] = clamp(0.5 + 0.35 * Math.sin(simClock * 1.7) + 0.15 * Math.sin(simClock * 5.3), 0, 1);
   scopeHead = (scopeHead + 1) % SCOPE_N;
@@ -1821,7 +1837,9 @@ function tickMods(dt) {
       else slewT = i2 * 0.10 * per;
       k = 1 - Math.exp(-dt / slewT);
     }
-    b.pan += (b.target * (pb.depth.get() / 100) - b.pan) * k;
+    b.mod += (b.target - b.mod) * k;                       // raw slewed modulator (-1..1)
+    const mv = pb.uni.get() ? (b.mod + 1) * 0.5 : b.mod;
+    b.pan = clamp(pb.bias.get() / 100 + mv * (pb.depth.get() / 100) * (P.amount.get() / 100), -1, 1);
   }
 }
 
