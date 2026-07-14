@@ -209,9 +209,9 @@
     font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase;
     opacity: 0.9; margin-bottom: 4px;
   }
-  .sec-band { flex: 0 0 300px; }
+  .sec-band { flex: 0 0 250px; }
   .sec-mod  { flex: 1 1 auto; min-width: 0; }
-  .sec-out  { flex: 0 0 296px; }
+  .sec-out  { flex: 0 0 260px; }
   .sec-out .section-label { color: var(--section-output); opacity: 0.7; }
 
   .knob-row { display: flex; justify-content: space-around; align-items: center; flex: 1; }
@@ -434,7 +434,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B22</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B23</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -479,10 +479,10 @@
     <div class="section-col sec-band">
       <div class="section-label" id="bandSecLabel">Band 1</div>
       <div class="knob-row">
-        <div class="knob-wrap" id="knob_freq"></div>
-        <div class="knob-wrap" id="knob_bwidth"></div>
-        <div class="knob-wrap" id="knob_lift"></div>
-        <div class="knob-wrap" id="knob_depth"></div>
+        <div class="knob-wrap knob-sm" id="knob_freq"></div>
+        <div class="knob-wrap knob-sm" id="knob_bwidth"></div>
+        <div class="knob-wrap knob-sm" id="knob_lift"></div>
+        <div class="knob-wrap knob-sm" id="knob_depth"></div>
       </div>
     </div>
 
@@ -524,10 +524,10 @@
     <div class="section-col sec-out">
       <div class="section-label">Output</div>
       <div class="out-knob-row">
-        <div class="knob-wrap" id="knob_mix"></div>
-        <div class="knob-wrap" id="knob_wow"></div>
-        <div class="knob-wrap" id="knob_flutter"></div>
-        <div class="knob-wrap" id="knob_output"></div>
+        <div class="knob-wrap knob-sm" id="knob_mix"></div>
+        <div class="knob-wrap knob-sm" id="knob_wow"></div>
+        <div class="knob-wrap knob-sm" id="knob_flutter"></div>
+        <div class="knob-wrap knob-sm" id="knob_output"></div>
       </div>
       <button class="toggle-btn bypass-btn" id="bypassBtn">BYPASS</button>
     </div>
@@ -569,7 +569,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B22";
+const ENTROPAN_BUILD = "B23";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
