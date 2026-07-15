@@ -121,15 +121,14 @@
     padding: 3px 14px; cursor: pointer;
   }
   .preset-btn:hover { color: var(--text-secondary); border-color: var(--border-bright); }
-  .header-right { display: flex; align-items: center; gap: 10px; min-width: 210px; justify-content: flex-end; }
-  .knob-hdr { display: flex; flex-direction: column; align-items: center; width: auto; cursor: ns-resize; position: relative; padding-bottom: 9px; }
-  .knob-hdr { gap: 6px; }
-  .knob-hdr .knob-body { width: 34px; height: 34px; }
-  .knob-hdr .knob-body canvas { width: 44px; height: 44px; top: -5px; left: -5px; }
-  .knob-hdr .knob-face { top: 6px; left: 6px; width: 22px; height: 22px; }
+  .header-right { display: flex; align-items: center; gap: 11px; min-width: 210px; justify-content: flex-end; }
+  .settings-btn.hdr { align-self: center; }
+  .knob-wrap.knob-hdr { display: flex; flex-direction: row; align-items: center; gap: 8px; width: auto; cursor: ns-resize; }
+  .knob-hdr .knob-body { width: 32px; height: 32px; position: relative; }
+  .knob-hdr .knob-body canvas { width: 42px; height: 42px; top: -5px; left: -5px; }
+  .knob-hdr .knob-face { top: 6px; left: 6px; width: 20px; height: 20px; }
   .knob-hdr .knob-label { display: none; }
-  .knob-hdr .knob-value { position: absolute; bottom: -11px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: 600; color: var(--accent-bright); text-shadow: 0 0 8px var(--accent-glow); white-space: nowrap; }
-  .knob-hdr .knob-body { position: relative; }
+  .knob-hdr .knob-value { font-size: 13px; font-weight: 600; color: var(--accent-bright); text-shadow: 0 0 8px var(--accent-glow); min-width: 26px; text-align: left; font-variant-numeric: tabular-nums; }
   .settings-btn.hdr { position: static; width: 16px; height: 16px; }
   .seed-arrow {
     font-family: inherit; background: transparent; color: var(--text-dim);
@@ -209,7 +208,7 @@
     font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase;
     opacity: 0.9; margin-bottom: 4px;
   }
-  .sec-band { flex: 0 0 250px; }
+  .sec-band { flex: 0 0 300px; }
   .sec-mod  { flex: 1 1 auto; min-width: 0; }
   .sec-out  { flex: 0 0 260px; }
   .sec-out .section-label { color: var(--section-output); opacity: 0.7; }
@@ -434,7 +433,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B29</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B30</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -487,6 +486,7 @@
         <div class="knob-wrap knob-sm" id="knob_bwidth"></div>
         <div class="knob-wrap knob-sm" id="knob_lift"></div>
         <div class="knob-wrap knob-sm" id="knob_depth"></div>
+        <div class="knob-wrap knob-sm" id="knob_bias"></div>
       </div>
     </div>
 
@@ -577,7 +577,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B29";
+const ENTROPAN_BUILD = "B30";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -965,6 +965,14 @@ const knobDepth = makeKnob("knob_depth", "DEPTH", {
   set: n => PB().depth.set(n * 100),
   fmt: () => Math.round(PB().depth.get()) + "%"
 });
+// bias headroom (fraction of the rail left after the swing) — shared by knob + quick-menu
+const biasHeadroom = pb => Math.max(0, 1 - (pb.depth.get() / 100) * (P.amount.get() / 100));
+const knobBias = makeKnob("knob_bias", "BIAS", {
+  color: bandColor(), def: 0.5,
+  get: () => { const hr = biasHeadroom(PB()) * 100; return hr > 0 ? (clamp(PB().bias.get(), -hr, hr) + hr) / (2 * hr) : 0.5; },
+  set: n => { const hr = biasHeadroom(PB()) * 100; PB().bias.set(-hr + n * 2 * hr); },
+  fmt: () => { const b = PB().bias.get(); return (b > 0 ? "R" : b < 0 ? "L" : "C") + " " + Math.abs(Math.round(b)) + "%"; }
+});
 const knobAmount = makeKnob("knob_mix", "AMOUNT", {
   color: "#c8c8d0", def: 1,
   get: () => P.amount.get() / 100,
@@ -1106,7 +1114,7 @@ function refreshPanels() {
   bandLabel.textContent = "Band " + (ui.selected + 1);
   bandLabel.style.color = c;
   document.getElementById("modSecLabel").style.color = c;
-  [knobFreq, knobWidth, knobLift, knobDepth].forEach(k => { k.color = c; k.refresh(); });
+  [knobFreq, knobWidth, knobLift, knobDepth, knobBias].forEach(k => { k.color = c; k.refresh(); });
   [hsRate, hsInertia, hsPhase].forEach(s => { s.color = c; s.refresh(); });
   knobAmount.refresh(); knobOut.refresh(); knobWow.refresh(); knobFlutter.refresh(); knobSpeed.refresh();
   document.querySelectorAll(".mode-chip").forEach((el, i) => {
@@ -1118,16 +1126,19 @@ function refreshPanels() {
   const mode = pb.mode.get();
   const rm = document.getElementById("syncToggle");
   const setHsLabel = (hs, txt) => { const el = hs.el.querySelector(".hs-label"); if (el) el.textContent = txt; };
+  // Chaosverb-style: the toggle wears its current option's colour.
+  const tintToggle = (el, col) => { el.classList.add("active"); el.style.color = col; el.style.borderColor = col; el.style.boxShadow = "0 0 7px " + col + "55"; };
+  const COL_ORANGE = "#D4A574", COL_PURPLE = "#b06ed4", COL_CYAN = "#3ab8d4";
   if (mode === 6) {   // Env: sliders become the detection-circuit controls
     setHsLabel(hsRate, "ATK"); setHsLabel(hsInertia, "REL"); setHsLabel(hsPhase, "SC-F");
     rm.textContent = P.envRms.get() ? "RMS" : "PEAK";
-    rm.classList.toggle("active", P.envRms.get());
+    tintToggle(rm, P.envRms.get() ? COL_PURPLE : COL_ORANGE);   // PEAK orange → RMS purple
     hsPhase.el.classList.remove("disabled");
     hsInertia.el.classList.remove("disabled");
   } else {
     setHsLabel(hsRate, "Rate"); setHsLabel(hsInertia, "Inertia"); setHsLabel(hsPhase, "Phase");
     rm.textContent = ["SYNC", "FREE", "MIDI"][pb.ratemode.get()] || "SYNC";
-    rm.classList.toggle("active", pb.ratemode.get() !== 1);
+    tintToggle(rm, [COL_ORANGE, COL_PURPLE, COL_CYAN][pb.ratemode.get()] || COL_ORANGE);   // SYNC orange → FREE purple → MIDI cyan
     hsPhase.el.classList.toggle("disabled", mode >= 2 && mode <= 4);
     hsInertia.el.classList.toggle("disabled", mode <= 1);
   }
@@ -1138,7 +1149,7 @@ function refreshPanels() {
   document.getElementById("stepCount").textContent = b.stepCount;
   const pol = document.getElementById("polToggle");
   pol.textContent = pb.uni.get() ? "UNI" : "BI";
-  pol.classList.toggle("active", pb.uni.get());
+  tintToggle(pol, pb.uni.get() ? COL_PURPLE : COL_ORANGE);   // BI orange → UNI purple
   const byp = document.getElementById("bypassBtn");
   byp.classList.toggle("active", P.bypass.get());
   document.getElementById("bypassDim").classList.toggle("on", P.bypass.get());
@@ -1631,7 +1642,6 @@ function qmRefreshRow(row, norm, text, color) {
   row.querySelector(".qm-fill").style.background = `linear-gradient(90deg, ${color}55, ${color})`;
   row.querySelector(".qm-value").textContent = text;
 }
-const biasHeadroom = pb => Math.max(0, 1 - (pb.depth.get() / 100) * (P.amount.get() / 100)); // 0..1
 function updateQuickMenu() {
   const pb = PB(), wrap = spec.parentElement;
   if (!pb.on.get() || ui.menuHidden) { quickMenu.classList.remove("visible"); return; }
