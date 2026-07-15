@@ -433,7 +433,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B30</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B31</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -577,7 +577,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B30";
+const ENTROPAN_BUILD = "B31";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -923,6 +923,8 @@ function makeHSlider(id, label, opts) {
   el.addEventListener("mousedown", e => { drag = true; setFromX(e); });
   window.addEventListener("mousemove", e => drag && setFromX(e));
   window.addEventListener("mouseup", () => drag = false);
+  // double-click → default (mode-aware; commits via the global mouseup handler)
+  el.addEventListener("dblclick", () => { opts.reset ? opts.reset() : opts.set(opts.def ?? 0); s.refresh(); });
   s.refresh();
   return s;
 }
@@ -1017,6 +1019,12 @@ const hsRate = makeHSlider("hs_rate", "RATE", {
     if (rm === 0) pb.div.set(Math.round(n * (DIVS.length - 1)));
     else if (rm === 1) pb.rate.set(RATE_MIN * Math.pow(RATE_MAX / RATE_MIN, n));
   },
+  reset: () => {
+    if (isEnv()) { P.envAtk.set(20); return; }
+    const pb = PB(), rm = pb.ratemode.get();
+    if (rm === 0) pb.div.set(3);            // 1/2
+    else if (rm === 1) pb.rate.set(0.5);    // 0.5 Hz
+  },
   fmt: () => {
     if (isEnv()) return Math.round(P.envAtk.get()) + " ms";
     const pb = PB(), rm = pb.ratemode.get();
@@ -1029,18 +1037,21 @@ const hsInertia = makeHSlider("hs_inertia", "INERTIA", {
   color: bandColor(),
   get: () => isEnv() ? ENV_REL.to(P.envRel.get()) : PB().inertia.get() / 100,
   set: n => isEnv() ? P.envRel.set(ENV_REL.from(n)) : PB().inertia.set(n * 100),
+  reset: () => isEnv() ? P.envRel.set(150) : PB().inertia.set(60),
   fmt: () => isEnv() ? Math.round(P.envRel.get()) + "ms" : Math.round(PB().inertia.get()) + "%"
 });
 const hsPhase = makeHSlider("hs_phase", "PHASE", {
   color: bandColor(),
   get: () => isEnv() ? ENV_SCF.to(P.envScf.get()) : PB().phase.get() / 360,
   set: n => isEnv() ? P.envScf.set(ENV_SCF.from(n)) : PB().phase.set(n * 360),
+  reset: () => isEnv() ? P.envScf.set(20) : PB().phase.set(0),
   fmt: () => isEnv() ? (P.envScf.get() >= 1000 ? (P.envScf.get()/1000).toFixed(1)+"k" : Math.round(P.envScf.get())+"Hz") : Math.round(PB().phase.get()) + "°"
 });
 const hsEnvGain = makeHSlider("hs_envgain", "GAIN", {
   color: bandColor(),
   get: () => P.envGain.get() / 36,
   set: n => P.envGain.set(n * 36),
+  reset: () => P.envGain.set(0),
   fmt: () => "+" + Math.round(P.envGain.get()) + " dB"
 });
 
@@ -1676,7 +1687,7 @@ function updateQuickMenu() {
   const norm = hrPct > 0 ? (bs + hrPct) / (2 * hrPct) : 0.5;
   qmRefreshRow(qmBias, norm, (bs > 0 ? "R" : bs < 0 ? "L" : "C") + " " + Math.abs(Math.round(bs)) + "%", bandColor());
 }
-function qmDragRow(row, apply) {
+function qmDragRow(row, apply, reset) {
   let drag = false;
   const setFrom = e => {
     const r = row.querySelector(".qm-track").getBoundingClientRect();
@@ -1685,16 +1696,22 @@ function qmDragRow(row, apply) {
   row.addEventListener("mousedown", e => { drag = true; setFrom(e); e.stopPropagation(); e.preventDefault(); });
   window.addEventListener("mousemove", e => drag && setFrom(e));
   window.addEventListener("mouseup", () => drag = false);
+  // double-click → default (commits via the global mouseup handler)
+  if (reset) row.addEventListener("dblclick", e => { reset(); refreshPanels(); e.stopPropagation(); });
 }
 qmDragRow(qmRate, n => {
   const pb = PB(), rm = pb.ratemode.get();
   if (rm === 0) pb.div.set(Math.round(n * (DIVS.length - 1)));
   else if (rm === 1) pb.rate.set(RATE_MIN * Math.pow(RATE_MAX / RATE_MIN, n));
   hsRate.refresh();
+}, () => {
+  const pb = PB(), rm = pb.ratemode.get();
+  if (rm === 0) pb.div.set(3);            // 1/2
+  else if (rm === 1) pb.rate.set(0.5);    // 0.5 Hz
 });
-qmDragRow(qmDepth, n => { PB().depth.set(n * 100); knobDepth.refresh(); });
-qmDragRow(qmGain, n => { PB().gain.set(-6 + n * 12); });
-qmDragRow(qmBias, n => { const hr = biasHeadroom(PB()) * 100; PB().bias.set(-hr + n * 2 * hr); });
+qmDragRow(qmDepth, n => { PB().depth.set(n * 100); knobDepth.refresh(); }, () => PB().depth.set(100));
+qmDragRow(qmGain, n => { PB().gain.set(-6 + n * 12); }, () => PB().gain.set(0));
+qmDragRow(qmBias, n => { const hr = biasHeadroom(PB()) * 100; PB().bias.set(-hr + n * 2 * hr); }, () => PB().bias.set(0));
 
 /* ════════════════════════════════════════════════════════════════════
    SCOPE + LOCAL MODULATOR SIM
@@ -1880,7 +1897,7 @@ let fpsCount = 0, fpsLastTs = 0;
 function loop(ts) {
   loopCalls++;
   requestAnimationFrame(loop);
-  if (ts - lastFrame < 30) return;      // ~33 fps cap — WKWebView-friendly
+  if (ts - lastFrame < 15) return;      // ~60 fps cap — matches 60 Hz mod telemetry (smooth fast pans)
   lastFrame = ts;
   fpsCount++;
   if (ts - fpsLastTs > 1000) {
