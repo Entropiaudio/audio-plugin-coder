@@ -150,7 +150,7 @@
     position: absolute; inset: 0; width: 100%; height: 100%;
     background: var(--bg-card);
     border: 1px solid var(--border-subtle); border-radius: 8px;
-    cursor: crosshair;
+    cursor: pointer;
   }
   .spectrum-hint {
     position: absolute; bottom: 6px; left: 12px; z-index: 3;
@@ -270,6 +270,8 @@
     filter: brightness(1.9); opacity: 1;
     text-shadow: 0 0 5px currentColor;
   }
+  /* Nothing to edit (no band placed) → section reads as "off", like a bypassed band */
+  .section-col.section-off { opacity: 0.3; filter: saturate(0.12); pointer-events: none; }
 
   .toggle-btn {
     font-family: inherit; font-size: 9px; letter-spacing: 1.5px;
@@ -455,7 +457,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B32</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B33</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -552,7 +554,7 @@
     </div>
 
     <div class="section-col sec-out">
-      <div class="section-label">Output</div>
+      <div class="section-label" id="outSecLabel">Output</div>
       <div class="out-knob-row">
         <div class="knob-wrap knob-sm" id="knob_mix"></div>
         <div class="knob-wrap knob-sm" id="knob_wow"></div>
@@ -599,7 +601,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B32";
+const ENTROPAN_BUILD = "B33";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -738,6 +740,9 @@ const ui = {
   selected: 0,
   menuHidden: false,   // true after clicking empty space (explicit deselect)
   locks: Array.from({ length: 6 }, () => new Set()),   // per-band params frozen against CHAOS
+  globalLocks: new Set(),                              // global params frozen against CHAOS
+  // what each section-title lock covered, so untoggling restores the prior picks
+  lockMemo: { bands: Array.from({ length: 6 }, () => ({})), global: {} },
   bands: Array.from({ length: 6 }, (_, i) => ({
     configured: false,   // nothing on the canvas until the user adds a band
     stepCount: 8,
@@ -756,35 +761,52 @@ const bandColor = () => BAND_COLORS[ui.selected];
    Per-band set of parameter keys the CHAOS button must leave untouched.
    Persisted in the plugin state (apvts "uiLocks"), excluded from undo.
    ════════════════════════════════════════════════════════════════════ */
-const LOCK_SECTIONS = { band: ["freq", "width", "lift", "depth"], mod: ["mode", "rate", "inertia", "phase"] };
+const LOCK_SECTIONS = {
+  band: ["freq", "width", "lift", "depth", "bias"],
+  mod:  ["mode", "rate", "inertia", "phase"],
+  out:  ["amount", "wow", "flutter"]     // global scope — LEVEL is never re-rolled
+};
+const lockSetFor = global => global ? ui.globalLocks : ui.locks[ui.selected];
 const lockedIn = (i, key) => ui.locks[i].has(key);
-const isLocked = key => ui.locks[ui.selected].has(key);
+const isLocked = (key, global) => lockSetFor(global).has(key);
 function persistLocks() {
   if (!EMBEDDED) return;
-  setLocksNative(JSON.stringify(ui.locks.map(s => [...s]))).catch(() => {});
+  setLocksNative(JSON.stringify({ bands: ui.locks.map(s => [...s]), global: [...ui.globalLocks] })).catch(() => {});
 }
-function toggleLock(key) {
-  const s = ui.locks[ui.selected];
+function toggleLock(key, global) {
+  const s = lockSetFor(global);
   s.has(key) ? s.delete(key) : s.add(key);
   persistLocks(); refreshPanels();
 }
-function toggleSectionLock(keys) {
-  const s = ui.locks[ui.selected];
-  const allOn = keys.every(k => s.has(k));
-  keys.forEach(k => allOn ? s.delete(k) : s.add(k));
+/* Section title = lock the whole group. Untoggling restores exactly what was
+   locked before the group-lock, rather than clearing every lock in the group. */
+function toggleSectionLock(sectionId, keys, global) {
+  const s = lockSetFor(global);
+  const memoBag = global ? ui.lockMemo.global : ui.lockMemo.bands[ui.selected];
+  if (keys.every(k => s.has(k))) {
+    const memo = memoBag[sectionId] || [];
+    keys.forEach(k => s.delete(k));
+    memo.forEach(k => s.add(k));         // put the pre-lock selection back
+    delete memoBag[sectionId];
+  } else {
+    memoBag[sectionId] = keys.filter(k => s.has(k));   // remember before locking all
+    keys.forEach(k => s.add(k));
+  }
   persistLocks(); refreshPanels();
 }
 /* right-click any lockable control to toggle its lock (Chaosverb gesture) */
-function bindLockGesture(el, key) {
-  el.addEventListener("contextmenu", e => { e.preventDefault(); toggleLock(key); return false; });
+function bindLockGesture(el, key, global) {
+  el.addEventListener("contextmenu", e => { e.preventDefault(); toggleLock(key, global); return false; });
 }
 function reloadLocks() {
   if (!EMBEDDED) return;
   getLocksNative().then(json => {
     if (!json) return;
     try {
-      const arr = JSON.parse(json);
-      if (Array.isArray(arr)) arr.forEach((keys, i) => { if (i < 6 && Array.isArray(keys)) ui.locks[i] = new Set(keys); });
+      const d = JSON.parse(json);
+      const bands = Array.isArray(d) ? d : d && d.bands;   // bare array = B32 shape
+      if (Array.isArray(bands)) bands.forEach((keys, i) => { if (i < 6 && Array.isArray(keys)) ui.locks[i] = new Set(keys); });
+      if (d && Array.isArray(d.global)) ui.globalLocks = new Set(d.global);
       refreshPanels();
     } catch (e) {}
   }).catch(() => {});
@@ -942,7 +964,7 @@ function makeKnob(containerId, label, opts) {
   const val = div_("knob-value");
   el.appendChild(body); el.appendChild(labelEl); el.appendChild(val);
   if (opts.lockKey) {
-    bindLockGesture(el, opts.lockKey);
+    bindLockGesture(el, opts.lockKey, opts.lockGlobal);
     el.title = "Right-click: lock / unlock (CHAOS skips locked params)";
   }
 
@@ -950,7 +972,7 @@ function makeKnob(containerId, label, opts) {
     el, color: opts.color,
     refresh() {
       const norm = opts.get();
-      const locked = opts.lockKey ? isLocked(opts.lockKey) : false;
+      const locked = opts.lockKey ? isLocked(opts.lockKey, opts.lockGlobal) : false;
       drawKnob(canvas, norm, k.color, locked);
       ind.style.transform = `rotate(${-135 + clamp(norm, 0, 1) * 270}deg) translateY(-14px)`;
       // Locked: grey dot, no glow, dim face — position still readable (Chaosverb).
@@ -1061,13 +1083,13 @@ const knobDepth = makeKnob("knob_depth", "DEPTH", {
 // bias headroom (fraction of the rail left after the swing) — shared by knob + quick-menu
 const biasHeadroom = pb => Math.max(0, 1 - (pb.depth.get() / 100) * (P.amount.get() / 100));
 const knobBias = makeKnob("knob_bias", "BIAS", {
-  color: bandColor(), def: 0.5,
+  color: bandColor(), def: 0.5, lockKey: "bias",
   get: () => { const hr = biasHeadroom(PB()) * 100; return hr > 0 ? (clamp(PB().bias.get(), -hr, hr) + hr) / (2 * hr) : 0.5; },
   set: n => { const hr = biasHeadroom(PB()) * 100; PB().bias.set(-hr + n * 2 * hr); },
   fmt: () => { const b = PB().bias.get(); return (b > 0 ? "R" : b < 0 ? "L" : "C") + " " + Math.abs(Math.round(b)) + "%"; }
 });
 const knobAmount = makeKnob("knob_mix", "AMOUNT", {
-  color: "#c8c8d0", def: 1,
+  color: "#c8c8d0", def: 1, lockKey: "amount", lockGlobal: true,
   get: () => P.amount.get() / 100,
   set: n => P.amount.set(n * 100),
   fmt: () => Math.round(P.amount.get()) + "%"
@@ -1079,11 +1101,11 @@ const knobOut = makeKnob("knob_output", "LEVEL", {
   fmt: () => { const v = P.output.get(); return (Math.abs(v) < 0.05 ? 0 : v).toFixed(1) + " dB"; }
 });
 const knobWow = makeKnob("knob_wow", "WOW", {
-  color: "#b06ed4", def: 0,
+  color: "#b06ed4", def: 0, lockKey: "wow", lockGlobal: true,
   get: () => P.wow.get() / 100, set: n => P.wow.set(n * 100), fmt: () => Math.round(P.wow.get()) + "%"
 });
 const knobFlutter = makeKnob("knob_flutter", "FLUTTER", {
-  color: "#b06ed4", def: 0,
+  color: "#b06ed4", def: 0, lockKey: "flutter", lockGlobal: true,
   get: () => P.flutter.get() / 100, set: n => P.flutter.set(n * 100), fmt: () => Math.round(P.flutter.get()) + "%"
 });
 const knobSpeed = makeKnob("knob_speed", "SPEED", {
@@ -1159,19 +1181,20 @@ bindLockGesture(modeChipsEl, "mode");
 modeChipsEl.title = "Right-click: lock / unlock Mod Type (CHAOS skips locked params)";
 
 // Section titles lock every parameter in the section (Chaosverb: click = group lock).
-function setupSectionTitle(id, keys, verb) {
+function setupSectionTitle(id, sectionId, keys, verb, global) {
   const el = document.getElementById(id);
   el.classList.add("lockable");
   el.title = "Click: lock / unlock all " + verb + " parameters against CHAOS";
-  el.onclick = () => toggleSectionLock(keys);
-  el._keys = keys;
+  el.onclick = () => toggleSectionLock(sectionId, keys, global);
+  el._keys = keys; el._global = global;
   return el;
 }
-const bandTitle = setupSectionTitle("bandSecLabel", LOCK_SECTIONS.band, "band");
-const modTitle  = setupSectionTitle("modSecLabel",  LOCK_SECTIONS.mod,  "modulator");
+const bandTitle = setupSectionTitle("bandSecLabel", "band", LOCK_SECTIONS.band, "band");
+const modTitle  = setupSectionTitle("modSecLabel",  "mod",  LOCK_SECTIONS.mod,  "modulator");
+const outTitle  = setupSectionTitle("outSecLabel",  "out",  LOCK_SECTIONS.out,  "output", true);
 // Locked (all params held) → title goes bright, matching Chaosverb.
 function updateSectionLockVis(el) {
-  const s = ui.locks[ui.selected];
+  const s = lockSetFor(el._global);
   el.classList.toggle("locked", el._keys.every(k => s.has(k)));
 }
 
@@ -1186,9 +1209,14 @@ document.getElementById("bypassBtn").onclick = e => {
 document.getElementById("polToggle").onclick = () => { PB().uni.set(!PB().uni.get()); refreshPanels(); };
 function rnd(a, b) { return a + Math.random() * (b - a); }
 document.getElementById("rerollBtn").onclick = () => {
-  // Randomize every UNLOCKED option of each ENABLED band (freq/Q/lift/depth +
-  // full modulation engine). Locked params (ui.locks) are left untouched.
-  // GAIN is loudness-comp — deliberately NOT randomized. Undo restores in one step.
+  // Randomize every UNLOCKED option: the global feel (amount/wow/flutter) plus
+  // each ENABLED band (freq/Q/lift/depth/bias + full modulation engine). Locked
+  // params (ui.locks / ui.globalLocks) are left untouched. GAIN is loudness-comp
+  // and LEVEL is the master out — neither is ever re-rolled. Undo restores in one step.
+  const G = ui.globalLocks;
+  if (!G.has("amount"))  P.amount.set(rnd(55, 100));
+  if (!G.has("wow"))     P.wow.set(rnd(0, 50));
+  if (!G.has("flutter")) P.flutter.set(rnd(0, 40));
   let anyModeFree = false;
   for (let i = 0; i < 6; i++) {
     const pb = P.bands[i];
@@ -1198,6 +1226,8 @@ document.getElementById("rerollBtn").onclick = () => {
     if (!L.has("width")) pb.width.set(rnd(0.3, 3.0));
     if (!L.has("lift"))  pb.lift.set(rnd(55, 100));
     if (!L.has("depth")) pb.depth.set(rnd(30, 100));
+    // bias AFTER depth+amount — headroom is what's left of the rail past the swing
+    if (!L.has("bias")) { const hr = biasHeadroom(pb) * 100; pb.bias.set(rnd(-hr, hr)); }
     if (!L.has("mode"))  pb.mode.set(Math.floor(Math.random() * 6));
     if (!L.has("rate")) {                                     // RATE lock freezes value + sync/free + division
       pb.ratemode.set(Math.random() < 0.75 ? 0 : 1);         // mostly synced
@@ -1242,7 +1272,10 @@ function refreshPanels() {
   modTitle.style.color = c;
   updateSectionLockVis(bandTitle);
   updateSectionLockVis(modTitle);
+  updateSectionLockVis(outTitle);
   modeChipsEl.classList.toggle("locked", isLocked("mode"));
+  // No band placed yet → the band inspector edits nothing: show it "off".
+  document.querySelector(".sec-band").classList.toggle("section-off", !ui.bands.some(x => x.configured));
   [knobFreq, knobWidth, knobLift, knobDepth, knobBias].forEach(k => { k.color = c; k.refresh(); });
   [hsRate, hsInertia, hsPhase].forEach(s => { s.color = c; s.refresh(); });
   knobAmount.refresh(); knobOut.refresh(); knobWow.refresh(); knobFlutter.refresh(); knobSpeed.refresh();
