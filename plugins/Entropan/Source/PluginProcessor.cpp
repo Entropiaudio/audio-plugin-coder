@@ -45,6 +45,7 @@ namespace
         auto v = src.createCopy();
         v.removeProperty ("editorWidth", nullptr);
         v.removeProperty ("editorHeight", nullptr);
+        v.removeProperty ("uiLocks", nullptr);   // CHAOS locks are meta-state, not undoable
         return v;
     }
 }
@@ -107,6 +108,7 @@ bool EntropanAudioProcessor::undoState()
     // keep the live window size — snapshots carry no editor props
     snap.setProperty ("editorWidth",  apvts.state.getProperty ("editorWidth",  900), nullptr);
     snap.setProperty ("editorHeight", apvts.state.getProperty ("editorHeight", 560), nullptr);
+    snap.setProperty ("uiLocks",      apvts.state.getProperty ("uiLocks", juce::String()), nullptr);   // locks survive undo
     apvts.replaceState (snap);
     lastCommitted = stateForUndo (apvts.copyState());
     for (int i = 0; i < kNumBands; ++i)
@@ -123,6 +125,7 @@ bool EntropanAudioProcessor::redoState()
     redoStack.pop_back();
     snap.setProperty ("editorWidth",  apvts.state.getProperty ("editorWidth",  900), nullptr);
     snap.setProperty ("editorHeight", apvts.state.getProperty ("editorHeight", 560), nullptr);
+    snap.setProperty ("uiLocks",      apvts.state.getProperty ("uiLocks", juce::String()), nullptr);   // locks survive undo
     apvts.replaceState (snap);
     lastCommitted = stateForUndo (apvts.copyState());
     for (int i = 0; i < kNumBands; ++i)
@@ -712,6 +715,17 @@ void EntropanAudioProcessor::setStepsJson (int bandIndex, const juce::String& js
 {
     apvts.state.setProperty ("steps_b" + juce::String (bandIndex + 1), json, nullptr);
     parseStepsSnapshot (bandIndex);
+}
+
+//==============================================================================
+juce::String EntropanAudioProcessor::getLocksJson() const
+{
+    return apvts.state.getProperty ("uiLocks", juce::String()).toString();
+}
+
+void EntropanAudioProcessor::setLocksJson (const juce::String& json)
+{
+    apvts.state.setProperty ("uiLocks", json, nullptr);
 }
 
 void EntropanAudioProcessor::parseStepsSnapshot (int bandIndex)

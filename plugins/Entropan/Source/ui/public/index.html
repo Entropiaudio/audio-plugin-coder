@@ -217,7 +217,7 @@
   /* ─── Knob — exact Chaosverb v1.0.18 component (entropia-webview-ui kit) ─── */
   .knob-wrap {
     display: flex; flex-direction: column; align-items: center;
-    gap: 5px; width: 64px; cursor: ns-resize;
+    gap: 5px; width: 64px; cursor: ns-resize; position: relative;
   }
   .knob-body { width: 56px; height: 56px; position: relative; flex-shrink: 0; }
   /* Canvas is 72px (16px bigger than .knob-body) so glow has room past
@@ -253,6 +253,24 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* ── CHAOS parameter locks — Chaosverb mechanism ──
+     Right-click a control to lock it; a locked param DIMS (grey, no glow) and
+     CHAOS leaves it alone. Section titles lock every param in the section and
+     go BRIGHT when fully locked (bright = "this is held"). */
+  .knob-body.locked .knob-face { border-color: transparent; }
+  .hslider.locked .hs-label, .hslider.locked .hs-value { color: #444; }
+  .hslider.locked .hs-track { border-color: #2a2724; }
+  .mode-chips.locked .mode-chip { opacity: 0.45; filter: saturate(0.2); }
+  .section-label.lockable {
+    cursor: pointer; user-select: none;
+    transition: filter 0.15s ease, text-shadow 0.15s ease;
+  }
+  .section-label.lockable:hover { filter: brightness(1.6); }
+  .section-label.lockable.locked {
+    filter: brightness(1.9); opacity: 1;
+    text-shadow: 0 0 5px currentColor;
+  }
+
   .toggle-btn {
     font-family: inherit; font-size: 9px; letter-spacing: 1.5px;
     background: transparent; color: var(--text-dim);
@@ -281,7 +299,11 @@
   /* mod layout: scope left, content right */
   .mod-body { display: flex; gap: 8px; flex: 1; min-height: 0; }
   #scopeCanvas {
-    flex: 0 0 128px; min-height: 0; height: 100%;
+    /* min-width:0 is REQUIRED — a flex item defaults to min-width:auto, which for
+       a canvas resolves to its intrinsic (width-attribute) size. drawScope sets
+       that attr to rect.width*DPR, so on a retina display the floor doubled every
+       frame and the scope crushed .mod-right until the faders collapsed. */
+    flex: 0 0 128px; min-width: 0; min-height: 0; height: 100%;
     border-radius: 6px; background: var(--bg-elevated);
     border: 1px solid var(--border-divider);
   }
@@ -433,7 +455,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B31</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B32</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -577,7 +599,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B31";
+const ENTROPAN_BUILD = "B32";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -706,6 +728,8 @@ const getStepsNative = native("getSteps");
 const commitUndoNative = native("commitUndo");
 const undoNative = native("undo");
 const redoNative = native("redo");
+const setLocksNative = native("setLocks");
+const getLocksNative = native("getLocks");
 
 /* ════════════════════════════════════════════════════════════════════
    UI STATE (visual-only: selection, configured flags, step data mirror)
@@ -713,6 +737,7 @@ const redoNative = native("redo");
 const ui = {
   selected: 0,
   menuHidden: false,   // true after clicking empty space (explicit deselect)
+  locks: Array.from({ length: 6 }, () => new Set()),   // per-band params frozen against CHAOS
   bands: Array.from({ length: 6 }, (_, i) => ({
     configured: false,   // nothing on the canvas until the user adds a band
     stepCount: 8,
@@ -725,6 +750,45 @@ const ui = {
 const B = () => ui.bands[ui.selected];
 const PB = () => P.bands[ui.selected];
 const bandColor = () => BAND_COLORS[ui.selected];
+
+/* ════════════════════════════════════════════════════════════════════
+   CHAOS PARAMETER LOCKS
+   Per-band set of parameter keys the CHAOS button must leave untouched.
+   Persisted in the plugin state (apvts "uiLocks"), excluded from undo.
+   ════════════════════════════════════════════════════════════════════ */
+const LOCK_SECTIONS = { band: ["freq", "width", "lift", "depth"], mod: ["mode", "rate", "inertia", "phase"] };
+const lockedIn = (i, key) => ui.locks[i].has(key);
+const isLocked = key => ui.locks[ui.selected].has(key);
+function persistLocks() {
+  if (!EMBEDDED) return;
+  setLocksNative(JSON.stringify(ui.locks.map(s => [...s]))).catch(() => {});
+}
+function toggleLock(key) {
+  const s = ui.locks[ui.selected];
+  s.has(key) ? s.delete(key) : s.add(key);
+  persistLocks(); refreshPanels();
+}
+function toggleSectionLock(keys) {
+  const s = ui.locks[ui.selected];
+  const allOn = keys.every(k => s.has(k));
+  keys.forEach(k => allOn ? s.delete(k) : s.add(k));
+  persistLocks(); refreshPanels();
+}
+/* right-click any lockable control to toggle its lock (Chaosverb gesture) */
+function bindLockGesture(el, key) {
+  el.addEventListener("contextmenu", e => { e.preventDefault(); toggleLock(key); return false; });
+}
+function reloadLocks() {
+  if (!EMBEDDED) return;
+  getLocksNative().then(json => {
+    if (!json) return;
+    try {
+      const arr = JSON.parse(json);
+      if (Array.isArray(arr)) arr.forEach((keys, i) => { if (i < 6 && Array.isArray(keys)) ui.locks[i] = new Set(keys); });
+      refreshPanels();
+    } catch (e) {}
+  }).catch(() => {});
+}
 
 /* mark configured when a band is (or becomes) enabled */
 P.bands.forEach((pb, i) => {
@@ -768,6 +832,7 @@ function reloadAllSteps() {
   }
 }
 reloadAllSteps();
+reloadLocks();   // pull persisted CHAOS locks from the plugin state
 
 /* ── UNDO / REDO ──
    The processor snapshots full APVTS state; we commit (debounced) after every
@@ -823,7 +888,7 @@ function lerpColor(a, b, t) {
   const br = parseInt(b.slice(1, 3), 16), bg = parseInt(b.slice(3, 5), 16), bb = parseInt(b.slice(5, 7), 16);
   return `rgb(${Math.round(ar + (br - ar) * t)},${Math.round(ag + (bg - ag) * t)},${Math.round(ab + (bb - ab) * t)})`;
 }
-function drawKnob(canvas, normValue, accentColor) {
+function drawKnob(canvas, normValue, accentColor, locked) {
   const ctx = canvas.getContext("2d");
   if (canvas.width !== KNOB_SIZE * DPR) { canvas.width = KNOB_SIZE * DPR; canvas.height = KNOB_SIZE * DPR; }
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -846,15 +911,21 @@ function drawKnob(canvas, normValue, accentColor) {
         const segEnd = degToRad(ARC_START + t1 * totalAngle) + 0.012;
         ctx.beginPath();
         ctx.arc(cx, cy, r, segStart, segEnd);
-        ctx.strokeStyle = lerpColor("#D4A574", accentColor, (t0 + t1) * 0.5);
+        ctx.strokeStyle = locked ? "#666" : lerpColor("#D4A574", accentColor, (t0 + t1) * 0.5);
         ctx.lineWidth = arcWidth;
         ctx.lineCap = i === 0 || i === segments - 1 ? "round" : "butt";
         ctx.stroke();
       }
     };
-    ctx.save(); ctx.shadowColor = accentColor; ctx.shadowBlur = 9;   ctx.globalAlpha = 0.30; strokeArc(); ctx.restore();
-    ctx.save(); ctx.shadowColor = accentColor; ctx.shadowBlur = 4.5; ctx.globalAlpha = 0.55; strokeArc(); ctx.restore();
-    ctx.save(); ctx.shadowColor = accentColor; ctx.shadowBlur = 1.5; ctx.globalAlpha = 1.0;  strokeArc(); ctx.restore();
+    if (locked) {
+      // Locked (Chaosverb mechanism): grey arc, single crisp pass, no glow —
+      // value still readable but visually deactivated.
+      ctx.save(); ctx.shadowBlur = 0; strokeArc(); ctx.restore();
+    } else {
+      ctx.save(); ctx.shadowColor = accentColor; ctx.shadowBlur = 9;   ctx.globalAlpha = 0.30; strokeArc(); ctx.restore();
+      ctx.save(); ctx.shadowColor = accentColor; ctx.shadowBlur = 4.5; ctx.globalAlpha = 0.55; strokeArc(); ctx.restore();
+      ctx.save(); ctx.shadowColor = accentColor; ctx.shadowBlur = 1.5; ctx.globalAlpha = 1.0;  strokeArc(); ctx.restore();
+    }
   }
 }
 
@@ -870,15 +941,28 @@ function makeKnob(containerId, label, opts) {
   const labelEl = div_("knob-label"); labelEl.textContent = label;
   const val = div_("knob-value");
   el.appendChild(body); el.appendChild(labelEl); el.appendChild(val);
+  if (opts.lockKey) {
+    bindLockGesture(el, opts.lockKey);
+    el.title = "Right-click: lock / unlock (CHAOS skips locked params)";
+  }
 
   const k = {
     el, color: opts.color,
     refresh() {
       const norm = opts.get();
-      drawKnob(canvas, norm, k.color);
+      const locked = opts.lockKey ? isLocked(opts.lockKey) : false;
+      drawKnob(canvas, norm, k.color, locked);
       ind.style.transform = `rotate(${-135 + clamp(norm, 0, 1) * 270}deg) translateY(-14px)`;
-      ind.style.boxShadow = `0 0 4px ${k.color}`;
+      // Locked: grey dot, no glow, dim face — position still readable (Chaosverb).
+      ind.style.background = locked ? "#aaaaaa" : "#ffffff";
+      ind.style.boxShadow = locked ? "none" : `0 0 4px ${k.color}`;
+      ind.style.opacity = locked ? "0.85" : "1";
+      face.style.background = locked ? "#181612" : "#1f1c19";
+      face.style.borderColor = locked ? "#2e2a25" : "";
+      face.style.opacity = locked ? "0.5" : "1";
+      body.classList.toggle("locked", locked);
       val.textContent = opts.fmt();
+      val.style.color = locked ? "#444" : "";
     }
   };
   let dragging = false, lastY = 0;
@@ -905,13 +989,20 @@ function makeHSlider(id, label, opts) {
   const fill = div_("hs-fill");
   track.appendChild(fill);
   el.appendChild(labelEl); el.appendChild(val); el.appendChild(track);
+  if (opts.lockKey) {
+    bindLockGesture(el, opts.lockKey);
+    el.title = "Right-click: lock / unlock (CHAOS skips locked params)";
+  }
   const s = {
     el, color: opts.color,
     refresh() {
       const norm = clamp(opts.get(), 0, 1);
+      const locked = opts.lockKey ? isLocked(opts.lockKey) : false;
       fill.style.width = (norm * 100) + "%";
-      fill.style.background = `linear-gradient(90deg, ${s.color}55, ${s.color})`;
+      fill.style.background = locked ? "linear-gradient(90deg, #4a4a4a, #666)"
+                                     : `linear-gradient(90deg, ${s.color}55, ${s.color})`;
       val.textContent = opts.fmt();
+      el.classList.toggle("locked", locked);
     }
   };
   let drag = false;
@@ -944,25 +1035,25 @@ const octToNorm = o => 1 - Math.log(o / OCT_MIN) / Math.log(OCT_MAX / OCT_MIN);
 const normToOct = n => OCT_MIN * Math.pow(OCT_MAX / OCT_MIN, 1 - n);
 
 const knobFreq = makeKnob("knob_freq", "FREQUENCY", {
-  color: bandColor(), def: fx(1000),
+  color: bandColor(), def: fx(1000), lockKey: "freq",
   get: () => fx(PB().freq.get()),
   set: n => PB().freq.set(xf(n)),
   fmt: () => fmtHz(PB().freq.get())
 });
 const knobWidth = makeKnob("knob_bwidth", "Q", {
-  color: bandColor(), def: octToNorm(1),
+  color: bandColor(), def: octToNorm(1), lockKey: "width",
   get: () => octToNorm(PB().width.get()),
   set: n => PB().width.set(normToOct(n)),
   fmt: () => { const q = octToQ(PB().width.get()); return q >= 10 ? q.toFixed(1) : q.toFixed(2); }
 });
 const knobLift = makeKnob("knob_lift", "LIFT", {
-  color: bandColor(), def: 1,
+  color: bandColor(), def: 1, lockKey: "lift",
   get: () => PB().lift.get() / 100,
   set: n => PB().lift.set(n * 100),
   fmt: () => Math.round(PB().lift.get()) + "%"
 });
 const knobDepth = makeKnob("knob_depth", "DEPTH", {
-  color: bandColor(), def: 1.0,
+  color: bandColor(), def: 1.0, lockKey: "depth",
   get: () => PB().depth.get() / 100,
   set: n => PB().depth.set(n * 100),
   fmt: () => Math.round(PB().depth.get()) + "%"
@@ -1005,7 +1096,7 @@ const knobSpeed = makeKnob("knob_speed", "SPEED", {
 const ENV_ATK = MAPS.log(1, 500), ENV_REL = MAPS.log(5, 2000), ENV_SCF = MAPS.log(20, 2000);
 const isEnv = () => PB().mode.get() === 6;
 const hsRate = makeHSlider("hs_rate", "RATE", {
-  color: bandColor(),
+  color: bandColor(), lockKey: "rate",
   get: () => {
     if (isEnv()) return ENV_ATK.to(P.envAtk.get());
     const pb = PB(), rm = pb.ratemode.get();
@@ -1034,14 +1125,14 @@ const hsRate = makeHSlider("hs_rate", "RATE", {
   }
 });
 const hsInertia = makeHSlider("hs_inertia", "INERTIA", {
-  color: bandColor(),
+  color: bandColor(), lockKey: "inertia",
   get: () => isEnv() ? ENV_REL.to(P.envRel.get()) : PB().inertia.get() / 100,
   set: n => isEnv() ? P.envRel.set(ENV_REL.from(n)) : PB().inertia.set(n * 100),
   reset: () => isEnv() ? P.envRel.set(150) : PB().inertia.set(60),
   fmt: () => isEnv() ? Math.round(P.envRel.get()) + "ms" : Math.round(PB().inertia.get()) + "%"
 });
 const hsPhase = makeHSlider("hs_phase", "PHASE", {
-  color: bandColor(),
+  color: bandColor(), lockKey: "phase",
   get: () => isEnv() ? ENV_SCF.to(P.envScf.get()) : PB().phase.get() / 360,
   set: n => isEnv() ? P.envScf.set(ENV_SCF.from(n)) : PB().phase.set(n * 360),
   reset: () => isEnv() ? P.envScf.set(20) : PB().phase.set(0),
@@ -1063,6 +1154,26 @@ MODES.forEach((m, i) => {
   b.onclick = () => { PB().mode.set(i); refreshPanels(); };
   modeChipsEl.appendChild(b);
 });
+// MODE lock — right-click the mode strip (chips dim when locked)
+bindLockGesture(modeChipsEl, "mode");
+modeChipsEl.title = "Right-click: lock / unlock Mod Type (CHAOS skips locked params)";
+
+// Section titles lock every parameter in the section (Chaosverb: click = group lock).
+function setupSectionTitle(id, keys, verb) {
+  const el = document.getElementById(id);
+  el.classList.add("lockable");
+  el.title = "Click: lock / unlock all " + verb + " parameters against CHAOS";
+  el.onclick = () => toggleSectionLock(keys);
+  el._keys = keys;
+  return el;
+}
+const bandTitle = setupSectionTitle("bandSecLabel", LOCK_SECTIONS.band, "band");
+const modTitle  = setupSectionTitle("modSecLabel",  LOCK_SECTIONS.mod,  "modulator");
+// Locked (all params held) → title goes bright, matching Chaosverb.
+function updateSectionLockVis(el) {
+  const s = ui.locks[ui.selected];
+  el.classList.toggle("locked", el._keys.every(k => s.has(k)));
+}
 
 document.getElementById("syncToggle").onclick = () => {
   if (isEnv()) { P.envRms.set(!P.envRms.get()); refreshPanels(); return; }
@@ -1075,31 +1186,36 @@ document.getElementById("bypassBtn").onclick = e => {
 document.getElementById("polToggle").onclick = () => { PB().uni.set(!PB().uni.get()); refreshPanels(); };
 function rnd(a, b) { return a + Math.random() * (b - a); }
 document.getElementById("rerollBtn").onclick = () => {
-  // randomize every option of each ENABLED band (freq/Q/lift/depth/gain +
-  // full modulation engine). Bands stay on; undo restores in one step.
+  // Randomize every UNLOCKED option of each ENABLED band (freq/Q/lift/depth +
+  // full modulation engine). Locked params (ui.locks) are left untouched.
+  // GAIN is loudness-comp — deliberately NOT randomized. Undo restores in one step.
+  let anyModeFree = false;
   for (let i = 0; i < 6; i++) {
     const pb = P.bands[i];
     if (!pb.on.get()) continue;
-    pb.freq.set(80 * Math.pow(12000 / 80, Math.random()));   // log-uniform
-    pb.width.set(rnd(0.3, 3.0));
-    pb.lift.set(rnd(55, 100));
-    pb.depth.set(rnd(30, 100));
-    pb.gain.set(rnd(-3, 3));
-    pb.mode.set(Math.floor(Math.random() * 6));
-    pb.ratemode.set(Math.random() < 0.75 ? 0 : 1);           // mostly synced
-    pb.div.set(Math.floor(Math.random() * 7));
-    pb.rate.set(rnd(0.1, 8));
-    pb.inertia.set(rnd(0, 100));
-    pb.phase.set(rnd(0, 360));
+    const L = ui.locks[i];
+    if (!L.has("freq"))  pb.freq.set(80 * Math.pow(12000 / 80, Math.random()));   // log-uniform
+    if (!L.has("width")) pb.width.set(rnd(0.3, 3.0));
+    if (!L.has("lift"))  pb.lift.set(rnd(55, 100));
+    if (!L.has("depth")) pb.depth.set(rnd(30, 100));
+    if (!L.has("mode"))  pb.mode.set(Math.floor(Math.random() * 6));
+    if (!L.has("rate")) {                                     // RATE lock freezes value + sync/free + division
+      pb.ratemode.set(Math.random() < 0.75 ? 0 : 1);         // mostly synced
+      pb.div.set(Math.floor(Math.random() * 7));
+      pb.rate.set(rnd(0.1, 8));
+    }
+    if (!L.has("inertia")) pb.inertia.set(rnd(0, 100));
+    if (!L.has("phase"))   pb.phase.set(rnd(0, 360));
+    if (!L.has("mode")) {                                     // keep a locked modulator's live trajectory intact
+      const b = ui.bands[i];
+      b.driftA = Math.random() * 100;
+      b.target = Math.random() * 2 - 1;
+      b.lz = { x: Math.random() * 0.4 - 0.2, y: 0, z: 0 };
+      b.lastDeal = -1;
+      anyModeFree = true;
+    }
   }
-  // re-deal internal random states (S&H/Drift/Chaos) too
-  ui.bands.forEach(b => {
-    b.driftA = Math.random() * 100;
-    b.target = Math.random() * 2 - 1;
-    b.lz = { x: Math.random() * 0.4 - 0.2, y: 0, z: 0 };
-    b.lastDeal = -1;
-  });
-  rerollNative().catch(() => {});
+  if (anyModeFree) rerollNative().catch(() => {});            // re-deal DSP random streams only if a modulator is free
   schedulePanels();
   scheduleCommit();
   const f = document.getElementById("mutationFlash");
@@ -1121,10 +1237,12 @@ let midiNoteName = "—", midiFreq = 0;
    ════════════════════════════════════════════════════════════════════ */
 function refreshPanels() {
   const c = bandColor(), pb = PB(), b = B();
-  const bandLabel = document.getElementById("bandSecLabel");
-  bandLabel.textContent = "Band " + (ui.selected + 1);
-  bandLabel.style.color = c;
-  document.getElementById("modSecLabel").style.color = c;
+  bandTitle.textContent = "Band " + (ui.selected + 1);
+  bandTitle.style.color = c;
+  modTitle.style.color = c;
+  updateSectionLockVis(bandTitle);
+  updateSectionLockVis(modTitle);
+  modeChipsEl.classList.toggle("locked", isLocked("mode"));
   [knobFreq, knobWidth, knobLift, knobDepth, knobBias].forEach(k => { k.color = c; k.refresh(); });
   [hsRate, hsInertia, hsPhase].forEach(s => { s.color = c; s.refresh(); });
   knobAmount.refresh(); knobOut.refresh(); knobWow.refresh(); knobFlutter.refresh(); knobSpeed.refresh();

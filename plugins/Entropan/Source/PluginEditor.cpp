@@ -126,6 +126,18 @@ EntropanAudioProcessorEditor::EntropanAudioProcessorEditor (EntropanAudioProcess
                 if (ok && webView != nullptr)
                     webView->emitEventIfBrowserIsVisible ("stateReloaded", juce::var());
                 complete (makeUndoState (audioProcessor.canUndo(), audioProcessor.canRedo()));
+            })
+        .withNativeFunction ("setLocks",
+            [this] (const juce::Array<juce::var>& args, auto complete)
+            {
+                if (args.size() >= 1)
+                    audioProcessor.setLocksJson (args[0].toString());
+                complete (true);
+            })
+        .withNativeFunction ("getLocks",
+            [this] (const juce::Array<juce::var>&, auto complete)
+            {
+                complete (audioProcessor.getLocksJson());
             });
 
     for (auto& r : sliderRelays)  options = options.withOptionsFrom (*r);

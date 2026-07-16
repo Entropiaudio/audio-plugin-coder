@@ -58,6 +58,11 @@ public:
     juce::String getStepsJson (int bandIndex) const;
     void setStepsJson (int bandIndex, const juce::String& json);
 
+    // UI CHAOS-lock mask (JSON: per-band arrays of frozen param keys). Lives in
+    // apvts.state for session persistence; excluded from undo (see stateForUndo).
+    juce::String getLocksJson() const;
+    void setLocksJson (const juce::String& json);
+
     // Re-roll (CHAOS button): re-deal random modulator states at next tick.
     void requestReroll() { rerollFlag.store (true); }
 

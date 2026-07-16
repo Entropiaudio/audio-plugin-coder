@@ -494,6 +494,42 @@ int main()
         std::printf ("    balance extremes: %+.1f … %+.1f dB\n", balMin, balMax);
     }
 
+    // ── T17: CHAOS locks — persist with the session, but stay out of undo ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        const juce::String locks = R"([["freq","rate"],[],["mode"],[],[],[]])";
+
+        p.commitUndoIfChanged();                       // settle baseline
+        const bool undoBefore = p.canUndo();
+
+        p.setLocksJson (locks);                        // user locks a couple of params
+        p.commitUndoIfChanged();
+        const bool lockMadeUndoStep = p.canUndo() != undoBefore;   // must stay false
+        const bool roundTrip = p.getLocksJson() == locks;
+
+        // locks must survive an undo of a real edit
+        setParam (p, "b1_depth", 33.0f);
+        p.commitUndoIfChanged();
+        const bool undid = p.undoState();
+        const bool locksSurviveUndo = p.getLocksJson() == locks;
+        const bool locksSurviveRedo = p.redoState() && p.getLocksJson() == locks;
+
+        // and must ride along with session save/load
+        juce::MemoryBlock state;
+        p.getStateInformation (state);
+        EntropanAudioProcessor q;
+        q.setStateInformation (state.getData(), (int) state.getSize());
+        const bool locksPersist = q.getLocksJson() == locks;
+
+        ok &= check ("T17 locks persist, excluded from undo",
+                     ! lockMadeUndoStep && roundTrip && undid
+                     && locksSurviveUndo && locksSurviveRedo && locksPersist);
+        std::printf ("    undoStep=%d roundTrip=%d undo=%d redo=%d persist=%d\n",
+                     (int) lockMadeUndoStep, (int) roundTrip, (int) locksSurviveUndo,
+                     (int) locksSurviveRedo, (int) locksPersist);
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }
