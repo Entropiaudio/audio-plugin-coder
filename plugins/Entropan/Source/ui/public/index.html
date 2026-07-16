@@ -457,7 +457,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B33</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B34</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -601,7 +601,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B33";
+const ENTROPAN_BUILD = "B34";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -1274,8 +1274,11 @@ function refreshPanels() {
   updateSectionLockVis(modTitle);
   updateSectionLockVis(outTitle);
   modeChipsEl.classList.toggle("locked", isLocked("mode"));
-  // No band placed yet → the band inspector edits nothing: show it "off".
-  document.querySelector(".sec-band").classList.toggle("section-off", !ui.bands.some(x => x.configured));
+  // No band placed yet → both per-band inspectors edit nothing: show them "off".
+  // (Output stays live — it is global.)
+  const noBands = ! ui.bands.some(x => x.configured);
+  document.querySelector(".sec-band").classList.toggle("section-off", noBands);
+  document.querySelector(".sec-mod").classList.toggle("section-off", noBands);
   [knobFreq, knobWidth, knobLift, knobDepth, knobBias].forEach(k => { k.color = c; k.refresh(); });
   [hsRate, hsInertia, hsPhase].forEach(s => { s.color = c; s.refresh(); });
   knobAmount.refresh(); knobOut.refresh(); knobWow.refresh(); knobFlutter.refresh(); knobSpeed.refresh();
