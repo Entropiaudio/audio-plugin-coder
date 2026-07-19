@@ -457,7 +457,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B34</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B35</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -601,7 +601,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B34";
+const ENTROPAN_BUILD = "B35";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -1077,15 +1077,27 @@ const knobLift = makeKnob("knob_lift", "LIFT", {
 const knobDepth = makeKnob("knob_depth", "DEPTH", {
   color: bandColor(), def: 1.0, lockKey: "depth",
   get: () => PB().depth.get() / 100,
-  set: n => PB().depth.set(n * 100),
+  set: n => { setDepthCoupled(PB(), n * 100); knobBias.refresh(); },
   fmt: () => Math.round(PB().depth.get()) + "%"
 });
-// bias headroom (fraction of the rail left after the swing) — shared by knob + quick-menu
-const biasHeadroom = pb => Math.max(0, 1 - (pb.depth.get() / 100) * (P.amount.get() / 100));
+// DEPTH and |BIAS| share a fixed 100% band budget: push either past what's left
+// and the other gives way. So bias is usable even at full depth — the depth
+// retreats to make room. `amount` scales the swing globally on top; the DSP's own
+// (1 - depth*amount) bias clamp always sits ≥ this budget, so it never interferes.
+const setDepthCoupled = (pb, d) => {
+  d = clamp(d, 0, 100); pb.depth.set(d);
+  const room = 100 - d, b = pb.bias.get();
+  if (Math.abs(b) > room) pb.bias.set(clamp(b, -room, room));   // bias yields to depth
+};
+const setBiasCoupled = (pb, b) => {
+  b = clamp(b, -100, 100); pb.bias.set(b);
+  const room = 100 - Math.abs(b);
+  if (pb.depth.get() > room) pb.depth.set(room);                // depth yields to bias
+};
 const knobBias = makeKnob("knob_bias", "BIAS", {
   color: bandColor(), def: 0.5, lockKey: "bias",
-  get: () => { const hr = biasHeadroom(PB()) * 100; return hr > 0 ? (clamp(PB().bias.get(), -hr, hr) + hr) / (2 * hr) : 0.5; },
-  set: n => { const hr = biasHeadroom(PB()) * 100; PB().bias.set(-hr + n * 2 * hr); },
+  get: () => (clamp(PB().bias.get(), -100, 100) + 100) / 200,   // full ±100% range
+  set: n => { setBiasCoupled(PB(), -100 + n * 200); knobDepth.refresh(); },
   fmt: () => { const b = PB().bias.get(); return (b > 0 ? "R" : b < 0 ? "L" : "C") + " " + Math.abs(Math.round(b)) + "%"; }
 });
 const knobAmount = makeKnob("knob_mix", "AMOUNT", {
@@ -1226,8 +1238,13 @@ document.getElementById("rerollBtn").onclick = () => {
     if (!L.has("width")) pb.width.set(rnd(0.3, 3.0));
     if (!L.has("lift"))  pb.lift.set(rnd(55, 100));
     if (!L.has("depth")) pb.depth.set(rnd(30, 100));
-    // bias AFTER depth+amount — headroom is what's left of the rail past the swing
-    if (!L.has("bias")) { const hr = biasHeadroom(pb) * 100; pb.bias.set(rnd(-hr, hr)); }
+    // bias shares the 100% budget with depth; roll within the room depth left
+    if (!L.has("bias")) { const room = 100 - pb.depth.get(); pb.bias.set(rnd(-room, room)); }
+    // keep the shared budget even when exactly one of the two is locked
+    if (Math.abs(pb.bias.get()) + pb.depth.get() > 100) {
+      if (L.has("bias")) pb.depth.set(100 - Math.abs(pb.bias.get()));           // depth yields to a locked bias
+      else { const room = 100 - pb.depth.get(); pb.bias.set(clamp(pb.bias.get(), -room, room)); }
+    }
     if (!L.has("mode"))  pb.mode.set(Math.floor(Math.random() * 6));
     if (!L.has("rate")) {                                     // RATE lock freezes value + sync/free + division
       pb.ratemode.set(Math.random() < 0.75 ? 0 : 1);         // mostly synced
@@ -1836,10 +1853,8 @@ function updateQuickMenu() {
   qmRefreshRow(qmDepth, pb.depth.get() / 100, Math.round(pb.depth.get()) + "%", bandColor());
   const gv = pb.gain.get();
   qmRefreshRow(qmGain, (gv + 6) / 12, (gv >= 0 ? "+" : "") + gv.toFixed(1) + " dB", bandColor());
-  const hr = biasHeadroom(pb), hrPct = hr * 100;
-  const bs = hrPct > 0 ? clamp(pb.bias.get(), -hrPct, hrPct) : 0;
-  const norm = hrPct > 0 ? (bs + hrPct) / (2 * hrPct) : 0.5;
-  qmRefreshRow(qmBias, norm, (bs > 0 ? "R" : bs < 0 ? "L" : "C") + " " + Math.abs(Math.round(bs)) + "%", bandColor());
+  const bs = clamp(pb.bias.get(), -100, 100);
+  qmRefreshRow(qmBias, (bs + 100) / 200, (bs > 0 ? "R" : bs < 0 ? "L" : "C") + " " + Math.abs(Math.round(bs)) + "%", bandColor());
 }
 function qmDragRow(row, apply, reset) {
   let drag = false;
@@ -1863,9 +1878,9 @@ qmDragRow(qmRate, n => {
   if (rm === 0) pb.div.set(3);            // 1/2
   else if (rm === 1) pb.rate.set(0.5);    // 0.5 Hz
 });
-qmDragRow(qmDepth, n => { PB().depth.set(n * 100); knobDepth.refresh(); }, () => PB().depth.set(100));
+qmDragRow(qmDepth, n => { setDepthCoupled(PB(), n * 100); knobDepth.refresh(); knobBias.refresh(); }, () => setDepthCoupled(PB(), 100));
 qmDragRow(qmGain, n => { PB().gain.set(-6 + n * 12); }, () => PB().gain.set(0));
-qmDragRow(qmBias, n => { const hr = biasHeadroom(PB()) * 100; PB().bias.set(-hr + n * 2 * hr); }, () => PB().bias.set(0));
+qmDragRow(qmBias, n => { setBiasCoupled(PB(), -100 + n * 200); knobBias.refresh(); knobDepth.refresh(); }, () => setBiasCoupled(PB(), 0));
 
 /* ════════════════════════════════════════════════════════════════════
    SCOPE + LOCAL MODULATOR SIM
