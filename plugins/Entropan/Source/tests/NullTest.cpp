@@ -494,6 +494,33 @@ int main()
         std::printf ("    balance extremes: %+.1f … %+.1f dB\n", balMin, balMax);
     }
 
+    // ── T18: override drops the headroom clamp — full depth + full bias stays one-sided ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        setParam (p, "b1_on", 1.0f);
+        setParam (p, "b1_freq", 1000.0f); setParam (p, "b1_width", 2.0f);
+        setParam (p, "b1_lift", 100.0f);  setParam (p, "b1_depth", 100.0f);   // same as T16…
+        setParam (p, "b1_bias", 100.0f);
+        setParam (p, "b1_override", 1.0f);   // …but override → bias NOT clamped → hard-right, wobble off the rail
+        setParam (p, "b1_ratemode", 1.0f); setParam (p, "b1_rate", 2.0f); setParam (p, "b1_inertia", 0.0f);
+        juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+        double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate;
+        double balMin = 1e9, balMax = -1e9;
+        for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk) {
+            for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+            p.processBlock (buf, midi);
+            if (blk < kWarmBlocks) continue;
+            double eL=1e-12,eR=1e-12;
+            for (int s = 0; s < kBlock; ++s){ eL+=juce::square((double)buf.getSample(0,s)); eR+=juce::square((double)buf.getSample(1,s)); }
+            const double b = dB(eR/eL); balMin=juce::jmin(balMin,b); balMax=juce::jmax(balMax,b);
+        }
+        // biased hard right: reaches the right rail (balMax high) but never the left (balMin stays ≳ 0),
+        // where T16 with the same depth/bias was symmetric (balMin < -8).
+        ok &= check ("T18 override → one-sided (right rail only)", balMax > 8.0 && balMin > -3.0);
+        std::printf ("    balance extremes: %+.1f … %+.1f dB\n", balMin, balMax);
+    }
+
     // ── T17: CHAOS locks — persist with the session, but stay out of undo ──
     {
         EntropanAudioProcessor p;

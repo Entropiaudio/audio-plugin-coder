@@ -272,6 +272,10 @@
   }
   /* Nothing to edit (no band placed) → section reads as "off", like a bypassed band */
   .section-col.section-off { opacity: 0.3; filter: saturate(0.12); pointer-events: none; }
+  /* band header: title (lock-all) on the left, DEPTH-override toggle on the right */
+  .band-hdr { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  .band-hdr .section-label { margin-bottom: 0; }
+  .band-ovr { font-size: 8px; letter-spacing: 1px; padding: 2px 7px; border-radius: 9px; }
 
   .toggle-btn {
     font-family: inherit; font-size: 9px; letter-spacing: 1.5px;
@@ -457,7 +461,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B36</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B37</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -504,7 +508,10 @@
   <!-- BOTTOM STRIP -->
   <div class="bottom">
     <div class="section-col sec-band">
-      <div class="section-label" id="bandSecLabel">Band 1</div>
+      <div class="band-hdr">
+        <div class="section-label" id="bandSecLabel">Band 1</div>
+        <button class="mode-toggle band-ovr" id="overrideToggle" title="Override: free DEPTH from the bias cap — pan can reach the rail">LINK</button>
+      </div>
       <div class="knob-row">
         <div class="knob-wrap knob-sm" id="knob_freq"></div>
         <div class="knob-wrap knob-sm" id="knob_bwidth"></div>
@@ -601,7 +608,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B36";
+const ENTROPAN_BUILD = "B37";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -649,7 +656,8 @@ function bandIds(i) { const p = `b${i + 1}_`; return {
   inertia: { id: p + "inertia", kind: "slider", map: MAPS.lin(0, 100), def: 60 },
   phase:   { id: p + "phase",   kind: "slider", map: MAPS.lin(0, 360), def: 0 },
   uni:     { id: p + "uni",     kind: "toggle", def: false },
-  bias:    { id: p + "bias",    kind: "slider", map: MAPS.lin(-100, 100), def: 0 }
+  bias:    { id: p + "bias",    kind: "slider", map: MAPS.lin(-100, 100), def: 0 },
+  override:{ id: p + "override",kind: "toggle", def: false }
 }; }
 const GLOBALS = {
   seed:   { id: "seed",   kind: "slider", map: MAPS.int(1, 128), def: 1 },
@@ -820,18 +828,23 @@ function reloadLocks() {
    stays 100%, 60% → 60%). `base` is UI-only memory; the persisted DEPTH stays the
    trimmed value, reconstructable as depth / biasTrim. `amount` is independent, and
    the DSP's (1 − depth·amount) bias clamp keeps the biased pan off the rail. */
+const bandOverride = i => P.bands[i].override.get();
+// biasTrim is 1 at centre → 0.5 at full bias. Under OVERRIDE the trim is lifted
+// (factor 1): DEPTH is a free 0-100% that bias no longer touches, and the DSP lets
+// the biased pan reach the rail (b*_override drops its headroom clamp).
 const biasTrim = pb => 1 - 0.5 * Math.abs(pb.bias.get()) / 100;
-function applyDepthTrim(pb, i) { pb.depth.set(clamp(ui.bands[i].depthBase * biasTrim(pb), 0, 100)); }
+const depthTrim = (pb, i) => bandOverride(i) ? 1 : biasTrim(pb);
+function writeDepth(pb, i) { pb.depth.set(clamp(ui.bands[i].depthBase * depthTrim(pb, i), 0, 100)); }
 function setDepthBase(pb, i, effPct) {            // user set DEPTH → remember it as the base
-  ui.bands[i].depthBase = clamp(effPct / biasTrim(pb), 0, 100);
-  applyDepthTrim(pb, i);
+  ui.bands[i].depthBase = clamp(effPct / depthTrim(pb, i), 0, 100);
+  writeDepth(pb, i);
 }
-function setBiasRemembered(pb, i, b) {            // user set BIAS → trim/restore DEPTH, base untouched
+function setBiasRemembered(pb, i, b) {            // user set BIAS → trim/restore DEPTH (no-op under override)
   pb.bias.set(clamp(b, -100, 100));
-  applyDepthTrim(pb, i);
+  writeDepth(pb, i);
 }
 const reconstructDepthBase = () =>
-  P.bands.forEach((pb, i) => { ui.bands[i].depthBase = clamp(pb.depth.get() / biasTrim(pb), 0, 100); });
+  P.bands.forEach((pb, i) => { ui.bands[i].depthBase = clamp(pb.depth.get() / depthTrim(pb, i), 0, 100); });
 
 /* mark configured when a band is (or becomes) enabled */
 P.bands.forEach((pb, i) => {
@@ -1228,6 +1241,15 @@ document.getElementById("bypassBtn").onclick = e => {
   refreshPanels();
 };
 document.getElementById("polToggle").onclick = () => { PB().uni.set(!PB().uni.get()); refreshPanels(); };
+document.getElementById("overrideToggle").onclick = () => {
+  const i = ui.selected, pb = PB(), now = !pb.override.get();
+  pb.override.set(now);
+  // rebase so DEPTH doesn't jump as the trim disengages/re-engages (re-engaging
+  // at high bias re-clamps the base to 100 → DEPTH drops back under the cap).
+  ui.bands[i].depthBase = clamp(pb.depth.get() / (now ? 1 : biasTrim(pb)), 0, 100);
+  writeDepth(pb, i);
+  knobDepth.refresh(); refreshPanels();
+};
 function rnd(a, b) { return a + Math.random() * (b - a); }
 document.getElementById("rerollBtn").onclick = () => {
   // Randomize every UNLOCKED option: the global feel (amount/wow/flutter) plus
@@ -1248,8 +1270,8 @@ document.getElementById("rerollBtn").onclick = () => {
     if (!L.has("lift"))  pb.lift.set(rnd(55, 100));
     if (!L.has("depth")) ui.bands[i].depthBase = rnd(30, 100);
     if (!L.has("bias"))  pb.bias.set(rnd(-100, 100));          // full range — DSP clamp keeps the pan off the rail
-    if (!L.has("depth")) applyDepthTrim(pb, i);                // depth free → live value = base × biasTrim
-    else ui.bands[i].depthBase = clamp(pb.depth.get() / biasTrim(pb), 0, 100);   // depth locked → keep it, refit base
+    if (!L.has("depth")) writeDepth(pb, i);                    // live DEPTH = base × trim (or base, under override)
+    else ui.bands[i].depthBase = clamp(pb.depth.get() / depthTrim(pb, i), 0, 100);   // depth locked → keep it, refit base
     if (!L.has("mode"))  pb.mode.set(Math.floor(Math.random() * 6));
     if (!L.has("rate")) {                                     // RATE lock freezes value + sync/free + division
       pb.ratemode.set(Math.random() < 0.75 ? 0 : 1);         // mostly synced
@@ -1337,6 +1359,9 @@ function refreshPanels() {
   const pol = document.getElementById("polToggle");
   pol.textContent = pb.uni.get() ? "UNI" : "BI";
   tintToggle(pol, pb.uni.get() ? COL_PURPLE : COL_ORANGE);   // BI orange → UNI purple
+  const ovr = document.getElementById("overrideToggle");
+  ovr.textContent = pb.override.get() ? "FREE" : "LINK";
+  tintToggle(ovr, pb.override.get() ? COL_PURPLE : COL_ORANGE);   // LINK orange → FREE purple
   const byp = document.getElementById("bypassBtn");
   byp.classList.toggle("active", P.bypass.get());
   document.getElementById("bypassDim").classList.toggle("on", P.bypass.get());

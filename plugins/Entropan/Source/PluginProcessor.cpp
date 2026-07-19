@@ -235,6 +235,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::crea
             juce::ParameterID { p + "bias", 1 }, label + "Bias",
             juce::NormalisableRange<float> (-100.0f, 100.0f, 0.01f), 0.0f,
             juce::AudioParameterFloatAttributes().withLabel ("%")));
+        params.push_back (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID { p + "override", 1 }, label + "Bias Override", false));
     }
 
     return { params.begin(), params.end() };
@@ -303,7 +305,8 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
             apvts.getRawParameterValue (p + "inertia"),
             apvts.getRawParameterValue (p + "phase"),
             apvts.getRawParameterValue (p + "uni"),
-            apvts.getRawParameterValue (p + "bias")
+            apvts.getRawParameterValue (p + "bias"),
+            apvts.getRawParameterValue (p + "override")
         };
     }
 }
@@ -384,6 +387,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         float  phaseOff = 0.0f;
         float  lorenzDt = 0.0f;
         bool   uni = false;
+        bool   biasFree = false;   // override: bias not headroom-clamped → pan may reach the rail
     };
     std::array<BandBlock, kNumBands> bb;
 
@@ -420,6 +424,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         cfg.rateMode = (int) pp.ratemode->load();
         cfg.phaseOff = pp.phase->load() / 360.0f;
         cfg.uni      = pp.uni->load() > 0.5f;
+        cfg.biasFree = pp.biasFree->load() > 0.5f;
         b.depth.setTargetValue (pp.depth->load() * 0.01f);
         b.bias.setTargetValue (juce::jlimit (-1.0f, 1.0f, pp.bias->load() * 0.01f));
 
@@ -592,9 +597,11 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             m.value += (m.target - m.value) * m.slewCoeff;
             const float mv    = cfg.uni ? (m.value + 1.0f) * 0.5f : m.value;
             // Limit bias to the headroom left by the swing so bias + full swing
-            // never crosses ±1 (no rail-clipping / flattened modulation).
+            // never crosses ±1 (no rail-clipping / flattened modulation). Override
+            // (biasFree) lifts that cap so a hard bias can keep full depth — the
+            // final jlimit then clamps the pan at the rail (intentional clip).
             const float reach   = juce::jlimit (0.0f, 1.0f, depthV * amountV);
-            const float biasMax = 1.0f - reach;
+            const float biasMax = cfg.biasFree ? 1.0f : (1.0f - reach);
             const float biasC   = juce::jlimit (-biasMax, biasMax, biasV);
             const float panV = juce::jlimit (-1.0f, 1.0f, biasC + mv * depthV * amountV);
             m.panOut = panV;
