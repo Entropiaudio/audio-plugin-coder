@@ -457,7 +457,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B35</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B36</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -601,7 +601,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B35";
+const ENTROPAN_BUILD = "B36";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -745,6 +745,7 @@ const ui = {
   lockMemo: { bands: Array.from({ length: 6 }, () => ({})), global: {} },
   bands: Array.from({ length: 6 }, (_, i) => ({
     configured: false,   // nothing on the canvas until the user adds a band
+    depthBase: 100,      // remembered DEPTH — bias trims the live value, this restores it
     stepCount: 8,
     steps: Array.from({ length: 16 }, (_, k) => ({ subdiv: 1, vals: [Math.sin(k / 16 * Math.PI * 2), 0, 0, 0] })),
     // local modulator sim (drives traces/scope until DSP telemetry lands)
@@ -812,12 +813,33 @@ function reloadLocks() {
   }).catch(() => {});
 }
 
+/* ── DEPTH ↔ BIAS memory ──
+   Each band remembers a DEPTH base. The live DEPTH param = base × biasTrim, where
+   biasTrim is 1 at centre and 0.5 at full bias — so biasing trims the swing toward
+   half (never to zero) and returning bias to centre restores DEPTH exactly (100%
+   stays 100%, 60% → 60%). `base` is UI-only memory; the persisted DEPTH stays the
+   trimmed value, reconstructable as depth / biasTrim. `amount` is independent, and
+   the DSP's (1 − depth·amount) bias clamp keeps the biased pan off the rail. */
+const biasTrim = pb => 1 - 0.5 * Math.abs(pb.bias.get()) / 100;
+function applyDepthTrim(pb, i) { pb.depth.set(clamp(ui.bands[i].depthBase * biasTrim(pb), 0, 100)); }
+function setDepthBase(pb, i, effPct) {            // user set DEPTH → remember it as the base
+  ui.bands[i].depthBase = clamp(effPct / biasTrim(pb), 0, 100);
+  applyDepthTrim(pb, i);
+}
+function setBiasRemembered(pb, i, b) {            // user set BIAS → trim/restore DEPTH, base untouched
+  pb.bias.set(clamp(b, -100, 100));
+  applyDepthTrim(pb, i);
+}
+const reconstructDepthBase = () =>
+  P.bands.forEach((pb, i) => { ui.bands[i].depthBase = clamp(pb.depth.get() / biasTrim(pb), 0, 100); });
+
 /* mark configured when a band is (or becomes) enabled */
 P.bands.forEach((pb, i) => {
   if (pb.on.get()) ui.bands[i].configured = true;
   // repaint is handled by the coalesced schedulePanels subscription below
   pb.on.onChange(() => { if (pb.on.get()) ui.bands[i].configured = true; });
 });
+reconstructDepthBase();   // recover remembered DEPTH from persisted state on open
 
 /* push steps to the processor (debounced) */
 const stepsPushTimers = [null, null, null, null, null, null];
@@ -889,6 +911,7 @@ if (EMBEDDED) {
   window.__JUCE__.backend.addEventListener("stateReloaded", () => {
     // params already updated via attachments — resync UI-local state + steps
     for (let i = 0; i < 6; i++) if (P.bands[i].on.get()) ui.bands[i].configured = true;
+    reconstructDepthBase();   // recover remembered DEPTH after undo/redo/preset load
     reloadAllSteps();
     refreshPanels();
   });
@@ -1077,27 +1100,13 @@ const knobLift = makeKnob("knob_lift", "LIFT", {
 const knobDepth = makeKnob("knob_depth", "DEPTH", {
   color: bandColor(), def: 1.0, lockKey: "depth",
   get: () => PB().depth.get() / 100,
-  set: n => { setDepthCoupled(PB(), n * 100); knobBias.refresh(); },
+  set: n => { setDepthBase(PB(), ui.selected, n * 100); },
   fmt: () => Math.round(PB().depth.get()) + "%"
 });
-// DEPTH and |BIAS| share a fixed 100% band budget: push either past what's left
-// and the other gives way. So bias is usable even at full depth — the depth
-// retreats to make room. `amount` scales the swing globally on top; the DSP's own
-// (1 - depth*amount) bias clamp always sits ≥ this budget, so it never interferes.
-const setDepthCoupled = (pb, d) => {
-  d = clamp(d, 0, 100); pb.depth.set(d);
-  const room = 100 - d, b = pb.bias.get();
-  if (Math.abs(b) > room) pb.bias.set(clamp(b, -room, room));   // bias yields to depth
-};
-const setBiasCoupled = (pb, b) => {
-  b = clamp(b, -100, 100); pb.bias.set(b);
-  const room = 100 - Math.abs(b);
-  if (pb.depth.get() > room) pb.depth.set(room);                // depth yields to bias
-};
 const knobBias = makeKnob("knob_bias", "BIAS", {
   color: bandColor(), def: 0.5, lockKey: "bias",
   get: () => (clamp(PB().bias.get(), -100, 100) + 100) / 200,   // full ±100% range
-  set: n => { setBiasCoupled(PB(), -100 + n * 200); knobDepth.refresh(); },
+  set: n => { setBiasRemembered(PB(), ui.selected, -100 + n * 200); knobDepth.refresh(); },
   fmt: () => { const b = PB().bias.get(); return (b > 0 ? "R" : b < 0 ? "L" : "C") + " " + Math.abs(Math.round(b)) + "%"; }
 });
 const knobAmount = makeKnob("knob_mix", "AMOUNT", {
@@ -1237,14 +1246,10 @@ document.getElementById("rerollBtn").onclick = () => {
     if (!L.has("freq"))  pb.freq.set(80 * Math.pow(12000 / 80, Math.random()));   // log-uniform
     if (!L.has("width")) pb.width.set(rnd(0.3, 3.0));
     if (!L.has("lift"))  pb.lift.set(rnd(55, 100));
-    if (!L.has("depth")) pb.depth.set(rnd(30, 100));
-    // bias shares the 100% budget with depth; roll within the room depth left
-    if (!L.has("bias")) { const room = 100 - pb.depth.get(); pb.bias.set(rnd(-room, room)); }
-    // keep the shared budget even when exactly one of the two is locked
-    if (Math.abs(pb.bias.get()) + pb.depth.get() > 100) {
-      if (L.has("bias")) pb.depth.set(100 - Math.abs(pb.bias.get()));           // depth yields to a locked bias
-      else { const room = 100 - pb.depth.get(); pb.bias.set(clamp(pb.bias.get(), -room, room)); }
-    }
+    if (!L.has("depth")) ui.bands[i].depthBase = rnd(30, 100);
+    if (!L.has("bias"))  pb.bias.set(rnd(-100, 100));          // full range — DSP clamp keeps the pan off the rail
+    if (!L.has("depth")) applyDepthTrim(pb, i);                // depth free → live value = base × biasTrim
+    else ui.bands[i].depthBase = clamp(pb.depth.get() / biasTrim(pb), 0, 100);   // depth locked → keep it, refit base
     if (!L.has("mode"))  pb.mode.set(Math.floor(Math.random() * 6));
     if (!L.has("rate")) {                                     // RATE lock freezes value + sync/free + division
       pb.ratemode.set(Math.random() < 0.75 ? 0 : 1);         // mostly synced
@@ -1878,9 +1883,9 @@ qmDragRow(qmRate, n => {
   if (rm === 0) pb.div.set(3);            // 1/2
   else if (rm === 1) pb.rate.set(0.5);    // 0.5 Hz
 });
-qmDragRow(qmDepth, n => { setDepthCoupled(PB(), n * 100); knobDepth.refresh(); knobBias.refresh(); }, () => setDepthCoupled(PB(), 100));
+qmDragRow(qmDepth, n => { setDepthBase(PB(), ui.selected, n * 100); knobDepth.refresh(); }, () => setDepthBase(PB(), ui.selected, 100));
 qmDragRow(qmGain, n => { PB().gain.set(-6 + n * 12); }, () => PB().gain.set(0));
-qmDragRow(qmBias, n => { setBiasCoupled(PB(), -100 + n * 200); knobBias.refresh(); knobDepth.refresh(); }, () => setBiasCoupled(PB(), 0));
+qmDragRow(qmBias, n => { setBiasRemembered(PB(), ui.selected, -100 + n * 200); knobBias.refresh(); knobDepth.refresh(); }, () => setBiasRemembered(PB(), ui.selected, 0));
 
 /* ════════════════════════════════════════════════════════════════════
    SCOPE + LOCAL MODULATOR SIM
