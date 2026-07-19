@@ -377,7 +377,11 @@
 
   /* output */
   /* absolute so the OUTPUT title stays a plain 1-line label → knob rows align across sections */
-  .routing-toggle { position: absolute; top: 6px; right: 14px; z-index: 5; font-size: 8px; letter-spacing: 1px; padding: 2px 8px; }
+  /* fixed width fits the longer word ("PARALLEL") so it never wraps or shifts;
+     text centred, single line */
+  .routing-toggle { position: absolute; top: 6px; right: 14px; z-index: 5;
+    width: 64px; padding: 2px 0; font-size: 8px; letter-spacing: 1px;
+    text-align: center; white-space: nowrap; }
   .out-knob-row { display: flex; justify-content: space-around; align-items: center; flex: 1; }
 
   /* overlays */
@@ -634,7 +638,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B49";
+const ENTROPAN_BUILD = "B50";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
