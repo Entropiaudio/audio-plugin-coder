@@ -462,7 +462,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B38</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B39</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -610,7 +610,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B38";
+const ENTROPAN_BUILD = "B39";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -848,6 +848,13 @@ function setBiasRemembered(pb, i, b) {            // user set BIAS → trim/rest
 }
 const reconstructDepthBase = () =>
   P.bands.forEach((pb, i) => { ui.bands[i].depthBase = clamp(pb.depth.get() / depthTrim(pb, i), 0, 100); });
+// The base must track every EXTERNAL depth change — critically the plugin's async
+// initial param push (at script-init depth reads 0, so the one-shot reconstruct
+// above captured base=0 → first bias touch slammed DEPTH to 0%), plus host
+// automation and preset loads. Re-fitting on our own writeDepth echo is harmless:
+// base' = (base·trim)/trim = base.
+P.bands.forEach((pb, i) =>
+  pb.depth.onChange(() => { ui.bands[i].depthBase = clamp(pb.depth.get() / depthTrim(pb, i), 0, 100); }));
 
 /* mark configured when a band is (or becomes) enabled */
 P.bands.forEach((pb, i) => {
