@@ -275,7 +275,7 @@
   /* DEPTH↔BIAS link toggle — chain icon below the knob row, under the
      DEPTH/BIAS boundary (knob columns sit at 10/30/50/70/90% → boundary 80%) */
   .link-btn {
-    position: absolute; left: 80%; bottom: 1px; transform: translateX(-50%);
+    position: absolute; left: 80%; bottom: 7px; transform: translateX(-50%);
     width: 16px; height: 16px; padding: 0;
     display: flex; align-items: center; justify-content: center;
     background: transparent; border: 1px solid var(--border-subtle);
@@ -472,7 +472,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B42</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B43</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -625,7 +625,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B42";
+const ENTROPAN_BUILD = "B43";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
