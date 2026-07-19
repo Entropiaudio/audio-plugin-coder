@@ -350,6 +350,8 @@
   .step-ctl-row .mode-toggle { font-size: 8px; padding: 1.5px 8px; }
   .step-count-row { display: flex; align-items: center; gap: 5px; justify-content: flex-end; flex: 0 0 16px; }
   .step-count-row .step-preset-sel, .step-count-row .step-save-btn { font-size: 8px; padding: 1px 5px; }
+  .step-del-btn { color: #d98a8a; border-color: #5a3a3a; }
+  .step-del-btn:disabled { opacity: 0.35; cursor: default; color: var(--text-dim); border-color: var(--border-subtle); }
   .preset-name-input {
     position: absolute; left: 8px; right: 8px; bottom: 6px; z-index: 20;
     font-family: inherit; font-size: 10px; letter-spacing: 0.05em;
@@ -374,9 +376,8 @@
   .step-save-btn:hover { color: var(--accent); border-color: var(--accent); }
 
   /* output */
-  .out-hdr { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
-  .out-hdr .section-label { margin-bottom: 0; }
-  .routing-toggle { font-size: 8px; letter-spacing: 1px; padding: 2px 8px; }
+  /* absolute so the OUTPUT title stays a plain 1-line label → knob rows align across sections */
+  .routing-toggle { position: absolute; top: 6px; right: 14px; z-index: 5; font-size: 8px; letter-spacing: 1px; padding: 2px 8px; }
   .out-knob-row { display: flex; justify-content: space-around; align-items: center; flex: 1; }
 
   /* overlays */
@@ -519,7 +520,7 @@
         <div class="qm-track"><div class="qm-fill"></div></div>
       </div>
     </div>
-    <div class="spectrum-hint">double-click: add band · double-click tip: on/off · drag: freq/lift · scroll: width · steps: alt-click = divide</div>
+    <div class="spectrum-hint">double-click: add band · double-click tip: on/off · drag: freq/lift · scroll: width · steps: alt-click = divide/glue (1·2·4·1)</div>
   </div>
 
   <!-- BOTTOM STRIP -->
@@ -573,6 +574,7 @@
             <div class="step-count-row">
               <select class="step-preset-sel" id="stepPresetSel"></select>
               <button class="step-save-btn" id="stepSaveBtn" title="Save current pattern as preset">SAVE</button>
+              <button class="step-save-btn step-del-btn" id="stepDelBtn" title="Delete the selected ★ preset" disabled>DEL</button>
               <span>STEPS</span>
               <button class="seed-arrow" id="stepDown">−</button>
               <span class="seed-val" id="stepCount">8</span>
@@ -584,10 +586,8 @@
     </div>
 
     <div class="section-col sec-out">
-      <div class="out-hdr">
-        <div class="section-label" id="outSecLabel">Output</div>
-        <button class="mode-toggle routing-toggle" id="routingToggle" data-tip="Serial: bands chain (a later band re-pans an overlapping earlier one). Parallel: bands run independently on the dry input (overlaps blend).">SERIAL</button>
-      </div>
+      <div class="section-label" id="outSecLabel">Output</div>
+      <button class="mode-toggle routing-toggle" id="routingToggle" data-tip="Serial: bands chain (a later band re-pans an overlapping earlier one). Parallel: bands run independently on the dry input (overlaps blend).">SERIAL</button>
       <div class="out-knob-row">
         <div class="knob-wrap" id="knob_mix"></div>
         <div class="knob-wrap" id="knob_wow"></div>
@@ -634,7 +634,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B47";
+const ENTROPAN_BUILD = "B48";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1578,6 +1578,8 @@ function loadPresets() {
   if (EMBEDDED) getPresetsNative().then(apply).catch(() => {});
   else apply(localStorage.getItem("entropanStepPresets"));
 }
+const stepDelBtn = document.getElementById("stepDelBtn");
+const updateDelBtn = () => { stepDelBtn.disabled = ! (stepPresetSel.value || "").startsWith("u:"); };  // only ★ presets deletable
 function refreshStepPresetList() {
   while (stepPresetSel.firstChild) stepPresetSel.removeChild(stepPresetSel.firstChild);
   const mk = (label, val, dis) => { const o = document.createElement("option"); o.textContent = label; o.value = val; if (dis) o.disabled = true; stepPresetSel.appendChild(o); };
@@ -1585,9 +1587,11 @@ function refreshStepPresetList() {
   Object.keys(STEP_FACTORY).forEach(k => mk(k, "f:" + k));
   Object.keys(userStepPresets()).forEach(k => mk("★ " + k, "u:" + k));
   stepPresetSel.value = "";
+  updateDelBtn();
 }
 stepPresetSel.addEventListener("change", () => {
   const b = B(), v = stepPresetSel.value;
+  updateDelBtn();
   if (!v) return;
   if (v.startsWith("f:")) b.steps = STEP_FACTORY[v.slice(2)](b.stepCount).concat(b.steps.slice(b.stepCount));
   else {
@@ -1596,6 +1600,13 @@ stepPresetSel.addEventListener("change", () => {
   }
   pushSteps(ui.selected);
   refreshPanels();
+});
+stepDelBtn.addEventListener("click", () => {
+  const v = stepPresetSel.value;
+  if (!v.startsWith("u:")) return;
+  delete stepPresetCache[v.slice(2)];   // drop the ★ preset, persist, rebuild the list
+  persistPresets();
+  refreshStepPresetList();
 });
 // Inline name entry — WKWebView blocks window.prompt(), so SAVE opened nothing.
 const presetNameInput = document.createElement("input");
@@ -2321,10 +2332,15 @@ document.addEventListener("mouseover", e => {
   const t = e.target.closest("[data-tip]");
   if (!t || !tooltipsEnabled) { tipEl.classList.remove("visible"); return; }
   tipEl.textContent = t.dataset.tip;
-  const r = t.getBoundingClientRect();
-  tipEl.style.left = Math.min(Math.max(4, r.left + r.width / 2 - 60), document.documentElement.clientWidth - 130) + "px";
-  tipEl.style.top = Math.max(4, r.top - 26) + "px";
   tipEl.classList.add("visible");
+  // measure AFTER setting text (may wrap to multiple lines) so the tip is placed
+  // fully clear of the control — above if it fits, else below. Never covers it.
+  const r = t.getBoundingClientRect();
+  const tw = tipEl.offsetWidth, th = tipEl.offsetHeight, gap = 6;
+  const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+  tipEl.style.left = clamp(r.left + r.width / 2 - tw / 2, 4, vw - tw - 4) + "px";
+  const above = r.top - th - gap;
+  tipEl.style.top = (above >= 4 ? above : Math.min(r.bottom + gap, vh - th - 4)) + "px";
 });
 document.addEventListener("mouseout", () => tipEl.classList.remove("visible"));
 
