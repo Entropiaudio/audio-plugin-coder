@@ -676,6 +676,37 @@ int main()
         std::printf ("    max |serial − parallel| = %.3f, |default − serial| = %.2g\n", maxDiff, defVsSerial);
     }
 
+    // ── T22: glued steps hold one value across the run ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        setParam (p, "b1_on", 1.0f);
+        setParam (p, "b1_freq", 1000.0f); setParam (p, "b1_width", 2.0f);
+        setParam (p, "b1_lift", 100.0f);  setParam (p, "b1_depth", 100.0f);
+        setParam (p, "amount", 100.0f);
+        setParam (p, "b1_mode", 4.0f);           // Steps
+        setParam (p, "b1_ratemode", 1.0f); setParam (p, "b1_rate", 4.0f);
+        // 4 cells: hard-right leader glued over cells 2-3-4, so the whole cycle = +1 (hard right)
+        p.setStepsJson (0, "{\"count\":4,\"steps\":["
+                           "{\"subdiv\":1,\"vals\":[1.0]},"
+                           "{\"subdiv\":1,\"vals\":[-1.0],\"tie\":true},"
+                           "{\"subdiv\":1,\"vals\":[-1.0],\"tie\":true},"
+                           "{\"subdiv\":1,\"vals\":[-1.0],\"tie\":true}]}");
+        juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+        double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate;
+        double inE = 0, outLE = 0, outRE = 0;
+        for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk) {
+            for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+            p.processBlock (buf, midi);
+            if (blk < kWarmBlocks) continue;
+            for (int s = 0; s < kBlock; ++s) { inE += 0.5; outLE += juce::square((double)buf.getSample(0,s)); outRE += juce::square((double)buf.getSample(1,s)); }
+        }
+        const double dL = dB (outLE/inE), dR = dB (outRE/inE);
+        // the tied cells ignore their own −1 and hold the leader's +1 → pan stays hard right
+        ok &= check ("T22 glued run holds leader value (hard right)", dL < -6.0 && dR > 2.0 && dR < 4.0);
+        std::printf ("    dL = %+.2f dB, dR = %+.2f dB\n", dL, dR);
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }

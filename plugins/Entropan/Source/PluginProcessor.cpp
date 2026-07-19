@@ -615,15 +615,18 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     m.target = juce::jlimit (-1.0f, 1.0f, (float) (m.lx / 18.0));
                     break;
                 }
-                case 4: // Steps: slot-stable ratchets (RT snapshot, resolved per block)
+                case 4: // Steps: slot-stable ratchets + glue runs (RT snapshot, per block)
                 {
                     const auto& sd = *cfg.steps;
                     if (sd.count > 0)
                     {
-                        double sp = frac * (double) sd.count;
-                        int slot = juce::jlimit (0, sd.count - 1, (int) sp);
-                        const auto& sl = sd.slots[slot];
-                        const int sub = juce::jlimit (0, sl.subdiv - 1, (int) ((sp - (double) slot) * (double) sl.subdiv));
+                        const double sp = frac * (double) sd.count;         // position in cells
+                        const int cell = juce::jlimit (0, sd.count - 1, (int) sp);
+                        const int rs  = sd.runStart[cell];                  // glued run leader
+                        const int rl  = juce::jmax (1, sd.runLen[cell]);
+                        const auto& sl = sd.slots[rs];                      // leader holds the value
+                        const double local = (sp - (double) rs) / (double) rl;   // 0..1 across the run
+                        const int sub = juce::jlimit (0, sl.subdiv - 1, (int) (local * (double) sl.subdiv));
                         m.target = sl.vals[sub];
                     }
                     else
@@ -844,12 +847,22 @@ void EntropanAudioProcessor::parseStepsSnapshot (int bandIndex)
                 {
                     const int subdiv = (int) so->getProperty ("subdiv");
                     slot.subdiv = (subdiv == 2 || subdiv == 4) ? subdiv : 1;
+                    slot.tie = k > 0 && (bool) so->getProperty ("tie");   // cell 0 can never be tied
                     if (auto* vals = so->getProperty ("vals").getArray())
                         for (int v = 0; v < juce::jmin (4, vals->size()); ++v)
                             slot.vals[v] = juce::jlimit (-1.0f, 1.0f, (float) (double) (*vals)[v]);
                 }
             }
         }
+    }
+
+    // precompute glue runs: a maximal span of [leader, tied, tied, …]
+    for (int k = 0; k < sd.count; )
+    {
+        int j = k + 1;
+        while (j < sd.count && sd.slots[j].tie) ++j;   // run = [k, j)
+        for (int c = k; c < j; ++c) { sd.runStart[c] = k; sd.runLen[c] = j - k; }
+        k = j;
     }
 
     stepsActive[(size_t) bandIndex].store (inactive, std::memory_order_release);

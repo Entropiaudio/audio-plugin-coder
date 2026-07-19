@@ -520,7 +520,7 @@
         <div class="qm-track"><div class="qm-fill"></div></div>
       </div>
     </div>
-    <div class="spectrum-hint">double-click: add band · double-click tip: on/off · drag: freq/lift · scroll: width · steps: alt-click = divide/glue (1·2·4·1)</div>
+    <div class="spectrum-hint">double-click: add band · double-click tip: on/off · drag: freq/lift · scroll: width · steps: alt-click = ratchet · shift-click = glue</div>
   </div>
 
   <!-- BOTTOM STRIP -->
@@ -634,7 +634,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B48";
+const ENTROPAN_BUILD = "B49";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -784,7 +784,7 @@ const ui = {
   bands: Array.from({ length: 6 }, (_, i) => ({
     configured: false,   // nothing on the canvas until the user adds a band
     stepCount: 8,
-    steps: Array.from({ length: 16 }, (_, k) => ({ subdiv: 1, vals: [Math.sin(k / 16 * Math.PI * 2), 0, 0, 0] })),
+    steps: Array.from({ length: 16 }, (_, k) => ({ subdiv: 1, vals: [Math.sin(k / 16 * Math.PI * 2), 0, 0, 0], tie: false })),
     // local modulator sim (drives traces/scope until DSP telemetry lands)
     pan: 0, mod: 0, target: 0, phi: Math.random(), livePhase: 0,
     lz: { x: 0.1 + i * 0.03, y: 0, z: 0 }, lastDeal: -1, driftA: Math.random() * 100
@@ -891,7 +891,7 @@ function pushSteps(i) {
     const b = ui.bands[i];
     setStepsNative(i, JSON.stringify({
       count: b.stepCount,
-      steps: b.steps.slice(0, b.stepCount).map(s => ({ subdiv: s.subdiv, vals: s.vals.slice(0, s.subdiv) }))
+      steps: b.steps.slice(0, b.stepCount).map(s => ({ subdiv: s.subdiv, vals: s.vals.slice(0, s.subdiv), tie: !!s.tie }))
     })).catch(() => {});
   }, 150);
 }
@@ -908,9 +908,10 @@ function reloadAllSteps() {
         b.stepCount = clamp(d.count || d.steps.length, 2, 16);
         b.steps = d.steps.map(s => ({
           subdiv: s.subdiv || 1,
-          vals: [...s.vals, 0, 0, 0, 0].slice(0, 4)
+          vals: [...s.vals, 0, 0, 0, 0].slice(0, 4),
+          tie: !!s.tie
         }));
-        while (b.steps.length < 16) b.steps.push({ subdiv: 1, vals: [0, 0, 0, 0] });
+        while (b.steps.length < 16) b.steps.push({ subdiv: 1, vals: [0, 0, 0, 0], tie: false });
         stepsRev++;   // reloaded from processor → invalidate the SMOOTH overlay cache
         refreshPanels();
       } catch {}
@@ -1451,13 +1452,17 @@ P.bypass.onChange(schedulePanels);
    ════════════════════════════════════════════════════════════════════ */
 const stepCanvas = document.getElementById("stepCanvas");
 
+// glue runs: leader = first non-tied cell walking left; run extends over tied cells
+const stepLeader = (b, cell) => { let L = cell; while (L > 0 && b.steps[L].tie) L--; return L; };
+const stepRunLen = (b, leader) => { let n = 1; while (leader + n < b.stepCount && b.steps[leader + n].tie) n++; return n; };
 function stepSlotAt(b, cyclePos) {
   const pos = ((cyclePos % 1) + 1) % 1 * b.stepCount;
-  const slot = Math.min(b.stepCount - 1, Math.floor(pos));
-  const frac = pos - slot;
-  const st = b.steps[slot];
-  const sub = Math.min(st.subdiv - 1, Math.floor(frac * st.subdiv));
-  return { slot, sub };
+  const cell = Math.min(b.stepCount - 1, Math.floor(pos));
+  const leader = stepLeader(b, cell), runLen = stepRunLen(b, leader);
+  const st = b.steps[leader];
+  const local = (pos - leader) / runLen;                       // 0..1 across the glued run
+  const sub = Math.min(st.subdiv - 1, Math.floor(local * st.subdiv));
+  return { slot: leader, sub, cell, leader, runLen };
 }
 function stepValueAt(b, cyclePos) {
   const { slot, sub } = stepSlotAt(b, cyclePos);
@@ -1479,23 +1484,27 @@ function drawSteps() {
                                  : (simClock * simRateHz(ui.selected)) + PB().phase.get() / 360;
   const act = PB().on.get() ? stepSlotAt(b, cyclePos) : { slot: -1, sub: -1 };
   const slotW = W / n;
-  for (let i = 0; i < n; i++) {
-    const st = b.steps[i], subW = slotW / st.subdiv;
+  for (let i = 0; i < n; ) {
+    // draw one glued run [i, i+runLen) as a single wide step (ratchets span it)
+    const st = b.steps[i];
+    let runLen = 1; while (i + runLen < n && b.steps[i + runLen].tie) runLen++;
+    const runX = i * slotW, runW = runLen * slotW, subW = runW / st.subdiv;
     for (let m = 0; m < st.subdiv; m++) {
       const v = st.vals[m];
-      const x = i * slotW + m * subW;
+      const x = runX + m * subW;
       const y0 = H / 2, y1 = H / 2 - v * (H / 2 - 4 * DPR);
       const hot = i === act.slot && m === act.sub;
       ctx.fillStyle = c + (hot ? "cc" : "59");
       ctx.fillRect(x + 1.5 * DPR, Math.min(y0, y1), Math.max(subW - 3 * DPR, DPR), Math.abs(y1 - y0) || DPR);
     }
     ctx.fillStyle = "#26221F";
-    ctx.fillRect(i * slotW, 0, DPR, H);
+    ctx.fillRect(runX, 0, DPR, H);   // divider only at run boundaries → glued cells read as one
     if (st.subdiv > 1) {
       ctx.fillStyle = c + "ee";
       for (let m = 0; m < st.subdiv; m++)
-        ctx.fillRect(i * slotW + m * subW + 1.5 * DPR, 2 * DPR, Math.max(subW - 3 * DPR, DPR), 2 * DPR);
+        ctx.fillRect(runX + m * subW + 1.5 * DPR, 2 * DPR, Math.max(subW - 3 * DPR, DPR), 2 * DPR);
     }
+    i += runLen;
   }
 
   // SMOOTH overlay — the actual glided waveform (mirrors the DSP one-pole so the
@@ -1529,20 +1538,28 @@ let stepsRev = 0;             // bumped on every step-data change (cache key par
 
 let stepDrag = false;
 const stepHit = (b, xNorm) => stepSlotAt(b, clamp(xNorm, 0, 0.9999));
-const paintStep = e => {
+const cellAt = (b, xNorm) => Math.min(b.stepCount - 1, Math.floor(clamp(xNorm, 0, 0.9999) * b.stepCount));
+const paintStep = e => {   // vertical drag sets the value of the run under the cursor (its leader)
   const b = B(), r = stepCanvas.getBoundingClientRect();
   const { slot, sub } = stepHit(b, (e.clientX - r.left) / r.width);
   b.steps[slot].vals[sub] = clamp(-((e.clientY - r.top) / r.height * 2 - 1), -1, 1);
   pushSteps(ui.selected);
 };
 stepCanvas.addEventListener("mousedown", e => {
-  if (e.altKey) { // divide slot in place: 1 → 2 → 4 → back. Neighbors stay put.
-    const b = B(), r = stepCanvas.getBoundingClientRect();
-    const { slot } = stepHit(b, (e.clientX - r.left) / r.width);
-    const st = b.steps[slot];
-    const next = st.subdiv === 1 ? 2 : st.subdiv === 2 ? 4 : 1;
-    for (let m = st.subdiv; m < next; m++) st.vals[m] = st.vals[m % st.subdiv];
-    st.subdiv = next;
+  const b = B(), r = stepCanvas.getBoundingClientRect();
+  const cell = cellAt(b, (e.clientX - r.left) / r.width);
+  if (e.shiftKey) {   // GLUE: tie this cell into the run on its left (shift-click again to un-glue)
+    if (cell > 0) { b.steps[cell].tie = ! b.steps[cell].tie; pushSteps(ui.selected); }
+    return;
+  }
+  if (e.altKey) {     // tied cell → un-glue (split off); otherwise cycle ratchets 1 → 2 → 4 → 1
+    const st = b.steps[cell];
+    if (st.tie) st.tie = false;
+    else {
+      const next = st.subdiv === 1 ? 2 : st.subdiv === 2 ? 4 : 1;
+      for (let m = st.subdiv; m < next; m++) st.vals[m] = st.vals[m % st.subdiv];
+      st.subdiv = next;
+    }
     pushSteps(ui.selected);
     return;
   }
@@ -1552,7 +1569,7 @@ window.addEventListener("mousemove", e => stepDrag && paintStep(e));
 window.addEventListener("mouseup", () => stepDrag = false);
 
 /* step pattern presets */
-const mkSlot = (v, subdiv = 1, vals = null) => ({ subdiv, vals: vals || [v, v, v, v] });
+const mkSlot = (v, subdiv = 1, vals = null) => ({ subdiv, vals: vals || [v, v, v, v], tie: false });
 const STEP_FACTORY = {
   "Ramp Up":   n => Array.from({length: n}, (_, k) => mkSlot(-1 + 2 * k / (n - 1))),
   "Ramp Down": n => Array.from({length: n}, (_, k) => mkSlot(1 - 2 * k / (n - 1))),
@@ -1596,7 +1613,7 @@ stepPresetSel.addEventListener("change", () => {
   if (v.startsWith("f:")) b.steps = STEP_FACTORY[v.slice(2)](b.stepCount).concat(b.steps.slice(b.stepCount));
   else {
     const pat = userStepPresets()[v.slice(2)];
-    if (pat) { b.stepCount = pat.length; b.steps = pat.map(x => ({ subdiv: x.subdiv, vals: [...x.vals, 0, 0, 0, 0].slice(0, 4) })).concat(Array.from({length: Math.max(0, 16 - pat.length)}, () => mkSlot(0))); }
+    if (pat) { b.stepCount = pat.length; b.steps = pat.map(x => ({ subdiv: x.subdiv, vals: [...x.vals, 0, 0, 0, 0].slice(0, 4), tie: !!x.tie })).concat(Array.from({length: Math.max(0, 16 - pat.length)}, () => mkSlot(0))); }
   }
   pushSteps(ui.selected);
   refreshPanels();
@@ -1619,7 +1636,7 @@ function commitPreset() {
   presetNameInput.style.display = "none";
   if (!name) return;
   const b = B();
-  stepPresetCache[name] = b.steps.slice(0, b.stepCount).map(x => ({ subdiv: x.subdiv, vals: x.vals.slice(0, x.subdiv) }));
+  stepPresetCache[name] = b.steps.slice(0, b.stepCount).map(x => ({ subdiv: x.subdiv, vals: x.vals.slice(0, x.subdiv), tie: !!x.tie }));
   persistPresets();
   refreshStepPresetList();
 }
