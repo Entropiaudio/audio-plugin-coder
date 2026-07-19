@@ -157,6 +157,7 @@ private:
         std::atomic<float>* uni;
         std::atomic<float>* bias;
         std::atomic<float>* biasFree;   // override: drop the bias headroom clamp (pan may hit the rail)
+        std::atomic<float>* stepSmooth; // Steps mode: 0 = square, 100 = glide between steps
     };
     std::array<BandParams, kNumBands> bandParams {};
     std::atomic<float>* pAmount = nullptr;

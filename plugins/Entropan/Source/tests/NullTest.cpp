@@ -557,6 +557,44 @@ int main()
                      (int) locksSurviveRedo, (int) locksPersist);
     }
 
+    // ── T19: step SMOOTH glides the pan — smooth 100 differs from square, stays finite ──
+    {
+        auto runSteps = [] (float smooth)
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (kSampleRate, kBlock);
+            setParam (p, "b1_on", 1.0f);
+            setParam (p, "b1_freq", 1000.0f); setParam (p, "b1_width", 2.0f);
+            setParam (p, "b1_lift", 100.0f);  setParam (p, "b1_depth", 100.0f);
+            setParam (p, "b1_mode", 5.0f);           // Steps
+            setParam (p, "b1_ratemode", 1.0f); setParam (p, "b1_rate", 6.0f);
+            setParam (p, "b1_stepsmooth", smooth);
+            // alternating hard L/R step pattern → maximal square jumps to smooth
+            p.setStepsJson (0, "{\"count\":4,\"steps\":["
+                               "{\"subdiv\":1,\"vals\":[1.0]},{\"subdiv\":1,\"vals\":[-1.0]},"
+                               "{\"subdiv\":1,\"vals\":[1.0]},{\"subdiv\":1,\"vals\":[-1.0]}]}");
+            juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+            double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate;
+            std::vector<float> capL;
+            for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk) {
+                for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+                p.processBlock (buf, midi);
+                if (blk < kWarmBlocks) continue;
+                for (int s = 0; s < kBlock; ++s) capL.push_back (buf.getSample (0, s));
+            }
+            return capL;
+        };
+        const auto square = runSteps (0.0f);
+        const auto glide  = runSteps (100.0f);
+        bool finite = true; double maxDiff = 0.0;
+        for (size_t k = 0; k < square.size(); ++k) {
+            finite = finite && std::isfinite (square[k]) && std::isfinite (glide[k]);
+            maxDiff = juce::jmax (maxDiff, (double) std::abs (square[k] - glide[k]));
+        }
+        ok &= check ("T19 step SMOOTH glides pan (finite, differs from square)", finite && maxDiff > 0.05);
+        std::printf ("    max |square − glide| = %.3f\n", maxDiff);
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }

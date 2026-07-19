@@ -343,6 +343,7 @@
   .step-editor { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 6px; }
   .step-editor.visible { display: flex; }
   #stepCanvas { flex: 1; min-height: 0; width: 100%; border-radius: 6px; background: var(--bg-elevated); border: 1px solid var(--border-divider); cursor: crosshair; }
+  .step-smooth-row { flex: 0 0 20px; }
   .step-count-row { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
   .step-count-row span { font-size: 8.5px; letter-spacing: 1px; color: var(--text-dim); }
   .step-preset-sel {
@@ -461,7 +462,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B37</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B38</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -547,6 +548,7 @@
           </div>
           <div class="step-editor" id="stepEditor">
             <canvas id="stepCanvas"></canvas>
+            <div class="hslider-row step-smooth-row"><div class="hslider" id="hs_stepsmooth"></div></div>
             <div class="step-count-row">
               <select class="step-preset-sel" id="stepPresetSel"></select>
               <button class="step-save-btn" id="stepSaveBtn" title="Save current pattern as preset">SAVE</button>
@@ -608,7 +610,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B37";
+const ENTROPAN_BUILD = "B38";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -657,7 +659,8 @@ function bandIds(i) { const p = `b${i + 1}_`; return {
   phase:   { id: p + "phase",   kind: "slider", map: MAPS.lin(0, 360), def: 0 },
   uni:     { id: p + "uni",     kind: "toggle", def: false },
   bias:    { id: p + "bias",    kind: "slider", map: MAPS.lin(-100, 100), def: 0 },
-  override:{ id: p + "override",kind: "toggle", def: false }
+  override:{ id: p + "override",kind: "toggle", def: false },
+  stepsmooth:{ id: p + "stepsmooth", kind: "slider", map: MAPS.lin(0, 100), def: 0 }
 }; }
 const GLOBALS = {
   seed:   { id: "seed",   kind: "slider", map: MAPS.int(1, 128), def: 1 },
@@ -1201,6 +1204,13 @@ const hsEnvGain = makeHSlider("hs_envgain", "GAIN", {
   reset: () => P.envGain.set(0),
   fmt: () => "+" + Math.round(P.envGain.get()) + " dB"
 });
+const hsStepSmooth = makeHSlider("hs_stepsmooth", "SMOOTH", {
+  color: bandColor(),
+  get: () => PB().stepsmooth.get() / 100,
+  set: n => PB().stepsmooth.set(n * 100),
+  reset: () => PB().stepsmooth.set(0),
+  fmt: () => Math.round(PB().stepsmooth.get()) + "%"
+});
 
 /* mode chips */
 const modeChipsEl = document.getElementById("modeChips");
@@ -1355,6 +1365,7 @@ function refreshPanels() {
   document.getElementById("envGainRow").style.display = mode === 6 ? "flex" : "none";
   if (mode === 6) { hsEnvGain.color = c; hsEnvGain.refresh(); }
   document.getElementById("stepEditor").classList.toggle("visible", mode === 5);
+  if (mode === 5) { hsStepSmooth.color = c; hsStepSmooth.refresh(); }
   document.getElementById("stepCount").textContent = b.stepCount;
   const pol = document.getElementById("polToggle");
   pol.textContent = pb.uni.get() ? "UNI" : "BI";
@@ -1431,6 +1442,26 @@ function drawSteps() {
       for (let m = 0; m < st.subdiv; m++)
         ctx.fillRect(i * slotW + m * subW + 1.5 * DPR, 2 * DPR, Math.max(subW - 3 * DPR, DPR), 2 * DPR);
     }
+  }
+
+  // SMOOTH overlay — the actual glided waveform (mirrors the DSP one-pole so the
+  // square→smooth morph is visible). Skipped at 0 (pure square = the bars above).
+  const sm = PB().stepsmooth.get() / 100;
+  if (sm > 0.005 && n > 0) {
+    const stepPx = W / n;
+    const slewPx = sm * sm * stepPx * 1.5;                 // corner in px = DSP corner in samples
+    const coeff = slewPx < 0.5 ? 1 : 1 - Math.exp(-1 / slewPx);
+    const tgt = px => { const h = stepSlotAt(b, (px % W) / W); return b.steps[h.slot].vals[h.sub]; };
+    let v = tgt(0);
+    for (let px = 0; px < W; px++) v += (tgt(px) - v) * coeff;   // settle one cycle
+    ctx.strokeStyle = c + "ee"; ctx.lineWidth = 1.6 * DPR; ctx.lineJoin = "round";
+    ctx.beginPath();
+    for (let px = 0; px <= W; px++) {
+      v += (tgt(px) - v) * coeff;
+      const y = H / 2 - v * (H / 2 - 4 * DPR);
+      px === 0 ? ctx.moveTo(px, y) : ctx.lineTo(px, y);
+    }
+    ctx.stroke();
   }
 }
 

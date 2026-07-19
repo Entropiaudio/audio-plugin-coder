@@ -237,6 +237,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::crea
             juce::AudioParameterFloatAttributes().withLabel ("%")));
         params.push_back (std::make_unique<juce::AudioParameterBool> (
             juce::ParameterID { p + "override", 1 }, label + "Bias Override", false));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { p + "stepsmooth", 1 }, label + "Step Smooth", pct(), 0.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("%")));
     }
 
     return { params.begin(), params.end() };
@@ -306,7 +309,8 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
             apvts.getRawParameterValue (p + "phase"),
             apvts.getRawParameterValue (p + "uni"),
             apvts.getRawParameterValue (p + "bias"),
-            apvts.getRawParameterValue (p + "override")
+            apvts.getRawParameterValue (p + "override"),
+            apvts.getRawParameterValue (p + "stepsmooth")
         };
     }
 }
@@ -459,8 +463,21 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const double periodS = cfg.cycPerSample > 1.0e-9
                                  ? 1.0 / (cfg.cycPerSample * currentSampleRate) : 1.0e9;
         double slewT;
-        if (cfg.mode == 2 || cfg.mode == 5)          // S&H / Steps
+        if (cfg.mode == 2)                           // S&H
             slewT = juce::jmin (0.004 + i2 * 2.0, periodS / 3.5);
+        else if (cfg.mode == 5)                      // Steps — dedicated SMOOTH (square → glide)
+        {
+            const float sm = pp.stepSmooth->load() * 0.01f;   // 0 = square, 1 = glide
+            if (sm < 1.0e-4f)
+                slewT = 0.0;
+            else
+            {
+                const int cnt = stepsBuf[(size_t) i][(size_t) stepsActive[(size_t) i]
+                                    .load (std::memory_order_acquire)].count;
+                const double stepDur = cnt > 0 ? periodS / (double) cnt : periodS;
+                slewT = (double) sm * sm * stepDur * 1.5;      // corner scales with one step
+            }
+        }
         else if (cfg.mode == 3 || cfg.mode == 4)     // Drift / Chaos
             slewT = juce::jmin (2.0, 0.004 + i2 * 2.0);
         else                                          // Sine / Tri
