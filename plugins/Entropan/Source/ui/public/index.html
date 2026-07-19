@@ -208,7 +208,7 @@
     font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase;
     opacity: 0.9; margin-bottom: 4px;
   }
-  .sec-band { flex: 0 0 320px; }   /* 5 knobs + the DEPTH↔BIAS link button */
+  .sec-band { flex: 0 0 300px; position: relative; }   /* anchor for the link button */
   .sec-mod  { flex: 1 1 auto; min-width: 0; }
   .sec-out  { flex: 0 0 260px; }
   .sec-out .section-label { color: var(--section-output); opacity: 0.7; }
@@ -272,10 +272,11 @@
   }
   /* Nothing to edit (no band placed) → section reads as "off", like a bypassed band */
   .section-col.section-off { opacity: 0.3; filter: saturate(0.12); pointer-events: none; }
-  /* DEPTH↔BIAS link toggle — chain icon wedged between the two knobs it couples */
+  /* DEPTH↔BIAS link toggle — chain icon below the knob row, under the
+     DEPTH/BIAS boundary (knob columns sit at 10/30/50/70/90% → boundary 80%) */
   .link-btn {
-    flex: 0 0 auto; width: 18px; height: 18px; padding: 0;
-    margin: 26px 0 0 0;            /* sit low, between the knob bodies */
+    position: absolute; left: 80%; bottom: 1px; transform: translateX(-50%);
+    width: 16px; height: 16px; padding: 0;
     display: flex; align-items: center; justify-content: center;
     background: transparent; border: 1px solid var(--border-subtle);
     border-radius: 50%; cursor: pointer; color: var(--text-dim);
@@ -471,7 +472,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B41</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B42</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -524,12 +525,12 @@
         <div class="knob-wrap knob-sm" id="knob_bwidth"></div>
         <div class="knob-wrap knob-sm" id="knob_lift"></div>
         <div class="knob-wrap knob-sm" id="knob_depth"></div>
-        <button class="link-btn" id="overrideToggle" title="DEPTH↔BIAS link: linked = bias trims depth (no clip) · broken = free depth, pan can reach the rail">
-          <svg class="icon-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M9 17H7A5 5 0 0 1 7 7h2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-          <svg class="icon-unlink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M9 17H7A5 5 0 0 1 7 7h2"/><line x1="5" y1="19" x2="19" y2="5"/></svg>
-        </button>
         <div class="knob-wrap knob-sm" id="knob_bias"></div>
       </div>
+      <button class="link-btn" id="overrideToggle" title="DEPTH↔BIAS link: linked = bias trims depth (no clip) · broken = free depth, pan can reach the rail">
+        <svg class="icon-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M9 17H7A5 5 0 0 1 7 7h2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        <svg class="icon-unlink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M9 17H7A5 5 0 0 1 7 7h2"/><line x1="5" y1="19" x2="19" y2="5"/></svg>
+      </button>
     </div>
 
     <div class="section-col sec-mod">
@@ -624,7 +625,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B41";
+const ENTROPAN_BUILD = "B42";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
