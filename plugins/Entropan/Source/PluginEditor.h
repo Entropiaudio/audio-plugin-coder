@@ -13,10 +13,10 @@
  *   2. WebBrowserComponent (destroyed middle)
  *   3. Parameter attachments (destroyed first)
  *
- * 77 parameters bound via relay/attachment vectors:
- *   - 51 float/int  → WebSliderRelay
+ * 108 parameters bound via relay/attachment vectors:
+ *   - 69 float/int  → WebSliderRelay
  *   - 19 choice     → WebComboBoxRelay
- *   -  7 bool       → WebToggleButtonRelay
+ *   - 20 bool       → WebToggleButtonRelay
  */
 class EntropanAudioProcessorEditor : public juce::AudioProcessorEditor,
                                      private juce::Timer
@@ -59,6 +59,11 @@ private:
     std::vector<float> fifoDrain, fftAccum, fftWork;
     int accumFill = 0;
     juce::uint32 scopeReadPos = 0;
+    // Log-bin resample geometry — constant per sample rate, rebuilt lazily
+    // (was ~770 pow/sqrt calls per 60 Hz frame).
+    struct BinGeom { int b0, i0, i1; float fr; };
+    std::vector<BinGeom> binGeom;
+    double binGeomSr = 0.0;
 
     juce::ComponentBoundsConstrainer constrainer;
     EntropanAudioProcessor& audioProcessor;

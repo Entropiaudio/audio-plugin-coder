@@ -2,14 +2,15 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
+#include <limits>
 
 //==============================================================================
 /**
  * Entropan — band-targeted spectral panner (Entropia Audio).
  *
  * Serial Linkwitz-Riley splitter cascade with allpass compensation, per-band
- * lift split → equal-power pan → ±6 dB gain, six per-band modulator engines
- * (Sine/Tri/S&H/Drift/Lorenz/Steps) evaluated per sample, PPQ sync + free +
+ * lift split → equal-power pan → ±6 dB gain, seven per-band modulator engines
+ * (Sine/Tri/S&H/Drift/Lorenz/Steps/Env) evaluated per sample, PPQ sync + free +
  * MIDI rate modes, global speed, snapshot undo/redo, analyzer + scope
  * telemetry for the WebView UI. Gate: Source/tests/NullTest.cpp.
  */
@@ -72,6 +73,12 @@ public:
     void commitUndoIfChanged();
     bool undoState();
     bool redoState();
+
+private:
+    // Shared body of undo/redo: pop `from`, push current onto `to`, restore.
+    bool restoreSnapshot (std::vector<juce::ValueTree>& from, std::vector<juce::ValueTree>& to);
+
+public:
     bool canUndo() const { return ! undoStack.empty(); }
     bool canRedo() const { return ! redoStack.empty(); }
 
@@ -93,6 +100,7 @@ private:
         juce::SmoothedValue<float> depth;     // 0..1, per-sample (automation-safe)
         juce::SmoothedValue<float> bias;      // -1..1 static pan offset (resting position)
         float fLoCur = 100.0f, fHiCur = 400.0f;   // block-rate cutoff glide state
+        float fLoApplied = -1.0f, fHiApplied = -1.0f;  // last cutoffs pushed into the filters
         bool  cutoffsInit = false;
 
         void prepare (const juce::dsp::ProcessSpec& spec)
@@ -130,7 +138,12 @@ private:
         double lx = 0.1, ly = 0.0, lz = 0.0;   // Lorenz state
         float  slewCoeff = 0.0f; // per-sample one-pole coefficient (from inertia)
         float  target  = 0.0f;
-        float  panOut  = 0.0f;   // uni/bipolar-transformed output (for scope/telemetry)
+        float  panOut  = 0.0f;   // final pan (post bias + depth·amount) for scope/telemetry
+        // S&H/Drift cell-hash cache — the hashed values are constant for a whole
+        // cell, so rehash only when (cell, seed, reroll, mode) changes.
+        juce::int64 lastCell = std::numeric_limits<juce::int64>::min();
+        int    lastSeed = -1, lastReroll = -1, lastMode = -1;
+        float  cellA = 0.0f, cellB = 0.0f;
     };
     std::array<Modulator, kNumBands> mods;
 
@@ -183,6 +196,7 @@ private:
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Lagrange3rd> wfDelay { 4096 };
     double wowPhase = 0.0, flutPhase = 0.0;
     juce::SmoothedValue<float> wfEngage;
+    bool wfWasActive = false;   // block-rate: skip the whole W&F stage while fully disengaged
 
     // MIDI rate mode: last note frequency (Hz); 0 = no note yet (frozen).
     float midiFreq = 0.0f;

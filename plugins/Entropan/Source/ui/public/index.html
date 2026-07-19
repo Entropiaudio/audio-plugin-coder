@@ -30,7 +30,6 @@
     --border-subtle: #2e2a25;
     --border-bright: #3e3a35;
     --border-divider: #26221F;
-    --border-soft: rgba(255, 245, 230, 0.08);
     --text-primary: #E8E2D6;
     --text-secondary: #A8A29A;
     --text-dim: #6A6258;
@@ -39,17 +38,8 @@
     --accent-bright: #E2BD96;
     --accent-glow: rgba(212, 165, 116, 0.35);
     --accent-tint: rgba(212, 165, 116, 0.08);
-    --accent-muted: rgba(212, 165, 116, 0.15);
-    --band-1: #3ab8d4;
-    --band-2: #8aaa7a;
-    --band-3: #5fc88a;
-    --band-4: #b06ed4;
-    --band-5: #d6884a;
-    --band-6: #D4A574;
     --section-output: #c8c8d0;
-    --state-success: #6bff8e;
     --state-warning: #ffb86b;
-    --state-error: #ff6b6b;
     --t-fast: 120ms;
     --t-base: 200ms;
     --t-slow: 350ms;
@@ -294,7 +284,6 @@
     padding: 3px 12px; cursor: pointer; margin-top: 4px;
     transition: all var(--t-fast) var(--ease-editorial);
   }
-  .toggle-btn.active { color: var(--state-success); border-color: var(--state-success); }
   .bypass-btn.active { color: var(--state-warning); border-color: var(--state-warning); }
   .sec-out { position: relative; }
   .sec-out .bypass-btn {
@@ -350,7 +339,6 @@
     border: 1px solid var(--border-subtle); border-radius: 9px;
     width: 46px; padding: 3px 0; cursor: pointer;
   }
-  .mode-toggle.active { color: var(--accent); border-color: var(--accent); }
 
   /* step editor */
   .step-editor { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 4px; }
@@ -479,7 +467,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B44</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -528,11 +516,11 @@
     <div class="section-col sec-band">
       <div class="section-label" id="bandSecLabel">Band 1</div>
       <div class="knob-row">
-        <div class="knob-wrap knob-sm" id="knob_freq"></div>
-        <div class="knob-wrap knob-sm" id="knob_bwidth"></div>
-        <div class="knob-wrap knob-sm" id="knob_lift"></div>
-        <div class="knob-wrap knob-sm" id="knob_depth"></div>
-        <div class="knob-wrap knob-sm" id="knob_bias"></div>
+        <div class="knob-wrap" id="knob_freq"></div>
+        <div class="knob-wrap" id="knob_bwidth"></div>
+        <div class="knob-wrap" id="knob_lift"></div>
+        <div class="knob-wrap" id="knob_depth"></div>
+        <div class="knob-wrap" id="knob_bias"></div>
       </div>
       <button class="link-btn" id="overrideToggle" title="DEPTH↔BIAS link: linked = bias trims depth (no clip) · broken = free depth, pan can reach the rail">
         <svg class="icon-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M9 17H7A5 5 0 0 1 7 7h2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
@@ -587,10 +575,10 @@
     <div class="section-col sec-out">
       <div class="section-label" id="outSecLabel">Output</div>
       <div class="out-knob-row">
-        <div class="knob-wrap knob-sm" id="knob_mix"></div>
-        <div class="knob-wrap knob-sm" id="knob_wow"></div>
-        <div class="knob-wrap knob-sm" id="knob_flutter"></div>
-        <div class="knob-wrap knob-sm" id="knob_output"></div>
+        <div class="knob-wrap" id="knob_mix"></div>
+        <div class="knob-wrap" id="knob_wow"></div>
+        <div class="knob-wrap" id="knob_flutter"></div>
+        <div class="knob-wrap" id="knob_output"></div>
       </div>
       <button class="toggle-btn bypass-btn" id="bypassBtn">BYPASS</button>
     </div>
@@ -632,8 +620,10 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B44";
+const ENTROPAN_BUILD = "B45";
 console.log("Entropan UI " + ENTROPAN_BUILD);
+// eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
+document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
 
 /* ════════════════════════════════════════════════════════════════════
    PARAMETER LAYER
@@ -658,44 +648,44 @@ const RATE_MIN = 0.02, RATE_MAX = 1000;
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
-/* denorm maps — MUST mirror the APVTS NormalisableRange definitions */
+/* norm↔value maps. Embedded mode reads range+skew straight from the JUCE lib
+   (st.properties), so only code OUTSIDE the P wrapper uses these. */
 const MAPS = {
   lin:  (lo, hi) => ({ from: n => lo + n * (hi - lo), to: v => (v - lo) / (hi - lo) }),
-  log:  (lo, hi) => ({ from: n => lo * Math.pow(hi / lo, n), to: v => Math.log(v / lo) / Math.log(hi / lo) }),
-  int:  (lo, hi) => ({ from: n => Math.round(lo + n * (hi - lo)), to: v => (v - lo) / (hi - lo) })
+  log:  (lo, hi) => ({ from: n => lo * Math.pow(hi / lo, n), to: v => Math.log(v / lo) / Math.log(hi / lo) })
 };
 
-/* param table: id → {kind, map, def(denorm)} */
+/* param table: id → {kind, def(denorm — standalone-mock initial value)} */
 function bandIds(i) { const p = `b${i + 1}_`; return {
   on:      { id: p + "on",      kind: "toggle", def: false },   // default preset: no bands
-  freq:    { id: p + "freq",    kind: "slider", map: MAPS.log(FMIN, FMAX), def: [200, 500, 1000, 2000, 5000, 10000][i] },
-  width:   { id: p + "width",   kind: "slider", map: MAPS.log(0.1, 4), def: 1.0 },
-  lift:    { id: p + "lift",    kind: "slider", map: MAPS.lin(0, 100), def: 100 },
-  depth:   { id: p + "depth",   kind: "slider", map: MAPS.lin(0, 100), def: 100 },
-  gain:    { id: p + "gain",    kind: "slider", map: MAPS.lin(-6, 6), def: 0 },
+  freq:    { id: p + "freq",    kind: "slider", def: [200, 500, 1000, 2000, 5000, 10000][i] },
+  width:   { id: p + "width",   kind: "slider", def: 1.0 },
+  lift:    { id: p + "lift",    kind: "slider", def: 100 },
+  depth:   { id: p + "depth",   kind: "slider", def: 100 },
+  gain:    { id: p + "gain",    kind: "slider", def: 0 },
   mode:    { id: p + "mode",    kind: "combo",  def: 0 },
-  rate:    { id: p + "rate",    kind: "slider", map: MAPS.log(RATE_MIN, RATE_MAX), def: 0.5 },
+  rate:    { id: p + "rate",    kind: "slider", def: 0.5 },
   ratemode:{ id: p + "ratemode",kind: "combo",  def: 0 },
   div:     { id: p + "div",     kind: "combo",  def: 3 },
-  inertia: { id: p + "inertia", kind: "slider", map: MAPS.lin(0, 100), def: 60 },
-  phase:   { id: p + "phase",   kind: "slider", map: MAPS.lin(0, 360), def: 0 },
+  inertia: { id: p + "inertia", kind: "slider", def: 60 },
+  phase:   { id: p + "phase",   kind: "slider", def: 0 },
   uni:     { id: p + "uni",     kind: "toggle", def: false },
-  bias:    { id: p + "bias",    kind: "slider", map: MAPS.lin(-100, 100), def: 0 },
+  bias:    { id: p + "bias",    kind: "slider", def: 0 },
   override:{ id: p + "override",kind: "toggle", def: false },
-  stepsmooth:{ id: p + "stepsmooth", kind: "slider", map: MAPS.lin(0, 100), def: 0 }
+  stepsmooth:{ id: p + "stepsmooth", kind: "slider", def: 0 }
 }; }
 const GLOBALS = {
-  seed:   { id: "seed",   kind: "slider", map: MAPS.int(1, 128), def: 1 },
-  amount: { id: "amount", kind: "slider", map: MAPS.lin(0, 100), def: 100 },
+  seed:   { id: "seed",   kind: "slider", def: 1 },
+  amount: { id: "amount", kind: "slider", def: 100 },
   speed:  { id: "speed",  kind: "combo",  def: 2 },
-  wow:     { id: "wow",     kind: "slider", map: MAPS.lin(0, 100), def: 0 },
-  flutter: { id: "flutter", kind: "slider", map: MAPS.lin(0, 100), def: 0 },
-  envAtk:  { id: "env_atk", kind: "slider", map: MAPS.log(1, 500), def: 20 },
-  envRel:  { id: "env_rel", kind: "slider", map: MAPS.log(5, 2000), def: 150 },
-  envScf:  { id: "env_scf", kind: "slider", map: MAPS.log(20, 2000), def: 20 },
+  wow:     { id: "wow",     kind: "slider", def: 0 },
+  flutter: { id: "flutter", kind: "slider", def: 0 },
+  envAtk:  { id: "env_atk", kind: "slider", def: 20 },
+  envRel:  { id: "env_rel", kind: "slider", def: 150 },
+  envScf:  { id: "env_scf", kind: "slider", def: 20 },
   envRms:  { id: "env_rms", kind: "toggle", def: false },
-  envGain: { id: "env_gain", kind: "slider", map: MAPS.lin(0, 36), def: 0 },
-  output: { id: "output", kind: "slider", map: MAPS.lin(-24, 12), def: 0 },
+  envGain: { id: "env_gain", kind: "slider", def: 0 },
+  output: { id: "output", kind: "slider", def: 0 },
   bypass: { id: "bypass", kind: "toggle", def: false }
 };
 
@@ -732,8 +722,8 @@ function makeParam(def) {
     const st = Juce.getComboBoxState(def.id);
     st.valueChangedEvent.addListener(notify);
     return {
-      get: () => st.getChoiceIndex ? st.getChoiceIndex() : Math.round(st.getNormalisedValue() * 100), // JUCE >= 8: index API
-      set: v => st.setChoiceIndex ? st.setChoiceIndex(v) : null,
+      get: () => st.getChoiceIndex(),   // JUCE 8 index API (always present in the vendored lib)
+      set: v => st.setChoiceIndex(v),
       onChange: f => listeners.push(f)
     };
   }
@@ -778,7 +768,6 @@ const ui = {
   lockMemo: { bands: Array.from({ length: 6 }, () => ({})), global: {} },
   bands: Array.from({ length: 6 }, (_, i) => ({
     configured: false,   // nothing on the canvas until the user adds a band
-    depthBase: 100,      // remembered DEPTH — bias trims the live value, this restores it
     stepCount: 8,
     steps: Array.from({ length: 16 }, (_, k) => ({ subdiv: 1, vals: [Math.sin(k / 16 * Math.PI * 2), 0, 0, 0] })),
     // local modulator sim (drives traces/scope until DSP telemetry lands)
@@ -801,7 +790,6 @@ const LOCK_SECTIONS = {
   out:  ["amount", "wow", "flutter"]     // global scope — LEVEL is never re-rolled
 };
 const lockSetFor = global => global ? ui.globalLocks : ui.locks[ui.selected];
-const lockedIn = (i, key) => ui.locks[i].has(key);
 const isLocked = (key, global) => lockSetFor(global).has(key);
 function persistLocks() {
   if (!EMBEDDED) return;
@@ -847,36 +835,29 @@ function reloadLocks() {
 }
 
 /* ── DEPTH ↔ BIAS memory ──
-   Each band remembers a DEPTH base. The live DEPTH param = base × biasTrim, where
-   biasTrim is 1 at centre and 0.5 at full bias — so biasing trims the swing toward
-   half (never to zero) and returning bias to centre restores DEPTH exactly (100%
-   stays 100%, 60% → 60%). `base` is UI-only memory; the persisted DEPTH stays the
-   trimmed value, reconstructable as depth / biasTrim. `amount` is independent, and
-   the DSP's (1 − depth·amount) bias clamp keeps the biased pan off the rail. */
+   The live DEPTH param = base × biasTrim, where biasTrim is 1 at centre and 0.5
+   at full bias — biasing trims the swing toward half (never to zero) and
+   returning bias to centre restores DEPTH exactly (100% stays 100%, 60% → 60%).
+   `amount` is independent, and the DSP's (1 − depth·amount) bias clamp keeps the
+   biased pan off the rail (unless the per-band override frees it). */
 const bandOverride = i => P.bands[i].override.get();
 // biasTrim is 1 at centre → 0.5 at full bias. Under OVERRIDE the trim is lifted
 // (factor 1): DEPTH is a free 0-100% that bias no longer touches, and the DSP lets
 // the biased pan reach the rail (b*_override drops its headroom clamp).
 const biasTrim = pb => 1 - 0.5 * Math.abs(pb.bias.get()) / 100;
 const depthTrim = (pb, i) => bandOverride(i) ? 1 : biasTrim(pb);
-function writeDepth(pb, i) { pb.depth.set(clamp(ui.bands[i].depthBase * depthTrim(pb, i), 0, 100)); }
-function setDepthBase(pb, i, effPct) {            // user set DEPTH → remember it as the base
-  ui.bands[i].depthBase = clamp(effPct / depthTrim(pb, i), 0, 100);
-  writeDepth(pb, i);
+// The base is DERIVED, never stored: depth always equals base × trim, so
+// base == depth / trim at any moment. (A stored copy needed four sync
+// mechanisms and still broke on the plugin's async init push — B39.)
+const depthBaseOf = (pb, i) => clamp(pb.depth.get() / depthTrim(pb, i), 0, 100);
+function setDepthEff(pb, i, effPct) {             // user set DEPTH — capped at base 100 × trim
+  pb.depth.set(clamp(clamp(effPct / depthTrim(pb, i), 0, 100) * depthTrim(pb, i), 0, 100));
 }
-function setBiasRemembered(pb, i, b) {            // user set BIAS → trim/restore DEPTH (no-op under override)
+function setBiasRemembered(pb, i, b) {            // user set BIAS → trim/restore DEPTH from the base
+  const base = depthBaseOf(pb, i);                // derive BEFORE the bias moves (base is bias-invariant)
   pb.bias.set(clamp(b, -100, 100));
-  writeDepth(pb, i);
+  pb.depth.set(clamp(base * depthTrim(pb, i), 0, 100));
 }
-const reconstructDepthBase = () =>
-  P.bands.forEach((pb, i) => { ui.bands[i].depthBase = clamp(pb.depth.get() / depthTrim(pb, i), 0, 100); });
-// The base must track every EXTERNAL depth change — critically the plugin's async
-// initial param push (at script-init depth reads 0, so the one-shot reconstruct
-// above captured base=0 → first bias touch slammed DEPTH to 0%), plus host
-// automation and preset loads. Re-fitting on our own writeDepth echo is harmless:
-// base' = (base·trim)/trim = base.
-P.bands.forEach((pb, i) =>
-  pb.depth.onChange(() => { ui.bands[i].depthBase = clamp(pb.depth.get() / depthTrim(pb, i), 0, 100); }));
 
 /* mark configured when a band is (or becomes) enabled */
 P.bands.forEach((pb, i) => {
@@ -884,11 +865,11 @@ P.bands.forEach((pb, i) => {
   // repaint is handled by the coalesced schedulePanels subscription below
   pb.on.onChange(() => { if (pb.on.get()) ui.bands[i].configured = true; });
 });
-reconstructDepthBase();   // recover remembered DEPTH from persisted state on open
 
 /* push steps to the processor (debounced) */
 const stepsPushTimers = [null, null, null, null, null, null];
 function pushSteps(i) {
+  stepsRev++;   // any step edit invalidates the SMOOTH overlay cache
   if (!EMBEDDED) return;
   clearTimeout(stepsPushTimers[i]);
   stepsPushTimers[i] = setTimeout(() => {
@@ -915,6 +896,7 @@ function reloadAllSteps() {
           vals: [...s.vals, 0, 0, 0, 0].slice(0, 4)
         }));
         while (b.steps.length < 16) b.steps.push({ subdiv: 1, vals: [0, 0, 0, 0] });
+        stepsRev++;   // reloaded from processor → invalidate the SMOOTH overlay cache
         refreshPanels();
       } catch {}
     }).catch(() => {});
@@ -956,7 +938,6 @@ if (EMBEDDED) {
   window.__JUCE__.backend.addEventListener("stateReloaded", () => {
     // params already updated via attachments — resync UI-local state + steps
     for (let i = 0; i < 6; i++) if (P.bands[i].on.get()) ui.bands[i].configured = true;
-    reconstructDepthBase();   // recover remembered DEPTH after undo/redo/preset load
     reloadAllSteps();
     refreshPanels();
   });
@@ -1113,8 +1094,8 @@ function makeHSlider(id, label, opts) {
 /* ════════════════════════════════════════════════════════════════════
    CONTROL BINDINGS
    ════════════════════════════════════════════════════════════════════ */
-const fx = f => Math.log(f / FMIN) / Math.log(FMAX / FMIN);
-const xf = x => FMIN * Math.pow(FMAX / FMIN, x);
+const FREQ_MAP = MAPS.log(FMIN, FMAX);
+const fx = FREQ_MAP.to, xf = FREQ_MAP.from;   // canvas-x ↔ frequency
 const fmtHz = f => f >= 1000 ? (f / 1000).toFixed(f < 10000 ? 1 : 0) + " kHz" : Math.round(f) + " Hz";
 const fmtRate = hz => hz >= 100 ? Math.round(hz) + " Hz" : hz >= 10 ? hz.toFixed(1) + " Hz" : hz.toFixed(2) + " Hz";
 
@@ -1145,7 +1126,7 @@ const knobLift = makeKnob("knob_lift", "LIFT", {
 const knobDepth = makeKnob("knob_depth", "DEPTH", {
   color: bandColor(), def: 1.0, lockKey: "depth",
   get: () => PB().depth.get() / 100,
-  set: n => { setDepthBase(PB(), ui.selected, n * 100); },
+  set: n => { setDepthEff(PB(), ui.selected, n * 100); },
   fmt: () => Math.round(PB().depth.get()) + "%"
 });
 const knobBias = makeKnob("knob_bias", "BIAS", {
@@ -1182,35 +1163,33 @@ const knobSpeed = makeKnob("knob_speed", "SPEED", {
 });
 
 const ENV_ATK = MAPS.log(1, 500), ENV_REL = MAPS.log(5, 2000), ENV_SCF = MAPS.log(20, 2000);
+const RATE_MAP = MAPS.log(RATE_MIN, RATE_MAX);
 const isEnv = () => PB().mode.get() === 6;
+
+/* ONE rate behaviour (ratemode-switched map, defaults, formatting) shared by
+   the RATE fader, the step-editor SPEED fader, and the quick-menu row. */
+const rateCtl = {
+  norm(pb)   { const rm = pb.ratemode.get();
+               return rm === 0 ? pb.div.get() / (DIVS.length - 1)
+                    : rm === 1 ? RATE_MAP.to(pb.rate.get()) : 0.5; },
+  set(pb, n) { const rm = pb.ratemode.get();
+               if (rm === 0) pb.div.set(Math.round(n * (DIVS.length - 1)));
+               else if (rm === 1) pb.rate.set(RATE_MAP.from(n)); },
+  reset(pb)  { const rm = pb.ratemode.get();
+               if (rm === 0) pb.div.set(3);            // 1/2
+               else if (rm === 1) pb.rate.set(0.5); }, // 0.5 Hz
+  fmt(pb)    { const rm = pb.ratemode.get();
+               return rm === 0 ? DIVS[pb.div.get()]
+                    : rm === 1 ? fmtRate(pb.rate.get())
+                    : midiNoteName + " · " + Math.round(midiFreq) + " Hz"; }
+};
+
 const hsRate = makeHSlider("hs_rate", "RATE", {
   color: bandColor(), lockKey: "rate",
-  get: () => {
-    if (isEnv()) return ENV_ATK.to(P.envAtk.get());
-    const pb = PB(), rm = pb.ratemode.get();
-    if (rm === 0) return pb.div.get() / (DIVS.length - 1);
-    if (rm === 1) return Math.log(pb.rate.get() / RATE_MIN) / Math.log(RATE_MAX / RATE_MIN);
-    return 0.5;
-  },
-  set: n => {
-    if (isEnv()) { P.envAtk.set(ENV_ATK.from(n)); return; }
-    const pb = PB(), rm = pb.ratemode.get();
-    if (rm === 0) pb.div.set(Math.round(n * (DIVS.length - 1)));
-    else if (rm === 1) pb.rate.set(RATE_MIN * Math.pow(RATE_MAX / RATE_MIN, n));
-  },
-  reset: () => {
-    if (isEnv()) { P.envAtk.set(20); return; }
-    const pb = PB(), rm = pb.ratemode.get();
-    if (rm === 0) pb.div.set(3);            // 1/2
-    else if (rm === 1) pb.rate.set(0.5);    // 0.5 Hz
-  },
-  fmt: () => {
-    if (isEnv()) return Math.round(P.envAtk.get()) + " ms";
-    const pb = PB(), rm = pb.ratemode.get();
-    if (rm === 0) return DIVS[pb.div.get()];
-    if (rm === 1) return fmtRate(pb.rate.get());
-    return midiNoteName + " · " + Math.round(midiFreq) + " Hz";
-  }
+  get:   () => isEnv() ? ENV_ATK.to(P.envAtk.get()) : rateCtl.norm(PB()),
+  set:   n  => isEnv() ? P.envAtk.set(ENV_ATK.from(n)) : rateCtl.set(PB(), n),
+  reset: () => isEnv() ? P.envAtk.set(20) : rateCtl.reset(PB()),
+  fmt:   () => isEnv() ? Math.round(P.envAtk.get()) + " ms" : rateCtl.fmt(PB())
 });
 const hsInertia = makeHSlider("hs_inertia", "INERTIA", {
   color: bandColor(), lockKey: "inertia",
@@ -1237,31 +1216,11 @@ const hsEnvGain = makeHSlider("hs_envgain", "GAIN", {
 // mode, so the sequencer gets its own rate control. Same param paths as hsRate,
 // same "rate" lock key (locking RATE dims + freezes both).
 const hsStepSpeed = makeHSlider("hs_stepspeed", "SPEED", {
-  color: bandColor(), lockKey: "rate",
-  get: () => {
-    const pb = PB(), rm = pb.ratemode.get();
-    if (rm === 0) return pb.div.get() / (DIVS.length - 1);
-    if (rm === 1) return Math.log(pb.rate.get() / RATE_MIN) / Math.log(RATE_MAX / RATE_MIN);
-    return 0.5;
-  },
-  set: n => {
-    const pb = PB(), rm = pb.ratemode.get();
-    if (rm === 0) pb.div.set(Math.round(n * (DIVS.length - 1)));
-    else if (rm === 1) pb.rate.set(RATE_MIN * Math.pow(RATE_MAX / RATE_MIN, n));
-    hsRate.refresh();
-  },
-  reset: () => {
-    const pb = PB(), rm = pb.ratemode.get();
-    if (rm === 0) pb.div.set(3);            // 1/2
-    else if (rm === 1) pb.rate.set(0.5);    // 0.5 Hz
-    hsRate.refresh();
-  },
-  fmt: () => {
-    const pb = PB(), rm = pb.ratemode.get();
-    if (rm === 0) return DIVS[pb.div.get()];
-    if (rm === 1) return fmtRate(pb.rate.get());
-    return midiNoteName + " · " + Math.round(midiFreq) + " Hz";
-  }
+  color: bandColor(), lockKey: "rate",   // same binding + lock as RATE — a second view, not a second impl
+  get:   () => rateCtl.norm(PB()),
+  set:   n  => { rateCtl.set(PB(), n); hsRate.refresh(); },
+  reset: () => { rateCtl.reset(PB()); hsRate.refresh(); },
+  fmt:   () => rateCtl.fmt(PB())
 });
 const hsStepSmooth = makeHSlider("hs_stepsmooth", "SMOOTH", {
   color: bandColor(),
@@ -1314,12 +1273,11 @@ document.getElementById("bypassBtn").onclick = e => {
 };
 document.getElementById("polToggle").onclick = () => { PB().uni.set(!PB().uni.get()); refreshPanels(); };
 document.getElementById("overrideToggle").onclick = () => {
-  const i = ui.selected, pb = PB(), now = !pb.override.get();
-  pb.override.set(now);
-  // rebase so DEPTH doesn't jump as the trim disengages/re-engages (re-engaging
-  // at high bias re-clamps the base to 100 → DEPTH drops back under the cap).
-  ui.bands[i].depthBase = clamp(pb.depth.get() / (now ? 1 : biasTrim(pb)), 0, 100);
-  writeDepth(pb, i);
+  const i = ui.selected, pb = PB();
+  pb.override.set(!pb.override.get());
+  // re-fit under the NEW trim: to FREE, depth stays put; back to LINK, depth
+  // re-clamps under the cap (base tops out at 100 → e.g. 100 @ full bias → 50).
+  pb.depth.set(clamp(depthBaseOf(pb, i) * depthTrim(pb, i), 0, 100));
   knobDepth.refresh(); refreshPanels();
 };
 function rnd(a, b) { return a + Math.random() * (b - a); }
@@ -1340,10 +1298,12 @@ document.getElementById("rerollBtn").onclick = () => {
     if (!L.has("freq"))  pb.freq.set(80 * Math.pow(12000 / 80, Math.random()));   // log-uniform
     if (!L.has("width")) pb.width.set(rnd(0.3, 3.0));
     if (!L.has("lift"))  pb.lift.set(rnd(55, 100));
-    if (!L.has("depth")) ui.bands[i].depthBase = rnd(30, 100);
-    if (!L.has("bias"))  pb.bias.set(rnd(-100, 100));          // full range — DSP clamp keeps the pan off the rail
-    if (!L.has("depth")) writeDepth(pb, i);                    // live DEPTH = base × trim (or base, under override)
-    else ui.bands[i].depthBase = clamp(pb.depth.get() / depthTrim(pb, i), 0, 100);   // depth locked → keep it, refit base
+    // roll a base BEFORE bias moves (the base is bias-invariant); a locked
+    // DEPTH keeps its live value untouched — nothing to refit with derived state
+    const depthFree = ! L.has("depth");
+    const base = depthFree ? rnd(30, 100) : 0;
+    if (!L.has("bias")) pb.bias.set(rnd(-100, 100));           // full range — DSP clamp keeps the pan off the rail
+    if (depthFree) pb.depth.set(clamp(base * depthTrim(pb, i), 0, 100));
     if (!L.has("mode"))  pb.mode.set(Math.floor(Math.random() * 6));
     if (!L.has("rate")) {                                     // RATE lock freezes value + sync/free + division
       pb.ratemode.set(Math.random() < 0.75 ? 0 : 1);         // mostly synced
@@ -1375,12 +1335,21 @@ P.speed.onChange(() => knobSpeed.refresh());
 document.getElementById("stepUp").onclick = () => { B().stepCount = Math.min(16, B().stepCount + 1); pushSteps(ui.selected); refreshPanels(); };
 document.getElementById("stepDown").onclick = () => { B().stepCount = Math.max(2, B().stepCount - 1); pushSteps(ui.selected); refreshPanels(); };
 
-/* MIDI display placeholders (real values arrive via telemetry in later phase) */
+/* MIDI note display — updated live by the "modvals" telemetry handler */
 let midiNoteName = "—", midiFreq = 0;
 
 /* ════════════════════════════════════════════════════════════════════
    PANEL REFRESH
    ════════════════════════════════════════════════════════════════════ */
+/* Chaosverb-style toggle tinting: the toggle wears its current option's colour */
+const COL_ORANGE = "#D4A574", COL_PURPLE = "#b06ed4", COL_CYAN = "#3ab8d4";
+const tintToggle = (el, col) => { el.style.color = col; el.style.borderColor = col; el.style.boxShadow = "0 0 7px " + col + "55"; };
+const RATE_MODE_NAMES = ["SYNC", "FREE", "MIDI"], RATE_MODE_COLS = [COL_ORANGE, COL_PURPLE, COL_CYAN];
+function applyRateModeToggle(el, rm) {
+  el.textContent = RATE_MODE_NAMES[rm] || "SYNC";
+  tintToggle(el, RATE_MODE_COLS[rm] || COL_ORANGE);
+}
+
 function refreshPanels() {
   const c = bandColor(), pb = PB(), b = B();
   bandTitle.textContent = "Band " + (ui.selected + 1);
@@ -1407,9 +1376,6 @@ function refreshPanels() {
   const mode = pb.mode.get();
   const rm = document.getElementById("syncToggle");
   const setHsLabel = (hs, txt) => { const el = hs.el.querySelector(".hs-label"); if (el) el.textContent = txt; };
-  // Chaosverb-style: the toggle wears its current option's colour.
-  const tintToggle = (el, col) => { el.classList.add("active"); el.style.color = col; el.style.borderColor = col; el.style.boxShadow = "0 0 7px " + col + "55"; };
-  const COL_ORANGE = "#D4A574", COL_PURPLE = "#b06ed4", COL_CYAN = "#3ab8d4";
   if (mode === 6) {   // Env: sliders become the detection-circuit controls
     setHsLabel(hsRate, "ATK"); setHsLabel(hsInertia, "REL"); setHsLabel(hsPhase, "SC-F");
     rm.textContent = P.envRms.get() ? "RMS" : "PEAK";
@@ -1418,8 +1384,7 @@ function refreshPanels() {
     hsInertia.el.classList.remove("disabled");
   } else {
     setHsLabel(hsRate, "Rate"); setHsLabel(hsInertia, "Inertia"); setHsLabel(hsPhase, "Phase");
-    rm.textContent = ["SYNC", "FREE", "MIDI"][pb.ratemode.get()] || "SYNC";
-    tintToggle(rm, [COL_ORANGE, COL_PURPLE, COL_CYAN][pb.ratemode.get()] || COL_ORANGE);   // SYNC orange → FREE purple → MIDI cyan
+    applyRateModeToggle(rm, pb.ratemode.get());   // SYNC orange → FREE purple → MIDI cyan
     hsPhase.el.classList.toggle("disabled", mode >= 2 && mode <= 4);
     hsInertia.el.classList.toggle("disabled", mode <= 1);
   }
@@ -1434,9 +1399,7 @@ function refreshPanels() {
   if (mode === 5) {
     hsStepSmooth.color = c; hsStepSmooth.refresh();
     hsStepSpeed.color = c; hsStepSpeed.refresh();
-    const ssync = document.getElementById("stepSyncToggle");
-    ssync.textContent = ["SYNC", "FREE", "MIDI"][pb.ratemode.get()] || "SYNC";
-    tintToggle(ssync, [COL_ORANGE, COL_PURPLE, COL_CYAN][pb.ratemode.get()] || COL_ORANGE);
+    applyRateModeToggle(document.getElementById("stepSyncToggle"), pb.ratemode.get());
   }
   document.getElementById("stepCount").textContent = b.stepCount;
   const pol = document.getElementById("polToggle");
@@ -1518,24 +1481,32 @@ function drawSteps() {
 
   // SMOOTH overlay — the actual glided waveform (mirrors the DSP one-pole so the
   // square→smooth morph is visible). Skipped at 0 (pure square = the bars above).
+  // The settled polyline only changes with pattern/count/smooth/size/band — cache
+  // it (was a 2×W settle+trace with per-pixel allocation, every frame).
   const sm = PB().stepsmooth.get() / 100;
   if (sm > 0.005 && n > 0) {
-    const stepPx = W / n;
-    const slewPx = sm * sm * stepPx * 1.5;                 // corner in px = DSP corner in samples
-    const coeff = slewPx < 0.5 ? 1 : 1 - Math.exp(-1 / slewPx);
-    const tgt = px => { const h = stepSlotAt(b, (px % W) / W); return b.steps[h.slot].vals[h.sub]; };
-    let v = tgt(0);
-    for (let px = 0; px < W; px++) v += (tgt(px) - v) * coeff;   // settle one cycle
-    ctx.strokeStyle = c + "ee"; ctx.lineWidth = 1.6 * DPR; ctx.lineJoin = "round";
-    ctx.beginPath();
-    for (let px = 0; px <= W; px++) {
-      v += (tgt(px) - v) * coeff;
-      const y = H / 2 - v * (H / 2 - 4 * DPR);
-      px === 0 ? ctx.moveTo(px, y) : ctx.lineTo(px, y);
+    const key = [ui.selected, stepsRev, n, sm.toFixed(3), W, H].join("|");
+    if (!smoothPathCache || smoothPathCache.key !== key) {
+      const stepPx = W / n;
+      const slewPx = sm * sm * stepPx * 1.5;               // corner in px = DSP corner in samples
+      const coeff = slewPx < 0.5 ? 1 : 1 - Math.exp(-1 / slewPx);
+      const tgt = px => stepValueAt(b, (px % W) / W);
+      let v = tgt(0);
+      for (let px = 0; px < W; px++) v += (tgt(px) - v) * coeff;   // settle one cycle
+      const path = new Path2D();
+      for (let px = 0; px <= W; px++) {
+        v += (tgt(px) - v) * coeff;
+        const y = H / 2 - v * (H / 2 - 4 * DPR);
+        px === 0 ? path.moveTo(px, y) : path.lineTo(px, y);
+      }
+      smoothPathCache = { key, path };
     }
-    ctx.stroke();
+    ctx.strokeStyle = c + "ee"; ctx.lineWidth = 1.6 * DPR; ctx.lineJoin = "round";
+    ctx.stroke(smoothPathCache.path);
   }
 }
+let smoothPathCache = null;   // { key, path } — see SMOOTH overlay above
+let stepsRev = 0;             // bumped on every step-data change (cache key part)
 
 let stepDrag = false;
 const stepHit = (b, xNorm) => stepSlotAt(b, clamp(xNorm, 0, 0.9999));
@@ -1611,7 +1582,6 @@ function sizeSpectrum() {
   spec.width = Math.round(r.width * DPR);
   spec.height = Math.round(r.height * DPR);
 }
-window.addEventListener("resize", sizeSpectrum);
 
 /* analyzer: real frames via "spectrum" event when embedded; fake otherwise */
 const anaBins = 256;
@@ -1978,11 +1948,8 @@ function updateQuickMenu() {
   quickMenu.style.left = mx + "px";
   quickMenu.style.top = my + "px";
   quickMenu.style.borderColor = bandColor() + "88";
-  const rm = pb.ratemode.get();
-  const rateNorm = rm === 0 ? pb.div.get() / (DIVS.length - 1)
-    : rm === 1 ? Math.log(pb.rate.get() / RATE_MIN) / Math.log(RATE_MAX / RATE_MIN) : 0.5;
-  const rateText = rm === 0 ? DIVS[pb.div.get()] : rm === 1 ? fmtRate(pb.rate.get()) : midiNoteName;
-  qmRefreshRow(qmRate, rateNorm, rateText, bandColor());
+  const rateText = pb.ratemode.get() === 2 ? midiNoteName : rateCtl.fmt(pb);   // qm: short MIDI form
+  qmRefreshRow(qmRate, rateCtl.norm(pb), rateText, bandColor());
   qmRefreshRow(qmDepth, pb.depth.get() / 100, Math.round(pb.depth.get()) + "%", bandColor());
   const gv = pb.gain.get();
   qmRefreshRow(qmGain, (gv + 6) / 12, (gv >= 0 ? "+" : "") + gv.toFixed(1) + " dB", bandColor());
@@ -2002,24 +1969,19 @@ function qmDragRow(row, apply, reset) {
   if (reset) row.addEventListener("dblclick", e => { reset(); refreshPanels(); e.stopPropagation(); });
 }
 qmDragRow(qmRate, n => {
-  const pb = PB(), rm = pb.ratemode.get();
-  if (rm === 0) pb.div.set(Math.round(n * (DIVS.length - 1)));
-  else if (rm === 1) pb.rate.set(RATE_MIN * Math.pow(RATE_MAX / RATE_MIN, n));
+  const pb = PB();
+  rateCtl.set(pb, n);
   hsRate.refresh();
   if (pb.mode.get() === 5) hsStepSpeed.refresh();
-}, () => {
-  const pb = PB(), rm = pb.ratemode.get();
-  if (rm === 0) pb.div.set(3);            // 1/2
-  else if (rm === 1) pb.rate.set(0.5);    // 0.5 Hz
-});
-qmDragRow(qmDepth, n => { setDepthBase(PB(), ui.selected, n * 100); knobDepth.refresh(); }, () => setDepthBase(PB(), ui.selected, 100));
+}, () => rateCtl.reset(PB()));
+qmDragRow(qmDepth, n => { setDepthEff(PB(), ui.selected, n * 100); knobDepth.refresh(); }, () => setDepthEff(PB(), ui.selected, 100));
 qmDragRow(qmGain, n => { PB().gain.set(-6 + n * 12); }, () => PB().gain.set(0));
 qmDragRow(qmBias, n => { setBiasRemembered(PB(), ui.selected, -100 + n * 200); knobBias.refresh(); knobDepth.refresh(); }, () => setBiasRemembered(PB(), ui.selected, 0));
 
 /* ════════════════════════════════════════════════════════════════════
    SCOPE + LOCAL MODULATOR SIM
-   (visual stand-in; real per-band telemetry replaces `pan` when the
-   "modvals" event starts flowing from the processor)
+   (browser-preview fallback only — in the plugin, real per-band telemetry
+   from the processor drives these via the "modvals"/"scopevals" events)
    ════════════════════════════════════════════════════════════════════ */
 const scopeCanvas = document.getElementById("scopeCanvas");
 const SCOPE_N = 240;

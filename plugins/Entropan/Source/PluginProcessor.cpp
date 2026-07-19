@@ -38,14 +38,29 @@ namespace
 
     inline float smoothstep01 (float t) { return t * t * (3.0f - 2.0f * t); }
 
-    // Editor window size lives in the same tree for persistence but must not
-    // take part in undo (a resize would otherwise create/restore undo steps).
+    // One-pole coefficient from a time constant: 1 - e^(-1/(T·sr)).
+    // T below 0.5 ms collapses to "instant" (coefficient 1).
+    inline float onePoleCoeff (double seconds, double sampleRate)
+    {
+        return seconds < 5.0e-4 ? 1.0f
+                                : 1.0f - std::exp (-1.0f / (float) (seconds * sampleRate));
+    }
+
+    // Meta-properties: live in apvts.state for persistence but must not take
+    // part in undo (stripped from snapshots, preserved across undo/redo).
+    // Adding one here covers strip + restore in a single place.
+    struct MetaProp { const char* name; juce::var def; };
+    const MetaProp kMetaProps[] = {
+        { "editorWidth",  900 },
+        { "editorHeight", 560 },
+        { "uiLocks", juce::String() },   // CHAOS locks
+    };
+
     juce::ValueTree stateForUndo (const juce::ValueTree& src)
     {
         auto v = src.createCopy();
-        v.removeProperty ("editorWidth", nullptr);
-        v.removeProperty ("editorHeight", nullptr);
-        v.removeProperty ("uiLocks", nullptr);   // CHAOS locks are meta-state, not undoable
+        for (const auto& mp : kMetaProps)
+            v.removeProperty (mp.name, nullptr);
         return v;
     }
 }
@@ -98,17 +113,17 @@ void EntropanAudioProcessor::commitUndoIfChanged()
     redoStack.clear();
 }
 
-bool EntropanAudioProcessor::undoState()
+bool EntropanAudioProcessor::restoreSnapshot (std::vector<juce::ValueTree>& from,
+                                              std::vector<juce::ValueTree>& to)
 {
-    if (undoStack.empty())
+    if (from.empty())
         return false;
-    redoStack.push_back (stateForUndo (apvts.copyState()));
-    auto snap = undoStack.back();
-    undoStack.pop_back();
-    // keep the live window size — snapshots carry no editor props
-    snap.setProperty ("editorWidth",  apvts.state.getProperty ("editorWidth",  900), nullptr);
-    snap.setProperty ("editorHeight", apvts.state.getProperty ("editorHeight", 560), nullptr);
-    snap.setProperty ("uiLocks",      apvts.state.getProperty ("uiLocks", juce::String()), nullptr);   // locks survive undo
+    to.push_back (stateForUndo (apvts.copyState()));
+    auto snap = from.back();
+    from.pop_back();
+    // keep live meta-state (window size, CHAOS locks) — snapshots carry none
+    for (const auto& mp : kMetaProps)
+        snap.setProperty (mp.name, apvts.state.getProperty (mp.name, mp.def), nullptr);
     apvts.replaceState (snap);
     lastCommitted = stateForUndo (apvts.copyState());
     for (int i = 0; i < kNumBands; ++i)
@@ -116,22 +131,8 @@ bool EntropanAudioProcessor::undoState()
     return true;
 }
 
-bool EntropanAudioProcessor::redoState()
-{
-    if (redoStack.empty())
-        return false;
-    undoStack.push_back (stateForUndo (apvts.copyState()));
-    auto snap = redoStack.back();
-    redoStack.pop_back();
-    snap.setProperty ("editorWidth",  apvts.state.getProperty ("editorWidth",  900), nullptr);
-    snap.setProperty ("editorHeight", apvts.state.getProperty ("editorHeight", 560), nullptr);
-    snap.setProperty ("uiLocks",      apvts.state.getProperty ("uiLocks", juce::String()), nullptr);   // locks survive undo
-    apvts.replaceState (snap);
-    lastCommitted = stateForUndo (apvts.copyState());
-    for (int i = 0; i < kNumBands; ++i)
-        parseStepsSnapshot (i);
-    return true;
-}
+bool EntropanAudioProcessor::undoState() { return restoreSnapshot (undoStack, redoStack); }
+bool EntropanAudioProcessor::redoState() { return restoreSnapshot (redoStack, undoStack); }
 
 //==============================================================================
 juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::createParameterLayout()
@@ -186,7 +187,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::crea
         juce::NormalisableRange<float> (0.0f, 36.0f, 0.01f), 0.0f,
         juce::AudioParameterFloatAttributes().withLabel ("dB")));
 
-    // ─── Per band (12 × 6 = 72) ───
+    // ─── Per band (16 × 6 = 96) ───
     for (int i = 0; i < kNumBands; ++i)
     {
         const juce::String p = "b" + juce::String (i + 1) + "_";
@@ -392,8 +393,10 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         float  lorenzDt = 0.0f;
         bool   uni = false;
         bool   biasFree = false;   // override: bias not headroom-clamped → pan may reach the rail
+        const StepsData* steps = nullptr;   // RT snapshot, resolved once per block
     };
     std::array<BandBlock, kNumBands> bb;
+    bool anyEnv = false;   // any band in Env mode → run the envelope detector
 
     for (int i = 0; i < kNumBands; ++i)
     {
@@ -416,9 +419,19 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const float ck = juce::jmin (1.0f, (float) numSamples / (0.040f * (float) currentSampleRate));
         b.fLoCur += (fLoT - b.fLoCur) * ck;
         b.fHiCur += (fHiT - b.fHiCur) * ck;
-        b.splitLo.setCutoffFrequency (b.fLoCur);
-        b.splitHi.setCutoffFrequency (b.fHiCur);
-        b.apLow.setCutoffFrequency  (b.fHiCur);
+        // push coefficients only while actually gliding (setCutoffFrequency
+        // recomputes tan/divisions — 18 recomputes/block at steady state otherwise)
+        if (std::abs (b.fLoCur - b.fLoApplied) > 0.01f)
+        {
+            b.splitLo.setCutoffFrequency (b.fLoCur);
+            b.fLoApplied = b.fLoCur;
+        }
+        if (std::abs (b.fHiCur - b.fHiApplied) > 0.01f)
+        {
+            b.splitHi.setCutoffFrequency (b.fHiCur);
+            b.apLow.setCutoffFrequency  (b.fHiCur);
+            b.fHiApplied = b.fHiCur;
+        }
 
         b.lift.setTargetValue (pp.lift->load() * 0.01f);
         b.gainLin.setTargetValue (juce::Decibels::decibelsToGain (pp.gain->load()));
@@ -429,6 +442,8 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         cfg.phaseOff = pp.phase->load() / 360.0f;
         cfg.uni      = pp.uni->load() > 0.5f;
         cfg.biasFree = pp.biasFree->load() > 0.5f;
+        cfg.steps    = &stepsBuf[(size_t) i][(size_t) stepsActive[(size_t) i].load (std::memory_order_acquire)];
+        anyEnv = anyEnv || cfg.mode == 6;
         b.depth.setTargetValue (pp.depth->load() * 0.01f);
         b.bias.setTargetValue (juce::jlimit (-1.0f, 1.0f, pp.bias->load() * 0.01f));
 
@@ -472,8 +487,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 slewT = 0.0;
             else
             {
-                const int cnt = stepsBuf[(size_t) i][(size_t) stepsActive[(size_t) i]
-                                    .load (std::memory_order_acquire)].count;
+                const int cnt = cfg.steps->count;
                 const double stepDur = cnt > 0 ? periodS / (double) cnt : periodS;
                 slewT = (double) sm * sm * stepDur * 1.5;      // corner scales with one step
             }
@@ -482,8 +496,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             slewT = juce::jmin (2.0, 0.004 + i2 * 2.0);
         else                                          // Sine / Tri
             slewT = i2 * 0.10 * periodS;              // corner ≈ 1.6·rate at max
-        m.slewCoeff = slewT < 5.0e-4 ? 1.0f
-                    : 1.0f - std::exp (-1.0f / ((float) slewT * (float) currentSampleRate));
+        m.slewCoeff = onePoleCoeff (slewT, currentSampleRate);
     }
 
     outGainSm.setTargetValue (juce::Decibels::decibelsToGain (pOutput->load()));
@@ -491,8 +504,8 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     // ── envelope-follower coefficients (global detection circuit) ──
     const bool  envRms  = pEnvRms->load() > 0.5f;
-    const float envAtkC = 1.0f - std::exp (-1.0f / (juce::jmax (1.0f, pEnvAtk->load()) * 0.001f * (float) currentSampleRate));
-    const float envRelC = 1.0f - std::exp (-1.0f / (juce::jmax (1.0f, pEnvRel->load()) * 0.001f * (float) currentSampleRate));
+    const float envAtkC = onePoleCoeff (juce::jmax (1.0f, pEnvAtk->load()) * 0.001, currentSampleRate);
+    const float envRelC = onePoleCoeff (juce::jmax (1.0f, pEnvRel->load()) * 0.001, currentSampleRate);
     const float envScC  = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * pEnvScf->load() / (float) currentSampleRate);
     const float envGainLin = juce::Decibels::decibelsToGain (pEnvGain->load());   // detector drive
 
@@ -507,18 +520,29 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const float  wowDepthS   = wowAmt  * 0.006f * (float) currentSampleRate; // up to 6 ms
     const float  flutDepthS  = flutAmt * 0.0012f * (float) currentSampleRate; // up to 1.2 ms
 
+    // Fully disengaged (the default) → skip the whole W&F stage per sample.
+    // On re-engage the line is cleared; the crossfade masks the refill.
+    const bool wfActive = wfOn || wfEngage.getCurrentValue() > 1.0e-4f;
+    if (wfActive && ! wfWasActive)
+        wfDelay.reset();
+    wfWasActive = wfActive;
+
     // ── per-sample cascade ──
     auto* left  = buffer.getWritePointer (0);
     auto* right = buffer.getWritePointer (1);
+    const float* dryL = dryBuffer.getReadPointer (0);
+    const float* dryR = dryBuffer.getReadPointer (1);
 
     for (int s = 0; s < numSamples; ++s)
     {
         float xl = left[s], xr = right[s];
         const float amountV = amountSm.getNextValue();
 
-        // envelope detector (from the pre-process input copy)
+        // envelope detector (from the pre-process input copy) — only while some
+        // band is in Env mode; otherwise globalEnv holds its last value (unseen)
+        if (anyEnv)
         {
-            const float inMono = 0.5f * (dryBuffer.getSample (0, s) + dryBuffer.getSample (1, s)) * envGainLin;
+            const float inMono = 0.5f * (dryL[s] + dryR[s]) * envGainLin;
             envScLp += envScC * (inMono - envScLp);      // one-pole LP …
             const float hp = inMono - envScLp;           // … input minus LP = SC high-pass
             const float det = envRms ? hp * hp : std::abs (hp);
@@ -564,13 +588,29 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 case 0: m.target = std::sin ((float) frac * juce::MathConstants<float>::twoPi); break;
                 case 1: m.target = 1.0f - 4.0f * std::abs ((float) frac - 0.5f); break;
                 case 2: // S&H: new deal each cycle boundary (phase-offset agnostic)
-                    m.target = cellNoise ((juce::int64) std::floor (m.phase), i, seedV, rerollOffset);
+                {
+                    const auto shCell = (juce::int64) std::floor (m.phase);
+                    if (shCell != m.lastCell || seedV != m.lastSeed
+                        || rerollOffset != m.lastReroll || cfg.mode != m.lastMode)
+                    {   // hash only when the cell (or its inputs) change — same values, ~never rehashed
+                        m.cellA = cellNoise (shCell, i, seedV, rerollOffset);
+                        m.lastCell = shCell; m.lastSeed = seedV;
+                        m.lastReroll = rerollOffset; m.lastMode = cfg.mode;
+                    }
+                    m.target = m.cellA;
                     break;
+                }
                 case 3: // Drift: value-noise between cell endpoints
                 {
-                    const float a = cellNoise (cell,     i, seedV, rerollOffset);
-                    const float c = cellNoise (cell + 1, i, seedV, rerollOffset);
-                    m.target = a + (c - a) * smoothstep01 ((float) frac);
+                    if (cell != m.lastCell || seedV != m.lastSeed
+                        || rerollOffset != m.lastReroll || cfg.mode != m.lastMode)
+                    {
+                        m.cellA = cellNoise (cell,     i, seedV, rerollOffset);
+                        m.cellB = cellNoise (cell + 1, i, seedV, rerollOffset);
+                        m.lastCell = cell; m.lastSeed = seedV;
+                        m.lastReroll = rerollOffset; m.lastMode = cfg.mode;
+                    }
+                    m.target = m.cellA + (m.cellB - m.cellA) * smoothstep01 ((float) frac);
                     break;
                 }
                 case 4: // Chaos: Lorenz, x-component normalised
@@ -584,9 +624,9 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     m.target = juce::jlimit (-1.0f, 1.0f, (float) (m.lx / 18.0));
                     break;
                 }
-                case 5: // Steps: slot-stable ratchets (RT snapshot)
+                case 5: // Steps: slot-stable ratchets (RT snapshot, resolved per block)
                 {
-                    const auto& sd = stepsBuf[(size_t) i][(size_t) stepsActive[(size_t) i].load (std::memory_order_acquire)];
+                    const auto& sd = *cfg.steps;
                     if (sd.count > 0)
                     {
                         double sp = frac * (double) sd.count;
@@ -667,6 +707,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
 
         // global wow & flutter (wet-only modulated delay, engage-crossfaded)
+        if (wfActive)
         {
             const float eng = wfEngage.getNextValue();
             wowPhase  += wowInc;  if (wowPhase  >= 1.0) wowPhase  -= 1.0;
@@ -690,8 +731,8 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         xl *= og;  xr *= og;
 
         // crossfaded bypass back to the dry input copy
-        left[s]  = xl + (dryBuffer.getSample (0, s) - xl) * by;
-        right[s] = xr + (dryBuffer.getSample (1, s) - xr) * by;
+        left[s]  = xl + (dryL[s] - xl) * by;
+        right[s] = xr + (dryR[s] - xr) * by;
     }
 
     // ── UI telemetry: post-slew mod × depth + cycle phase, once per block ──
