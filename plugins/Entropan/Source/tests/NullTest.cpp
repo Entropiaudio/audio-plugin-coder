@@ -271,7 +271,7 @@ int main()
         setParam (p, "b1_width", 2.0f);
         setParam (p, "b1_lift", 100.0f);
         setParam (p, "b1_depth", 100.0f);
-        setParam (p, "b1_mode", 5.0f);       // Steps
+        setParam (p, "b1_mode", 4.0f);       // Steps
         setParam (p, "b1_ratemode", 1.0f);
         setParam (p, "b1_rate", 2.0f);
         setParam (p, "b1_inertia", 0.0f);
@@ -408,7 +408,7 @@ int main()
         setParam (p, "b1_on", 1.0f);
         setParam (p, "b1_freq", 1000.0f); setParam (p, "b1_width", 2.0f);
         setParam (p, "b1_lift", 100.0f);  setParam (p, "b1_depth", 100.0f);
-        setParam (p, "b1_mode", 6.0f);    // Env
+        setParam (p, "b1_mode", 5.0f);    // Env
         setParam (p, "env_atk", 5.0f);    setParam (p, "env_rel", 50.0f);
         setParam (p, "b1_inertia", 0.0f);
 
@@ -566,7 +566,7 @@ int main()
             setParam (p, "b1_on", 1.0f);
             setParam (p, "b1_freq", 1000.0f); setParam (p, "b1_width", 2.0f);
             setParam (p, "b1_lift", 100.0f);  setParam (p, "b1_depth", 100.0f);
-            setParam (p, "b1_mode", 5.0f);           // Steps
+            setParam (p, "b1_mode", 4.0f);           // Steps
             setParam (p, "b1_ratemode", 1.0f); setParam (p, "b1_rate", 6.0f);
             setParam (p, "b1_stepsmooth", smooth);
             // alternating hard L/R step pattern → maximal square jumps to smooth

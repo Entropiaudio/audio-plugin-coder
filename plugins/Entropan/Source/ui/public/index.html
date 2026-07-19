@@ -341,7 +341,7 @@
   }
 
   /* step editor */
-  .step-editor { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 4px; }
+  .step-editor { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 4px; position: relative; }
   .step-editor.visible { display: flex; }
   #stepCanvas { flex: 1; min-height: 0; width: 100%; border-radius: 6px; background: var(--bg-elevated); border: 1px solid var(--border-divider); cursor: crosshair; }
   /* one compact control row (SPEED · SYNC · SMOOTH) — the grid gets the rest */
@@ -350,6 +350,14 @@
   .step-ctl-row .mode-toggle { font-size: 8px; padding: 1.5px 8px; }
   .step-count-row { display: flex; align-items: center; gap: 5px; justify-content: flex-end; flex: 0 0 16px; }
   .step-count-row .step-preset-sel, .step-count-row .step-save-btn { font-size: 8px; padding: 1px 5px; }
+  .preset-name-input {
+    position: absolute; left: 8px; right: 8px; bottom: 6px; z-index: 20;
+    font-family: inherit; font-size: 10px; letter-spacing: 0.05em;
+    padding: 4px 8px; border-radius: 6px; outline: none;
+    background: var(--bg-elevated); color: var(--text-primary);
+    border: 1px solid var(--accent);
+  }
+  .preset-name-input::placeholder { color: var(--text-dim); }
   .step-count-row span { font-size: 8.5px; letter-spacing: 1px; color: var(--text-dim); }
   .step-preset-sel {
     font-family: inherit; font-size: 8px; letter-spacing: 0.5px;
@@ -620,7 +628,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B45";
+const ENTROPAN_BUILD = "B46";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -638,7 +646,7 @@ const EMBEDDED = typeof window.__JUCE__ !== "undefined"
 
 const DPR = window.devicePixelRatio || 1;
 const BAND_COLORS = ["#3ab8d4", "#8aaa7a", "#5fc88a", "#b06ed4", "#d6884a", "#D4A574"];
-const MODES = ["SINE", "TRI", "S&H", "DRIFT", "CHAOS", "STEPS", "ENV"];
+const MODES = ["SINE", "TRI", "S&H", "CHAOS", "STEPS", "ENV"];
 const DIVS = ["1/16", "1/8", "1/4", "1/2", "1 BAR", "2 BAR", "4 BAR"];
 const DIV_HZ = [8, 4, 2, 1, 0.5, 0.25, 0.125]; // at 120 bpm — UI sim only
 const SPEEDS = [0.25, 0.5, 1, 2, 3, 4];
@@ -1164,7 +1172,7 @@ const knobSpeed = makeKnob("knob_speed", "SPEED", {
 
 const ENV_ATK = MAPS.log(1, 500), ENV_REL = MAPS.log(5, 2000), ENV_SCF = MAPS.log(20, 2000);
 const RATE_MAP = MAPS.log(RATE_MIN, RATE_MAX);
-const isEnv = () => PB().mode.get() === 6;
+const isEnv = () => PB().mode.get() === 5;
 
 /* ONE rate behaviour (ratemode-switched map, defaults, formatting) shared by
    the RATE fader, the step-editor SPEED fader, and the quick-menu row. */
@@ -1191,7 +1199,7 @@ const hsRate = makeHSlider("hs_rate", "RATE", {
   reset: () => isEnv() ? P.envAtk.set(20) : rateCtl.reset(PB()),
   fmt:   () => isEnv() ? Math.round(P.envAtk.get()) + " ms" : rateCtl.fmt(PB())
 });
-const hsInertia = makeHSlider("hs_inertia", "INERTIA", {
+const hsInertia = makeHSlider("hs_inertia", "SMOOTH", {
   color: bandColor(), lockKey: "inertia",
   get: () => isEnv() ? ENV_REL.to(P.envRel.get()) : PB().inertia.get() / 100,
   set: n => isEnv() ? P.envRel.set(ENV_REL.from(n)) : PB().inertia.set(n * 100),
@@ -1205,12 +1213,12 @@ const hsPhase = makeHSlider("hs_phase", "PHASE", {
   reset: () => isEnv() ? P.envScf.set(20) : PB().phase.set(0),
   fmt: () => isEnv() ? (P.envScf.get() >= 1000 ? (P.envScf.get()/1000).toFixed(1)+"k" : Math.round(P.envScf.get())+"Hz") : Math.round(PB().phase.get()) + "°"
 });
-const hsEnvGain = makeHSlider("hs_envgain", "GAIN", {
+const hsEnvGain = makeHSlider("hs_envgain", "GAIN", {   // bipolar ±36 dB — drive the detector up or down
   color: bandColor(),
-  get: () => P.envGain.get() / 36,
-  set: n => P.envGain.set(n * 36),
+  get: () => (P.envGain.get() + 36) / 72,
+  set: n => P.envGain.set(-36 + n * 72),
   reset: () => P.envGain.set(0),
-  fmt: () => "+" + Math.round(P.envGain.get()) + " dB"
+  fmt: () => { const g = Math.round(P.envGain.get()); return (g > 0 ? "+" : "") + g + " dB"; }
 });
 // SPEED inside the step editor — the fader stack (incl. RATE) is hidden in Steps
 // mode, so the sequencer gets its own rate control. Same param paths as hsRate,
@@ -1304,7 +1312,7 @@ document.getElementById("rerollBtn").onclick = () => {
     const base = depthFree ? rnd(30, 100) : 0;
     if (!L.has("bias")) pb.bias.set(rnd(-100, 100));           // full range — DSP clamp keeps the pan off the rail
     if (depthFree) pb.depth.set(clamp(base * depthTrim(pb, i), 0, 100));
-    if (!L.has("mode"))  pb.mode.set(Math.floor(Math.random() * 6));
+    if (!L.has("mode"))  pb.mode.set(Math.floor(Math.random() * 5));   // 0..4 → Sine..Steps (Env needs sidechain, excluded)
     if (!L.has("rate")) {                                     // RATE lock freezes value + sync/free + division
       pb.ratemode.set(Math.random() < 0.75 ? 0 : 1);         // mostly synced
       pb.div.set(Math.floor(Math.random() * 7));
@@ -1376,27 +1384,27 @@ function refreshPanels() {
   const mode = pb.mode.get();
   const rm = document.getElementById("syncToggle");
   const setHsLabel = (hs, txt) => { const el = hs.el.querySelector(".hs-label"); if (el) el.textContent = txt; };
-  if (mode === 6) {   // Env: sliders become the detection-circuit controls
+  if (mode === 5) {   // Env: sliders become the detection-circuit controls
     setHsLabel(hsRate, "ATK"); setHsLabel(hsInertia, "REL"); setHsLabel(hsPhase, "SC-F");
     rm.textContent = P.envRms.get() ? "RMS" : "PEAK";
     tintToggle(rm, P.envRms.get() ? COL_PURPLE : COL_ORANGE);   // PEAK orange → RMS purple
     hsPhase.el.classList.remove("disabled");
     hsInertia.el.classList.remove("disabled");
   } else {
-    setHsLabel(hsRate, "Rate"); setHsLabel(hsInertia, "Inertia"); setHsLabel(hsPhase, "Phase");
+    setHsLabel(hsRate, "Rate"); setHsLabel(hsInertia, "Smooth"); setHsLabel(hsPhase, "Phase");
     applyRateModeToggle(rm, pb.ratemode.get());   // SYNC orange → FREE purple → MIDI cyan
-    hsPhase.el.classList.toggle("disabled", mode >= 2 && mode <= 4);
+    hsPhase.el.classList.toggle("disabled", mode === 2 || mode === 3);   // S&H / Chaos: no phase
     hsInertia.el.classList.toggle("disabled", mode <= 1);
   }
   const stack = document.getElementById("sliderStack");
-  stack.style.display = mode === 5 ? "none" : "flex";
-  stack.classList.toggle("compact", mode === 6);   // ENV: 4 rows in the space of 3
+  stack.style.display = mode === 4 ? "none" : "flex";
+  stack.classList.toggle("compact", mode === 5);   // ENV: 4 rows in the space of 3
   // Steps: the grid IS the shape — drop the little scope so the editor gets the full width
-  scopeCanvas.style.display = mode === 5 ? "none" : "";
-  document.getElementById("envGainRow").style.display = mode === 6 ? "flex" : "none";
-  if (mode === 6) { hsEnvGain.color = c; hsEnvGain.refresh(); }
-  document.getElementById("stepEditor").classList.toggle("visible", mode === 5);
-  if (mode === 5) {
+  scopeCanvas.style.display = mode === 4 ? "none" : "";
+  document.getElementById("envGainRow").style.display = mode === 5 ? "flex" : "none";
+  if (mode === 5) { hsEnvGain.color = c; hsEnvGain.refresh(); }
+  document.getElementById("stepEditor").classList.toggle("visible", mode === 4);
+  if (mode === 4) {
     hsStepSmooth.color = c; hsStepSmooth.refresh();
     hsStepSpeed.color = c; hsStepSpeed.refresh();
     applyRateModeToggle(document.getElementById("stepSyncToggle"), pb.ratemode.get());
@@ -1543,7 +1551,22 @@ const STEP_FACTORY = {
     k % 4 === 3 ? mkSlot(0, 4, [1, -1, 1, -1]) : k % 2 ? mkSlot(1) : mkSlot(-1)),
 };
 const stepPresetSel = document.getElementById("stepPresetSel");
-function userStepPresets() { try { return JSON.parse(localStorage.getItem("entropanStepPresets") || "{}"); } catch { return {}; } }
+// User presets persist to a SHARED file via the processor (the WebView's own
+// localStorage sits in a unique per-instance data folder → lost on reopen, not
+// shared between instances). In a plain browser we fall back to localStorage.
+const setPresetsNative = native("setPresets"), getPresetsNative = native("getPresets");
+let stepPresetCache = {};
+function userStepPresets() { return stepPresetCache; }
+function persistPresets() {
+  const json = JSON.stringify(stepPresetCache);
+  if (EMBEDDED) setPresetsNative(json).catch(() => {});
+  else { try { localStorage.setItem("entropanStepPresets", json); } catch {} }
+}
+function loadPresets() {
+  const apply = json => { try { stepPresetCache = JSON.parse(json || "{}") || {}; } catch { stepPresetCache = {}; } refreshStepPresetList(); };
+  if (EMBEDDED) getPresetsNative().then(apply).catch(() => {});
+  else apply(localStorage.getItem("entropanStepPresets"));
+}
 function refreshStepPresetList() {
   while (stepPresetSel.firstChild) stepPresetSel.removeChild(stepPresetSel.firstChild);
   const mk = (label, val, dis) => { const o = document.createElement("option"); o.textContent = label; o.value = val; if (dis) o.disabled = true; stepPresetSel.appendChild(o); };
@@ -1563,15 +1586,33 @@ stepPresetSel.addEventListener("change", () => {
   pushSteps(ui.selected);
   refreshPanels();
 });
-document.getElementById("stepSaveBtn").addEventListener("click", () => {
-  const name = prompt("Preset name:");
+// Inline name entry — WKWebView blocks window.prompt(), so SAVE opened nothing.
+const presetNameInput = document.createElement("input");
+presetNameInput.type = "text"; presetNameInput.className = "preset-name-input";
+presetNameInput.placeholder = "name — Enter to save, Esc to cancel"; presetNameInput.maxLength = 24;
+presetNameInput.style.display = "none";
+document.getElementById("stepEditor").appendChild(presetNameInput);
+function commitPreset() {
+  const name = presetNameInput.value.trim();
+  presetNameInput.style.display = "none";
   if (!name) return;
-  const b = B(), all = userStepPresets();
-  all[name] = b.steps.slice(0, b.stepCount).map(x => ({ subdiv: x.subdiv, vals: x.vals.slice(0, x.subdiv) }));
-  localStorage.setItem("entropanStepPresets", JSON.stringify(all));
+  const b = B();
+  stepPresetCache[name] = b.steps.slice(0, b.stepCount).map(x => ({ subdiv: x.subdiv, vals: x.vals.slice(0, x.subdiv) }));
+  persistPresets();
   refreshStepPresetList();
+}
+document.getElementById("stepSaveBtn").addEventListener("click", () => {
+  presetNameInput.value = "";
+  presetNameInput.style.display = "block";
+  presetNameInput.focus();
 });
-refreshStepPresetList();
+presetNameInput.addEventListener("keydown", e => {
+  if (e.key === "Enter") commitPreset();
+  else if (e.key === "Escape") presetNameInput.style.display = "none";
+  e.stopPropagation();
+});
+presetNameInput.addEventListener("blur", () => { presetNameInput.style.display = "none"; });
+loadPresets();
 
 /* ════════════════════════════════════════════════════════════════════
    SPECTRUM CANVAS + GESTURES
@@ -1972,7 +2013,7 @@ qmDragRow(qmRate, n => {
   const pb = PB();
   rateCtl.set(pb, n);
   hsRate.refresh();
-  if (pb.mode.get() === 5) hsStepSpeed.refresh();
+  if (pb.mode.get() === 4) hsStepSpeed.refresh();
 }, () => rateCtl.reset(PB()));
 qmDragRow(qmDepth, n => { setDepthEff(PB(), ui.selected, n * 100); knobDepth.refresh(); }, () => setDepthEff(PB(), ui.selected, 100));
 qmDragRow(qmGain, n => { PB().gain.set(-6 + n * 12); }, () => PB().gain.set(0));
@@ -2042,7 +2083,7 @@ function drawScope() {
   ctx.clearRect(0, 0, W, H);
   ctx.font = `${7.5 * DPR}px 'JetBrains Mono', ui-monospace, monospace`;
 
-  if (PB().mode.get() === 6) {
+  if (PB().mode.get() === 5) {
     // ── ENVELOPE scope: 0 at bottom → 1 at top, filled ──
     ctx.strokeStyle = "#26221F"; ctx.lineWidth = DPR;
     [0.25, 0.5, 0.75].forEach(fy => { ctx.beginPath(); ctx.moveTo(0, fy * H); ctx.lineTo(W, fy * H); ctx.stroke(); });
@@ -2109,19 +2150,12 @@ function tickMods(dt) {
     switch (pb.mode.get()) {
       case 0: b.target = Math.sin(ph * Math.PI * 2); break;
       case 1: b.target = 1 - 4 * Math.abs(ph - 0.5); break;
-      case 2: {
+      case 2: {   // S&H (smooth it via the SMOOTH fader for a Drift-style glide)
         const cell = Math.floor(simClock * f);
         if (cell !== b.lastDeal) { b.lastDeal = cell; b.target = hash(cell * 6 + i + P.seed.get() + b.driftA) * 2 - 1; }
         break;
       }
       case 3: {
-        const tt = simClock * f, c0 = Math.floor(tt), fr = tt - c0;
-        const a = hash(c0 * 6 + i + P.seed.get() + b.driftA) * 2 - 1;
-        const bb = hash((c0 + 1) * 6 + i + P.seed.get() + b.driftA) * 2 - 1;
-        const sm = fr * fr * (3 - 2 * fr);
-        b.target = a + (bb - a) * sm; break;
-      }
-      case 4: {
         const s = 10, r = 28, be = 8 / 3, sc = Math.min(0.02, dt * f * 1.2);
         const { x, y, z } = b.lz;
         b.lz.x = x + s * (y - x) * sc;
@@ -2130,10 +2164,10 @@ function tickMods(dt) {
         if (!isFinite(b.lz.x)) b.lz = { x: 0.1, y: 0, z: 0 };
         b.target = clamp(b.lz.x / 18, -1, 1); break;
       }
-      case 5: {
+      case 4: {
         b.target = stepValueAt(b, (simClock * f) + pb.phase.get() / 360); break;
       }
-      case 6: { // Env (preview only — real plugin drives this from audio telemetry)
+      case 5: { // Env (preview only — real plugin drives this from audio telemetry)
         b.target = Math.sin(simClock * 1.7 + i) * 0.5 + Math.sin(simClock * 5.3) * 0.2; break;
       }
     }
@@ -2143,8 +2177,8 @@ function tickMods(dt) {
     else {
       const inr = pb.inertia.get() / 100, i2 = inr * inr, per = 1 / Math.max(f, 1e-6);
       let slewT;
-      if (mode === 2 || mode === 5) slewT = Math.min(0.004 + i2 * 2.0, per / 3.5);
-      else if (mode === 3 || mode === 4) slewT = Math.min(2.0, 0.004 + i2 * 2.0);
+      if (mode === 2 || mode === 4) slewT = Math.min(0.004 + i2 * 2.0, per / 3.5);   // S&H / Steps
+      else if (mode === 3) slewT = Math.min(2.0, 0.004 + i2 * 2.0);                    // Chaos
       else slewT = i2 * 0.10 * per;
       k = 1 - Math.exp(-dt / slewT);
     }
@@ -2180,7 +2214,7 @@ function loop(ts) {
     drawSpectrum(simClock);
     drawScope();
     updateQuickMenu();
-    if (PB().mode.get() === 5) drawSteps();
+    if (PB().mode.get() === 4) drawSteps();
   } catch (e) { loopErr = e.message + " | " + (e.stack || "").split("\n")[1]; }
 }
 

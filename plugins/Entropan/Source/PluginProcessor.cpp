@@ -15,7 +15,7 @@ namespace
         return r;
     }
 
-    const juce::StringArray kModeChoices    { "Sine", "Triangle", "S&H", "Drift", "Chaos", "Steps", "Env" };
+    const juce::StringArray kModeChoices    { "Sine", "Triangle", "S&H", "Chaos", "Steps", "Env" };
     const juce::StringArray kRateModeChoices{ "Sync", "Free", "MIDI" };
     const juce::StringArray kDivChoices     { "1/16", "1/8", "1/4", "1/2", "1 Bar", "2 Bar", "4 Bar" };
     const juce::StringArray kSpeedChoices   { "/4", "/2", "x1", "x2", "x3", "x4" };
@@ -35,8 +35,6 @@ namespace
         h ^= h >> 33; h *= 0xFF51AFD7ED558CCDULL; h ^= h >> 33;
         return (float) ((double) (h >> 11) / (double) (1ULL << 53)) * 2.0f - 1.0f;
     }
-
-    inline float smoothstep01 (float t) { return t * t * (3.0f - 2.0f * t); }
 
     // One-pole coefficient from a time constant: 1 - e^(-1/(T·sr)).
     // T below 0.5 ms collapses to "instant" (coefficient 1).
@@ -184,7 +182,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::crea
         juce::ParameterID { "env_rms", 1 }, "Env RMS", false));
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { "env_gain", 1 }, "Env Gain",
-        juce::NormalisableRange<float> (0.0f, 36.0f, 0.01f), 0.0f,
+        juce::NormalisableRange<float> (-36.0f, 36.0f, 0.01f), 0.0f,   // bipolar: drive up or down
         juce::AudioParameterFloatAttributes().withLabel ("dB")));
 
     // ─── Per band (16 × 6 = 96) ───
@@ -443,7 +441,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         cfg.uni      = pp.uni->load() > 0.5f;
         cfg.biasFree = pp.biasFree->load() > 0.5f;
         cfg.steps    = &stepsBuf[(size_t) i][(size_t) stepsActive[(size_t) i].load (std::memory_order_acquire)];
-        anyEnv = anyEnv || cfg.mode == 6;
+        anyEnv = anyEnv || cfg.mode == 5;
         b.depth.setTargetValue (pp.depth->load() * 0.01f);
         b.bias.setTargetValue (juce::jlimit (-1.0f, 1.0f, pp.bias->load() * 0.01f));
 
@@ -480,7 +478,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         double slewT;
         if (cfg.mode == 2)                           // S&H
             slewT = juce::jmin (0.004 + i2 * 2.0, periodS / 3.5);
-        else if (cfg.mode == 5)                      // Steps — dedicated SMOOTH (square → glide)
+        else if (cfg.mode == 4)                      // Steps — dedicated SMOOTH (square → glide)
         {
             const float sm = pp.stepSmooth->load() * 0.01f;   // 0 = square, 1 = glide
             if (sm < 1.0e-4f)
@@ -492,7 +490,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 slewT = (double) sm * sm * stepDur * 1.5;      // corner scales with one step
             }
         }
-        else if (cfg.mode == 3 || cfg.mode == 4)     // Drift / Chaos
+        else if (cfg.mode == 3)                       // Chaos — free viscosity (unbounded wanderer)
             slewT = juce::jmin (2.0, 0.004 + i2 * 2.0);
         else                                          // Sine / Tri
             slewT = i2 * 0.10 * periodS;              // corner ≈ 1.6·rate at max
@@ -581,14 +579,13 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
             const double cyc = m.phase + (double) cfg.phaseOff;
             const double frac = cyc - std::floor (cyc);
-            const auto   cell = (juce::int64) std::floor (cfg.mode == 3 ? cyc : m.phase); // drift interpolates on offset cycle
 
             switch (cfg.mode)
             {
                 case 0: m.target = std::sin ((float) frac * juce::MathConstants<float>::twoPi); break;
                 case 1: m.target = 1.0f - 4.0f * std::abs ((float) frac - 0.5f); break;
                 case 2: // S&H: new deal each cycle boundary (phase-offset agnostic)
-                {
+                {       // (smooth it with the SMOOTH fader for a Drift-style glide)
                     const auto shCell = (juce::int64) std::floor (m.phase);
                     if (shCell != m.lastCell || seedV != m.lastSeed
                         || rerollOffset != m.lastReroll || cfg.mode != m.lastMode)
@@ -600,20 +597,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     m.target = m.cellA;
                     break;
                 }
-                case 3: // Drift: value-noise between cell endpoints
-                {
-                    if (cell != m.lastCell || seedV != m.lastSeed
-                        || rerollOffset != m.lastReroll || cfg.mode != m.lastMode)
-                    {
-                        m.cellA = cellNoise (cell,     i, seedV, rerollOffset);
-                        m.cellB = cellNoise (cell + 1, i, seedV, rerollOffset);
-                        m.lastCell = cell; m.lastSeed = seedV;
-                        m.lastReroll = rerollOffset; m.lastMode = cfg.mode;
-                    }
-                    m.target = m.cellA + (m.cellB - m.cellA) * smoothstep01 ((float) frac);
-                    break;
-                }
-                case 4: // Chaos: Lorenz, x-component normalised
+                case 3: // Chaos: Lorenz, x-component normalised
                 {
                     const float dt = cfg.lorenzDt;
                     const double nx = m.lx + 10.0 * (m.ly - m.lx) * dt;
@@ -624,7 +608,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     m.target = juce::jlimit (-1.0f, 1.0f, (float) (m.lx / 18.0));
                     break;
                 }
-                case 5: // Steps: slot-stable ratchets (RT snapshot, resolved per block)
+                case 4: // Steps: slot-stable ratchets (RT snapshot, resolved per block)
                 {
                     const auto& sd = *cfg.steps;
                     if (sd.count > 0)
@@ -639,7 +623,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                         m.target = 0.0f;
                     break;
                 }
-                case 6: // Env: global envelope follower drives the pan
+                case 5: // Env: global envelope follower drives the pan
                     m.target = juce::jlimit (-1.0f, 1.0f, globalEnv * 2.0f - 1.0f);
                     break;
                 default:
@@ -791,6 +775,27 @@ juce::String EntropanAudioProcessor::getLocksJson() const
 void EntropanAudioProcessor::setLocksJson (const juce::String& json)
 {
     apvts.state.setProperty ("uiLocks", json, nullptr);
+}
+
+//==============================================================================
+juce::File EntropanAudioProcessor::stepPresetsFile()
+{
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+               .getChildFile ("Entropia").getChildFile ("Entropan")
+               .getChildFile ("step-presets.json");
+}
+
+juce::String EntropanAudioProcessor::getStepPresetsJson() const
+{
+    const auto f = stepPresetsFile();
+    return f.existsAsFile() ? f.loadFileAsString() : juce::String ("{}");
+}
+
+void EntropanAudioProcessor::setStepPresetsJson (const juce::String& json)
+{
+    auto f = stepPresetsFile();
+    f.getParentDirectory().createDirectory();   // best-effort; ignore failure
+    f.replaceWithText (json);
 }
 
 void EntropanAudioProcessor::parseStepsSnapshot (int bandIndex)

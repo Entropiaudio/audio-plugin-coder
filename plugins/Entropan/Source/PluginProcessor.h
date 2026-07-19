@@ -9,8 +9,8 @@
  * Entropan — band-targeted spectral panner (Entropia Audio).
  *
  * Serial Linkwitz-Riley splitter cascade with allpass compensation, per-band
- * lift split → equal-power pan → ±6 dB gain, seven per-band modulator engines
- * (Sine/Tri/S&H/Drift/Lorenz/Steps/Env) evaluated per sample, PPQ sync + free +
+ * lift split → equal-power pan → ±6 dB gain, six per-band modulator engines
+ * (Sine/Tri/S&H/Chaos/Steps/Env) evaluated per sample, PPQ sync + free +
  * MIDI rate modes, global speed, snapshot undo/redo, analyzer + scope
  * telemetry for the WebView UI. Gate: Source/tests/NullTest.cpp.
  */
@@ -63,6 +63,12 @@ public:
     // apvts.state for session persistence; excluded from undo (see stateForUndo).
     juce::String getLocksJson() const;
     void setLocksJson (const juce::String& json);
+
+    // Step-pattern presets (JSON: name → pattern). Persist to a shared file in
+    // the user app-data dir so they survive reopen and cross all instances.
+    static juce::File stepPresetsFile();
+    juce::String getStepPresetsJson() const;
+    void setStepPresetsJson (const juce::String& json);
 
     // Re-roll (CHAOS button): re-deal random modulator states at next tick.
     void requestReroll() { rerollFlag.store (true); }
@@ -139,11 +145,11 @@ private:
         float  slewCoeff = 0.0f; // per-sample one-pole coefficient (from inertia)
         float  target  = 0.0f;
         float  panOut  = 0.0f;   // final pan (post bias + depth·amount) for scope/telemetry
-        // S&H/Drift cell-hash cache — the hashed values are constant for a whole
-        // cell, so rehash only when (cell, seed, reroll, mode) changes.
+        // S&H cell-hash cache — the hashed value is constant for a whole cell,
+        // so rehash only when (cell, seed, reroll, mode) changes.
         juce::int64 lastCell = std::numeric_limits<juce::int64>::min();
         int    lastSeed = -1, lastReroll = -1, lastMode = -1;
-        float  cellA = 0.0f, cellB = 0.0f;
+        float  cellA = 0.0f;
     };
     std::array<Modulator, kNumBands> mods;
 

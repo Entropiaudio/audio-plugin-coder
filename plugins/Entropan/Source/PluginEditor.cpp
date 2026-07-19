@@ -139,6 +139,18 @@ EntropanAudioProcessorEditor::EntropanAudioProcessorEditor (EntropanAudioProcess
             [this] (const juce::Array<juce::var>&, auto complete)
             {
                 complete (audioProcessor.getLocksJson());
+            })
+        .withNativeFunction ("setPresets",
+            [this] (const juce::Array<juce::var>& args, auto complete)
+            {
+                if (args.size() >= 1)
+                    audioProcessor.setStepPresetsJson (args[0].toString());
+                complete (true);
+            })
+        .withNativeFunction ("getPresets",
+            [this] (const juce::Array<juce::var>&, auto complete)
+            {
+                complete (audioProcessor.getStepPresetsJson());
             });
 
     for (auto& r : sliderRelays)  options = options.withOptionsFrom (*r);
