@@ -156,6 +156,7 @@ private:
     juce::SmoothedValue<float> outGainSm;    // linear
     juce::SmoothedValue<float> bypassSm;     // 0 = process, 1 = bypassed
     juce::SmoothedValue<float> amountSm;     // 0..1 master depth
+    juce::SmoothedValue<float> routingSm;    // 0 = serial, 1 = parallel — crossfaded so the flip never pops
     juce::AudioBuffer<float> dryBuffer;
 
     // Cached raw parameter pointers (hot path — no string lookups per block)

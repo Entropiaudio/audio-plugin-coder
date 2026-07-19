@@ -266,6 +266,8 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     outGainSm.reset (sampleRate, 0.010);
     bypassSm.reset  (sampleRate, 0.030);
     amountSm.reset  (sampleRate, 0.020);
+    routingSm.reset (sampleRate, 0.060);   // serial↔parallel crossfade (~60 ms)
+    routingSm.setCurrentAndTargetValue (pRouting != nullptr && pRouting->load() > 0.5f ? 1.0f : 0.0f);
 
     dryBuffer.setSize (2, juce::jmax (samplesPerBlock * 2, 8192));   // headroom for hosts that exceed the prepared block
     analyzerStore.resize ((size_t) analyzerFifo.getTotalSize(), 0.0f);
@@ -503,7 +505,11 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     outGainSm.setTargetValue (juce::Decibels::decibelsToGain (pOutput->load()));
     bypassSm.setTargetValue (pBypass->load() > 0.5f ? 1.0f : 0.0f);
-    const bool parallel = pRouting->load() > 0.5f;   // Serial chains bands; Parallel runs each on the dry input
+    // Serial chains bands; Parallel runs each on the dry input. The topology is
+    // CONTINUOUS in rx = routingSm (0..1): band input lerps chain→dry and both
+    // recombination laws blend, so flipping the switch never steps the filter
+    // inputs (a hard swap popped). Settled endpoints are bit-exact serial/parallel.
+    routingSm.setTargetValue (pRouting->load() > 0.5f ? 1.0f : 0.0f);
 
     // ── envelope-follower coefficients (global detection circuit) ──
     const bool  envRms  = pEnvRms->load() > 0.5f;
@@ -539,9 +545,11 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     for (int s = 0; s < numSamples; ++s)
     {
         float xl = left[s], xr = right[s];
-        const float xinL = xl, xinR = xr;      // dry-in — every parallel band reads this
+        const float xinL = xl, xinR = xr;      // dry-in — the parallel side reads this
         float accL = 0.0f, accR = 0.0f;        // parallel: summed per-band displacements
         const float amountV = amountSm.getNextValue();
+        const float rx = routingSm.getNextValue();       // 0 = serial … 1 = parallel
+        const float sxw = 1.0f - rx;                     // serial-side weight
 
         // envelope detector (from the pre-process input copy) — only while some
         // band is in Env mode; otherwise globalEnv holds its last value (unseen)
@@ -658,10 +666,11 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             m.panOut = panV;
 
             // 3-way split (processSample yields the complementary LP/HP pair).
-            // Serial: band N processes band N-1's output (running xl). Parallel:
-            // every band processes the same dry input (xinL).
-            const float inL = parallel ? xinL : xl;
-            const float inR = parallel ? xinR : xr;
+            // Serial (rx→0): band N processes band N-1's output (running xl).
+            // Parallel (rx→1): every band processes the same dry input (xinL).
+            // Mid-crossfade the input lerps between them — no step, no pop.
+            const float inL = xl + (xinL - xl) * rx;
+            const float inR = xr + (xinR - xr) * rx;
             float lowL = 0, restL = 0, lowR = 0, restR = 0;
             b.splitLo.processSample (0, inL, lowL, restL);
             b.splitLo.processSample (1, inR, lowR, restR);
@@ -685,22 +694,18 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const float outL = (lowApL + highL) + bandL * (1.0f - liftV) + bandL * liftV * gL;
             const float outR = (lowApR + highR) + bandR * (1.0f - liftV) + bandR * liftV * gR;
 
-            if (parallel)
-            {
-                // add only the pan/gain DISPLACEMENT (processed − allpass-flat
-                // reconstruction = bandᵢ·lift·(g−1)). Overlapping bands then SUM
-                // their movement instead of the later one re-panning the earlier.
-                accL += (outL - ((lowApL + highL) + bandL)) * e;
-                accR += (outR - ((lowApR + highR) + bandR)) * e;
-            }
-            else
-            {
-                // engage crossfade between wire and processed stage (serial chain)
-                xl = xl + (outL - xl) * e;
-                xr = xr + (outR - xr) * e;
-            }
+            // Parallel side: add only the pan/gain DISPLACEMENT (processed −
+            // allpass-flat reconstruction = bandᵢ·lift·(g−1)) — overlapping
+            // bands SUM their movement instead of the later one re-panning the
+            // earlier. Serial side: chain replacement. Both weighted by rx.
+            accL += (outL - ((lowApL + highL) + bandL)) * e * rx;
+            accR += (outR - ((lowApR + highR) + bandR)) * e * rx;
+            xl = xl + (outL - xl) * e * sxw;
+            xr = xr + (outR - xr) * e * sxw;
         }
-        if (parallel) { xl = xinL + accL; xr = xinR + accR; }
+        // settled: rx=0 → pure serial chain; rx=1 → dry + displacements
+        xl = xl * sxw + (xinL + accL) * rx;
+        xr = xr * sxw + (xinR + accR) * rx;
 
         // scope ring: sample every band's live mod value every 64 samples —
         // captured IN the loop (a post-loop fill repeats the block's final

@@ -524,7 +524,7 @@
         <div class="qm-track"><div class="qm-fill"></div></div>
       </div>
     </div>
-    <div class="spectrum-hint">double-click: add band · double-click tip: on/off · drag: freq/lift · scroll: width · steps: alt-click = ratchet · shift-click = glue</div>
+    <div class="spectrum-hint">double-click: add band · double-click tip: on/off · drag: freq/lift · scroll: width · steps: alt-click = split · shift-click = glue</div>
   </div>
 
   <!-- BOTTOM STRIP -->
@@ -638,7 +638,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B50";
+const ENTROPAN_BUILD = "B51";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1552,18 +1552,21 @@ const paintStep = e => {   // vertical drag sets the value of the run under the 
 stepCanvas.addEventListener("mousedown", e => {
   const b = B(), r = stepCanvas.getBoundingClientRect();
   const cell = cellAt(b, (e.clientX - r.left) / r.width);
-  if (e.shiftKey) {   // GLUE: tie this cell into the run on its left (shift-click again to un-glue)
-    if (cell > 0) { b.steps[cell].tie = ! b.steps[cell].tie; pushSteps(ui.selected); }
-    return;
-  }
-  if (e.altKey) {     // tied cell → un-glue (split off); otherwise cycle ratchets 1 → 2 → 4 → 1
-    const st = b.steps[cell];
+  const st = b.steps[cell];
+  if (e.altKey) {     // SPLIT: un-merge a glued cell, else divide 1 → 2 → 4 (stops at 4)
     if (st.tie) st.tie = false;
-    else {
-      const next = st.subdiv === 1 ? 2 : st.subdiv === 2 ? 4 : 1;
+    else if (st.subdiv < 4) {
+      const next = st.subdiv === 1 ? 2 : 4;
       for (let m = st.subdiv; m < next; m++) st.vals[m] = st.vals[m % st.subdiv];
       st.subdiv = next;
-    }
+    } else return;
+    pushSteps(ui.selected);
+    return;
+  }
+  if (e.shiftKey) {   // GLUE: a divided step re-joins (4/2 → 1), else merge into the step on the left
+    if (st.subdiv > 1) st.subdiv = 1;               // vals[0] becomes the whole step
+    else if (cell > 0 && ! st.tie) st.tie = true;   // extend the left run over this cell
+    else return;                                    // cell 0 / already glued: nothing to do
     pushSteps(ui.selected);
     return;
   }

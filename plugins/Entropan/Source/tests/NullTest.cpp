@@ -707,6 +707,40 @@ int main()
         std::printf ("    dL = %+.2f dB, dR = %+.2f dB\n", dL, dR);
     }
 
+    // ── T23: serial↔parallel flip mid-stream is crossfaded — no pop, finite ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        for (int b = 1; b <= 2; ++b) {   // overlapping bands so the topologies really differ
+            const juce::String pre = "b" + juce::String (b) + "_";
+            setParam (p, pre + "on", 1.0f);
+            setParam (p, pre + "freq", 1000.0f); setParam (p, pre + "width", 2.0f);
+            setParam (p, pre + "lift", 100.0f);  setParam (p, pre + "depth", 0.0f);
+            setParam (p, pre + "bias", b == 1 ? 100.0f : -100.0f);
+        }
+        setParam (p, "amount", 100.0f);
+        juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+        double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate;
+        bool finite = true; double maxJump = 0.0; float prevL = 0.0f; bool havePrev = false;
+        for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk) {
+            if (blk == kWarmBlocks + 40)  setParam (p, "routing", 1.0f);   // flip mid-stream…
+            if (blk == kWarmBlocks + 120) setParam (p, "routing", 0.0f);   // …and back
+            for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+            p.processBlock (buf, midi);
+            if (blk < kWarmBlocks) { havePrev = false; continue; }
+            for (int s = 0; s < kBlock; ++s) {
+                const float l = buf.getSample (0, s);
+                finite = finite && std::isfinite (l) && std::isfinite (buf.getSample (1, s));
+                if (havePrev) maxJump = juce::jmax (maxJump, (double) std::abs (l - prevL));
+                prevL = l; havePrev = true;
+            }
+        }
+        // 1 kHz sine per-sample delta ≈ 0.13·amp (amp ≤ √2 here) → intrinsic ≲ 0.19;
+        // a hard topology swap added a step on top. Crossfaded must stay near intrinsic.
+        ok &= check ("T23 routing flip crossfades (finite, no pop)", finite && maxJump < 0.35);
+        std::printf ("    max |Δsample| across flips = %.3f\n", maxJump);
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }
