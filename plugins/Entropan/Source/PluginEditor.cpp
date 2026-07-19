@@ -27,14 +27,14 @@ juce::StringArray EntropanAudioProcessorEditor::sliderParamIds()
 
 juce::StringArray EntropanAudioProcessorEditor::comboParamIds()
 {
-    juce::StringArray ids { "speed" };
+    juce::StringArray ids { "speed", "routing" };
     for (int i = 1; i <= EntropanAudioProcessor::kNumBands; ++i)
     {
         const juce::String p = "b" + juce::String (i) + "_";
         for (auto* s : { "mode", "ratemode", "div" })
             ids.add (p + s);
     }
-    return ids;   // 1 + 6×3 = 19
+    return ids;   // 2 + 6×3 = 20
 }
 
 juce::StringArray EntropanAudioProcessorEditor::toggleParamIds()

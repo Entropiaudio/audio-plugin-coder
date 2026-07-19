@@ -374,6 +374,9 @@
   .step-save-btn:hover { color: var(--accent); border-color: var(--accent); }
 
   /* output */
+  .out-hdr { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  .out-hdr .section-label { margin-bottom: 0; }
+  .routing-toggle { font-size: 8px; letter-spacing: 1px; padding: 2px 8px; }
   .out-knob-row { display: flex; justify-content: space-around; align-items: center; flex: 1; }
 
   /* overlays */
@@ -581,7 +584,10 @@
     </div>
 
     <div class="section-col sec-out">
-      <div class="section-label" id="outSecLabel">Output</div>
+      <div class="out-hdr">
+        <div class="section-label" id="outSecLabel">Output</div>
+        <button class="mode-toggle routing-toggle" id="routingToggle" data-tip="Serial: bands chain (a later band re-pans an overlapping earlier one). Parallel: bands run independently on the dry input (overlaps blend).">SERIAL</button>
+      </div>
       <div class="out-knob-row">
         <div class="knob-wrap" id="knob_mix"></div>
         <div class="knob-wrap" id="knob_wow"></div>
@@ -628,7 +634,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B46";
+const ENTROPAN_BUILD = "B47";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -686,6 +692,7 @@ const GLOBALS = {
   seed:   { id: "seed",   kind: "slider", def: 1 },
   amount: { id: "amount", kind: "slider", def: 100 },
   speed:  { id: "speed",  kind: "combo",  def: 2 },
+  routing:{ id: "routing",kind: "combo",  def: 0 },
   wow:     { id: "wow",     kind: "slider", def: 0 },
   flutter: { id: "flutter", kind: "slider", def: 0 },
   envAtk:  { id: "env_atk", kind: "slider", def: 20 },
@@ -1280,6 +1287,7 @@ document.getElementById("bypassBtn").onclick = e => {
   refreshPanels();
 };
 document.getElementById("polToggle").onclick = () => { PB().uni.set(!PB().uni.get()); refreshPanels(); };
+document.getElementById("routingToggle").onclick = () => { P.routing.set(P.routing.get() ? 0 : 1); refreshPanels(); };
 document.getElementById("overrideToggle").onclick = () => {
   const i = ui.selected, pb = PB();
   pb.override.set(!pb.override.get());
@@ -1416,6 +1424,9 @@ function refreshPanels() {
   const ovr = document.getElementById("overrideToggle");
   ovr.classList.toggle("free", pb.override.get());                // chain intact ↔ broken
   tintToggle(ovr, pb.override.get() ? COL_PURPLE : COL_ORANGE);   // linked orange → free purple
+  const rt = document.getElementById("routingToggle");
+  rt.textContent = P.routing.get() ? "PARALLEL" : "SERIAL";
+  tintToggle(rt, P.routing.get() ? COL_PURPLE : COL_ORANGE);   // Serial orange → Parallel purple
   const byp = document.getElementById("bypassBtn");
   byp.classList.toggle("active", P.bypass.get());
   document.getElementById("bypassDim").classList.toggle("on", P.bypass.get());

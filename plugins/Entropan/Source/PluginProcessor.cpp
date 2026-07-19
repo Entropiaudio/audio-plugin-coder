@@ -19,6 +19,7 @@ namespace
     const juce::StringArray kRateModeChoices{ "Sync", "Free", "MIDI" };
     const juce::StringArray kDivChoices     { "1/16", "1/8", "1/4", "1/2", "1 Bar", "2 Bar", "4 Bar" };
     const juce::StringArray kSpeedChoices   { "/4", "/2", "x1", "x2", "x3", "x4" };
+    const juce::StringArray kRoutingChoices { "Serial", "Parallel" };
 
     constexpr float kBandFreqDefaults[] = { 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f };
 
@@ -150,6 +151,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::crea
         juce::AudioParameterFloatAttributes().withLabel ("%")));
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
         juce::ParameterID { "speed", 1 }, "Global Speed", kSpeedChoices, 2));
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
+        juce::ParameterID { "routing", 1 }, "Routing", kRoutingChoices, 0));   // Serial (bands chain) / Parallel (independent)
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { "output", 1 }, "Level",
         juce::NormalisableRange<float> (-24.0f, 12.0f, 0.01f), 0.0f,
@@ -283,6 +286,7 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     pBypass = apvts.getRawParameterValue ("bypass");
     pSeed   = apvts.getRawParameterValue ("seed");
     pSpeed  = apvts.getRawParameterValue ("speed");
+    pRouting = apvts.getRawParameterValue ("routing");
     pWow     = apvts.getRawParameterValue ("wow");
     pFlutter = apvts.getRawParameterValue ("flutter");
     pEnvAtk  = apvts.getRawParameterValue ("env_atk");
@@ -499,6 +503,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     outGainSm.setTargetValue (juce::Decibels::decibelsToGain (pOutput->load()));
     bypassSm.setTargetValue (pBypass->load() > 0.5f ? 1.0f : 0.0f);
+    const bool parallel = pRouting->load() > 0.5f;   // Serial chains bands; Parallel runs each on the dry input
 
     // ── envelope-follower coefficients (global detection circuit) ──
     const bool  envRms  = pEnvRms->load() > 0.5f;
@@ -534,6 +539,8 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     for (int s = 0; s < numSamples; ++s)
     {
         float xl = left[s], xr = right[s];
+        const float xinL = xl, xinR = xr;      // dry-in — every parallel band reads this
+        float accL = 0.0f, accR = 0.0f;        // parallel: summed per-band displacements
         const float amountV = amountSm.getNextValue();
 
         // envelope detector (from the pre-process input copy) — only while some
@@ -647,10 +654,14 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const float panV = juce::jlimit (-1.0f, 1.0f, biasC + mv * depthV * amountV);
             m.panOut = panV;
 
-            // 3-way split (processSample yields the complementary LP/HP pair)
+            // 3-way split (processSample yields the complementary LP/HP pair).
+            // Serial: band N processes band N-1's output (running xl). Parallel:
+            // every band processes the same dry input (xinL).
+            const float inL = parallel ? xinL : xl;
+            const float inR = parallel ? xinR : xr;
             float lowL = 0, restL = 0, lowR = 0, restR = 0;
-            b.splitLo.processSample (0, xl, lowL, restL);
-            b.splitLo.processSample (1, xr, lowR, restR);
+            b.splitLo.processSample (0, inL, lowL, restL);
+            b.splitLo.processSample (1, inR, lowR, restR);
 
             float bandL = 0, highL = 0, bandR = 0, highR = 0;
             b.splitHi.processSample (0, restL, bandL, highL);
@@ -671,10 +682,22 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const float outL = (lowApL + highL) + bandL * (1.0f - liftV) + bandL * liftV * gL;
             const float outR = (lowApR + highR) + bandR * (1.0f - liftV) + bandR * liftV * gR;
 
-            // engage crossfade between wire and processed stage
-            xl = xl + (outL - xl) * e;
-            xr = xr + (outR - xr) * e;
+            if (parallel)
+            {
+                // add only the pan/gain DISPLACEMENT (processed − allpass-flat
+                // reconstruction = bandᵢ·lift·(g−1)). Overlapping bands then SUM
+                // their movement instead of the later one re-panning the earlier.
+                accL += (outL - ((lowApL + highL) + bandL)) * e;
+                accR += (outR - ((lowApR + highR) + bandR)) * e;
+            }
+            else
+            {
+                // engage crossfade between wire and processed stage (serial chain)
+                xl = xl + (outL - xl) * e;
+                xr = xr + (outR - xr) * e;
+            }
         }
+        if (parallel) { xl = xinL + accL; xr = xinR + accR; }
 
         // scope ring: sample every band's live mod value every 64 samples —
         // captured IN the loop (a post-loop fill repeats the block's final

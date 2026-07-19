@@ -184,6 +184,7 @@ private:
     std::atomic<float>* pBypass = nullptr;
     std::atomic<float>* pSeed   = nullptr;
     std::atomic<float>* pSpeed  = nullptr;
+    std::atomic<float>* pRouting = nullptr;   // 0 = Serial, 1 = Parallel
     std::atomic<float>* pWow     = nullptr;
     std::atomic<float>* pFlutter = nullptr;
     std::atomic<float>* pEnvAtk  = nullptr;

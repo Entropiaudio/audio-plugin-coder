@@ -595,6 +595,87 @@ int main()
         std::printf ("    max |square − glide| = %.3f\n", maxDiff);
     }
 
+    // ── T20: Parallel routing — a single band still pans equal-power (like T4) ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        setParam (p, "routing", 1.0f);       // Parallel
+        setParam (p, "b1_on", 1.0f);
+        setParam (p, "b1_freq", 1000.0f); setParam (p, "b1_width", 2.0f);
+        setParam (p, "b1_lift", 100.0f);  setParam (p, "b1_depth", 100.0f);
+        setParam (p, "amount", 100.0f);
+        setParam (p, "b1_ratemode", 1.0f); setParam (p, "b1_rate", 0.02f);
+        setParam (p, "b1_phase", 90.0f);   setParam (p, "b1_inertia", 0.0f);
+        juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+        double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate;
+        double inE = 0, outLE = 0, outRE = 0;
+        for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk) {
+            for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+            p.processBlock (buf, midi);
+            if (blk < kWarmBlocks) continue;
+            for (int s = 0; s < kBlock; ++s) { inE += 0.5; outLE += juce::square((double)buf.getSample(0,s)); outRE += juce::square((double)buf.getSample(1,s)); }
+        }
+        const double dL = dB (outLE/inE), dR = dB (outRE/inE);
+        ok &= check ("T20 parallel: single band pans hard right", dL < -6.0 && dR > 2.0 && dR < 4.0);
+        std::printf ("    dL = %+.2f dB, dR = %+.2f dB\n", dL, dR);
+    }
+
+    // ── T21: overlapping bands route differently — Serial ≠ Parallel ──
+    {
+        auto run2 = [] (float routing, std::vector<float>& outL)
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (kSampleRate, kBlock);
+            setParam (p, "routing", routing);
+            for (int b = 1; b <= 2; ++b) {   // two bands on the SAME region, opposite bias
+                const juce::String pre = "b" + juce::String (b) + "_";
+                setParam (p, pre + "on", 1.0f);
+                setParam (p, pre + "freq", 1000.0f); setParam (p, pre + "width", 2.0f);
+                setParam (p, pre + "lift", 100.0f);  setParam (p, pre + "depth", 0.0f);
+                setParam (p, pre + "bias", b == 1 ? 100.0f : -100.0f);   // one hard R, one hard L
+            }
+            setParam (p, "amount", 100.0f);
+            juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+            double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate;
+            for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk) {
+                for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+                p.processBlock (buf, midi);
+                if (blk < kWarmBlocks) continue;
+                for (int s = 0; s < kBlock; ++s) outL.push_back (buf.getSample (0, s));
+            }
+        };
+        std::vector<float> ser, par, def;
+        run2 (0.0f, ser); run2 (1.0f, par);
+        // default (routing param left unset) must equal explicit Serial
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (kSampleRate, kBlock);
+            for (int b = 1; b <= 2; ++b) {
+                const juce::String pre = "b" + juce::String (b) + "_";
+                setParam (p, pre + "on", 1.0f);
+                setParam (p, pre + "freq", 1000.0f); setParam (p, pre + "width", 2.0f);
+                setParam (p, pre + "lift", 100.0f);  setParam (p, pre + "depth", 0.0f);
+                setParam (p, pre + "bias", b == 1 ? 100.0f : -100.0f);
+            }
+            setParam (p, "amount", 100.0f);
+            juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+            double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate;
+            for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk) {
+                for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+                p.processBlock (buf, midi);
+                if (blk < kWarmBlocks) continue;
+                for (int s = 0; s < kBlock; ++s) def.push_back (buf.getSample (0, s));
+            }
+        }
+        double maxDiff = 0.0, defVsSerial = 0.0;
+        for (size_t k = 0; k < ser.size(); ++k) {
+            maxDiff     = juce::jmax (maxDiff,     (double) std::abs (ser[k] - par[k]));
+            defVsSerial = juce::jmax (defVsSerial, (double) std::abs (ser[k] - def[k]));
+        }
+        ok &= check ("T21 overlap: serial ≠ parallel, default == serial", maxDiff > 0.05 && defVsSerial < 1.0e-6);
+        std::printf ("    max |serial − parallel| = %.3f, |default − serial| = %.2g\n", maxDiff, defVsSerial);
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }
