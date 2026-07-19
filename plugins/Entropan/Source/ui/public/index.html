@@ -326,7 +326,10 @@
   .mod-right { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 
   /* h-sliders */
-  .hslider-stack { display: flex; flex-direction: column; gap: 8px; flex: 1; justify-content: center; }
+  .hslider-stack { display: flex; flex-direction: column; gap: 8px; flex: 1; justify-content: center; min-height: 0; overflow: hidden; }
+  /* ENV mode shows 4 rows (ATK/REL/SC-F/GAIN) where others show 3 — tighten so GAIN stays inside */
+  .hslider-stack.compact { gap: 3px; }
+  .hslider-stack.compact .hslider { height: 19px; }
   .hslider-row { display: flex; align-items: center; gap: 8px; }
   .hslider { flex: 1; height: 22px; position: relative; cursor: ew-resize; }
   .hslider .hs-label {
@@ -350,11 +353,15 @@
   .mode-toggle.active { color: var(--accent); border-color: var(--accent); }
 
   /* step editor */
-  .step-editor { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 6px; }
+  .step-editor { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 4px; }
   .step-editor.visible { display: flex; }
   #stepCanvas { flex: 1; min-height: 0; width: 100%; border-radius: 6px; background: var(--bg-elevated); border: 1px solid var(--border-divider); cursor: crosshair; }
-  .step-smooth-row { flex: 0 0 20px; }
-  .step-count-row { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
+  /* one compact control row (SPEED · SYNC · SMOOTH) — the grid gets the rest */
+  .step-ctl-row { flex: 0 0 18px; gap: 8px; }
+  .step-ctl-row .hslider { height: 18px; }
+  .step-ctl-row .mode-toggle { font-size: 8px; padding: 1.5px 8px; }
+  .step-count-row { display: flex; align-items: center; gap: 5px; justify-content: flex-end; flex: 0 0 16px; }
+  .step-count-row .step-preset-sel, .step-count-row .step-save-btn { font-size: 8px; padding: 1px 5px; }
   .step-count-row span { font-size: 8.5px; letter-spacing: 1px; color: var(--text-dim); }
   .step-preset-sel {
     font-family: inherit; font-size: 8px; letter-spacing: 0.5px;
@@ -472,7 +479,7 @@
   <div class="header">
     <div class="header-left">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B43</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0 &middot; B44</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -559,11 +566,11 @@
           </div>
           <div class="step-editor" id="stepEditor">
             <canvas id="stepCanvas"></canvas>
-            <div class="hslider-row step-smooth-row">
+            <div class="hslider-row step-ctl-row">
               <div class="hslider" id="hs_stepspeed"></div>
               <button class="mode-toggle" id="stepSyncToggle">SYNC</button>
+              <div class="hslider" id="hs_stepsmooth"></div>
             </div>
-            <div class="hslider-row step-smooth-row"><div class="hslider" id="hs_stepsmooth"></div></div>
             <div class="step-count-row">
               <select class="step-preset-sel" id="stepPresetSel"></select>
               <button class="step-save-btn" id="stepSaveBtn" title="Save current pattern as preset">SAVE</button>
@@ -625,7 +632,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B43";
+const ENTROPAN_BUILD = "B44";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 
 /* ════════════════════════════════════════════════════════════════════
@@ -1416,7 +1423,11 @@ function refreshPanels() {
     hsPhase.el.classList.toggle("disabled", mode >= 2 && mode <= 4);
     hsInertia.el.classList.toggle("disabled", mode <= 1);
   }
-  document.getElementById("sliderStack").style.display = mode === 5 ? "none" : "flex";
+  const stack = document.getElementById("sliderStack");
+  stack.style.display = mode === 5 ? "none" : "flex";
+  stack.classList.toggle("compact", mode === 6);   // ENV: 4 rows in the space of 3
+  // Steps: the grid IS the shape — drop the little scope so the editor gets the full width
+  scopeCanvas.style.display = mode === 5 ? "none" : "";
   document.getElementById("envGainRow").style.display = mode === 6 ? "flex" : "none";
   if (mode === 6) { hsEnvGain.color = c; hsEnvGain.refresh(); }
   document.getElementById("stepEditor").classList.toggle("visible", mode === 5);
