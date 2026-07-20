@@ -671,7 +671,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B52";
+const ENTROPAN_BUILD = "B53";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -2466,9 +2466,11 @@ document.getElementById("settingsBtn").addEventListener("click", e => {
   e.stopPropagation();
 });
 document.addEventListener("mousedown", e => {
+  // closest(), not target.id — the gear's <svg>/<path> is the actual target, so
+  // an id check let mousedown close the popover and the button's click reopen it
   if (settingsPopover.classList.contains("open")
       && !settingsPopover.contains(e.target)
-      && e.target.id !== "settingsBtn")
+      && !(e.target.closest && e.target.closest("#settingsBtn")))
     settingsPopover.classList.remove("open");
 });
 
