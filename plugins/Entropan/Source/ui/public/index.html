@@ -670,7 +670,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B58";
+const ENTROPAN_BUILD = "B59";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1109,9 +1109,9 @@ modEditor.addEventListener("mousedown", e => {
   if (!meRoute) return;
   const sy = e.clientY, d0 = meRoute.depth, rt = meRoute;
   const lim = destHeadroom(rt.dst);   // can't dial past the knob's remaining travel
-  // schedulePanels (rAF-coalesced), NOT refreshPanels — a full 10-knob glow
-  // rebuild per mousemove made the whole UI crawl while dragging.
-  const mv = ev => { rt.depth = clamp(d0 + (sy - ev.clientY), lim.min, lim.max); meDraw(); schedulePanels(); };
+  // meDraw only (2 tiny arcs) — the main loop already repaints routed knobs, so
+  // any panel refresh here just stacked a full 10-knob glow rebuild per frame.
+  const mv = ev => { rt.depth = clamp(d0 + (sy - ev.clientY), lim.min, lim.max); meDraw(); };
   const done = () => { window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", done); pushRoutes(); };
   window.addEventListener("mousemove", mv); window.addEventListener("mouseup", done);
   e.preventDefault(); e.stopPropagation();
@@ -2470,7 +2470,7 @@ function tickMods(dt) {
 /* ════════════════════════════════════════════════════════════════════
    MAIN LOOP
    ════════════════════════════════════════════════════════════════════ */
-let lastFrame = 0, loopCalls = 0, loopErr = null;
+let lastFrame = 0, loopCalls = 0, loopErr = null, ringFrame = false;
 let fpsCount = 0, fpsLastTs = 0;
 function loop(ts) {
   loopCalls++;
@@ -2494,8 +2494,11 @@ function loop(ts) {
     drawScope();
     updateQuickMenu();
     if (PB().mode.get() === 4) drawSteps();
-    // live mod-matrix rings: only knobs that actually have routes repaint
-    if (modRoutes.length)
+    // live mod-matrix rings: only knobs that actually have routes repaint, and
+    // only every other frame — a routed knob is a full 3-pass glow redraw, and
+    // 30 Hz is plenty for the breathing ring (halves the steady cost).
+    ringFrame = !ringFrame;
+    if (modRoutes.length && ringFrame)
       for (const k of ROUTED_KNOB_POOL) {
         const d = widgetDest(k.el);
         if (d !== null && modRoutes.some(r => r.dst === d)) k.refresh();
