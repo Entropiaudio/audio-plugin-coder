@@ -806,6 +806,51 @@ int main()
         std::printf ("    UNI %.2f … %+.2f dB   BI %.2f … %+.2f dB\n", uLo, uHi, bLo, bHi);
     }
 
+    // ── T26: Env pan slew floor — no audio-rate ripple AM (was: noise at high ENV GAIN) ──
+    // The detector ripples at 2× the programme frequency; before the floor,
+    // smooth=0 made the pan track that ripple per-sample, which reads here as
+    // huge total variation of the short-window L/R balance. Measure the balance
+    // trajectory's total variation on a steady 200 Hz sine with a hot detector.
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        setParam (p, "b1_on", 1.0f);
+        setParam (p, "b1_freq", 200.0f); setParam (p, "b1_width", 3.0f);
+        setParam (p, "b1_lift", 100.0f); setParam (p, "b1_depth", 100.0f);
+        setParam (p, "b1_mode", 5.0f);                      // Env
+        setParam (p, "b1_inertia", 0.0f);                   // worst case: zero smooth
+        setParam (p, "env_atk", 1.0f); setParam (p, "env_rel", 5.0f);
+        // Detector must sit MID-RANGE: a hot signal pins globalEnv at the 1.0
+        // clamp (constant target, no ripple, test proves nothing). The user
+        // hears the noise when GAIN pushes programme through this ripple zone;
+        // a quiet sine parks the detector inside it deterministically.
+        setParam (p, "env_gain", 0.0f);
+        constexpr float kAmp = 0.15f;
+        juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+        double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*200.0/kSampleRate;
+        double tv = 0.0, prevBal = 0.0; bool have = false;
+        constexpr int kWin = 32;
+        for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk) {
+            for (int s = 0; s < kBlock; ++s) { const float v=kAmp*(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+            p.processBlock (buf, midi);
+            if (blk < kWarmBlocks) continue;
+            for (int w = 0; w + kWin <= kBlock; w += kWin) {
+                double el = 1.0e-12, er = 1.0e-12;
+                for (int s = w; s < w + kWin; ++s) { el += juce::square ((double) buf.getSample (0, s));
+                                                     er += juce::square ((double) buf.getSample (1, s)); }
+                const double bal = (el - er) / (el + er);
+                if (have) tv += std::abs (bal - prevBal);
+                prevBal = bal; have = true;
+            }
+        }
+        // measured: 108.1 without the floor (per-sample ripple tracking, audible
+        // ~−28 dB sidebands), 7.6 with it (residual ~−54 dB, inaudible — a one-
+        // pole slew attenuates, it can't null). 15 = 2× margin over fixed, 7×
+        // below broken.
+        ok &= check ("T26 Env slew floor kills ripple AM", tv < 15.0);
+        std::printf ("    balance total variation: %.3f (floor active)\n", tv);
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }

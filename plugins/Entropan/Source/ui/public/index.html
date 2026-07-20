@@ -236,6 +236,12 @@
     border: 1px solid var(--border-divider);
   }
   .qm-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
+  /* live modulated-value marker (source-coloured) on routed tracks */
+  .mod-mark {
+    display: none; position: absolute; top: -1px; bottom: -1px; width: 2px;
+    margin-left: -1px; border-radius: 1px; pointer-events: none;
+    box-shadow: 0 0 4px currentColor;
+  }
 
   /* ─── BOTTOM STRIP ─── */
   .bottom {
@@ -763,7 +769,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B66";
+const ENTROPAN_BUILD = "B67";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1206,6 +1212,42 @@ const destHeadroom = (dst, src) => {
   return { min: -m, max: m };
 };
 
+// ── live DISPLAY values: base param + mod-matrix offset ─────────────────────
+// The DSP applies routes in the normalized domain at block rate; the UI must
+// show the same final value everywhere a parameter is drawn (spectrum bells,
+// track markers, knob rings) — not just the base the user set.
+const modNormOffset = dst => {
+  let o = 0;
+  for (const r of modRoutes) if (r.dst === dst) o += routeSrcVal(r) * r.depth / 100;
+  return o;
+};
+const moddedNorm = dst => clamp(destNorm(dst) + modNormOffset(dst), 0, 1);
+// per-frame cache for the spectrum (bellY runs per 2px column — no route scans there)
+const dispBand = Array.from({ length: 6 }, () => ({ freqN: 0, oct: 1, lift: 0, gainDb: 0, gainMod: false }));
+function refreshDispBands() {
+  for (let i = 0; i < 6; i++) {
+    const pb = P.bands[i], d = dispBand[i], base = i * 10;
+    d.freqN = clamp(fx(pb.freq.get()) + modNormOffset(base), 0, 1);
+    d.oct = normToOct(clamp(octToNorm(pb.width.get()) + modNormOffset(base + 1), 0, 1));
+    d.lift = clamp(pb.lift.get() / 100 + modNormOffset(base + 2), 0, 1) * 100;
+    d.gainMod = modRoutes.some(r => r.dst === base + 4);
+    d.gainDb = clamp((pb.gain.get() + 6) / 12 + modNormOffset(base + 4), 0, 1) * 12 - 6;
+    // any bell-geometry route: the aura's cache key would churn every frame
+    d.geoMod = modRoutes.some(r => r.dst >= base && r.dst <= base + 2);
+  }
+}
+// shared marker painter for fader/quick-menu tracks
+function paintModMark(track, dst) {
+  let mk = track._modMark;
+  if (!mk) { mk = track._modMark = div_("mod-mark"); track.appendChild(mk); }
+  const rt = modRoutes.find(r => r.dst === dst);
+  if (!rt) { mk.style.display = "none"; return; }
+  mk.style.display = "block";
+  mk.style.left = (moddedNorm(dst) * 100) + "%";
+  mk.style.background = BAND_COLORS[rt.src];
+  mk.style.color = BAND_COLORS[rt.src];   // drives the currentColor glow
+}
+
 function openModEditor(route, x, y) {
   meRoute = route;
   modEditor.style.borderColor = BAND_COLORS[route.src] + "88";
@@ -1412,6 +1454,7 @@ function makeHSlider(id, label, opts) {
       val.textContent = opts.fmt();
       el.classList.toggle("locked", locked);
       refreshModHandle(modHandle, el);   // mod-matrix marker + dial re-open
+      paintModMark(track, widgetDest(el));   // live modulated-value marker
     }
   };
   let drag = false;
@@ -1582,6 +1625,8 @@ knobFlutter.el.dataset.mabs = 62; knobOut.el.dataset.mabs = 63;
 // knobs that can carry mod-matrix rings (animated per frame while routed)
 const ROUTED_KNOB_POOL = [knobFreq, knobWidth, knobLift, knobDepth, knobBias,
                           knobAmount, knobWow, knobFlutter, knobOut];
+// routed faders repaint their modulated-value marker in the same loop cadence
+const ROUTED_FADER_POOL = [hsRate, hsInertia, hsPhase, hsStepSpeed, hsStepSmooth];
 
 const modDragDot = document.getElementById("modDragDot");
 let routeDrag = null, dragGhost = null;
@@ -2099,10 +2144,12 @@ function tickAnalyzer(t) {
 }
 
 function bellY(i, x) {
-  const pb = P.bands[i];
-  const sigma = (pb.width.get() / 2) / Math.log2(FMAX / FMIN) * 2.2;
-  const d = (x - fx(pb.freq.get())) / sigma;
-  return Math.exp(-d * d) * (pb.lift.get() / 100);
+  // reads the per-frame DISPLAY cache (base + modulation), refreshed at the
+  // top of drawSpectrum — a modulated freq/width/lift moves the bell live
+  const d = dispBand[i];
+  const sigma = (d.oct / 2) / Math.log2(FMAX / FMIN) * 2.2;
+  const dd = (x - d.freqN) / sigma;
+  return Math.exp(-dd * dd) * (d.lift / 100);
 }
 
 /* per-band aura cache: the blur filter is expensive — re-render only when the
@@ -2134,6 +2181,7 @@ function drawGridCached(ctx, W, H) {
 
 function drawSpectrum(t) {
   const ctx = spec.getContext("2d"), W = spec.width, H = spec.height;
+  refreshDispBands();   // bells/handles/aura draw the MODULATED values
   ctx.clearRect(0, 0, W, H);
 
   // grid (cached bitmap)
@@ -2178,18 +2226,42 @@ function drawSpectrum(t) {
     if (sel && !ghost) { ctx.shadowColor = c; ctx.shadowBlur = 8 * DPR; }
     ctx.stroke(); ctx.shadowBlur = 0;
 
-    // apex handle
-    const liftV = pb.lift.get(), freqV = pb.freq.get(), widthV = pb.width.get();
-    const hx = fx(freqV) * W, hy = H - (liftV / 100) * topH;
+    // apex handle — display values, so modulated freq/lift move the dot too
+    const dd = dispBand[bi];
+    const liftV = dd.lift, freqV = xf(dd.freqN), widthV = dd.oct;
+    const hx = dd.freqN * W, hy = H - (liftV / 100) * topH;
     ctx.beginPath(); ctx.arc(hx, hy, (sel ? 6 : 4.5) * DPR, 0, 7);
     ctx.fillStyle = c + (ghost ? "55" : "ff"); ctx.fill();
     ctx.beginPath(); ctx.arc(hx, hy, 2 * DPR, 0, 7);
     ctx.fillStyle = ghost ? "#88837a" : "#fff"; ctx.fill();
 
     // gain aura — expensive blur render is CACHED per band; re-rendered only
-    // when bell geometry or gain changes, stamped as a bitmap every frame
-    const gainV = pb.gain.get();
-    if (Math.abs(gainV) > 0.05 && !ghost && dragBand !== bi) {
+    // when bell geometry or gain changes, stamped as a bitmap every frame.
+    // A MODULATED gain would thrash that cache every frame (new key per frame,
+    // full blur re-render each time), so routed gain takes a cheap live path:
+    // a glow stroke along the bell whose intensity follows the modulated dB.
+    const gainV = dd.gainMod ? dd.gainDb : pb.gain.get();
+    if ((dd.gainMod || dd.geoMod) && Math.abs(gainV) > 0.05 && !ghost) {
+      const amt = Math.abs(gainV) / 6;
+      ctx.save();
+      ctx.beginPath();
+      for (let px = 0; px <= W; px += 2 * DPR) {
+        const py = H - bellY(bi, px / W) * topH;
+        px === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.shadowColor = c; ctx.shadowBlur = (5 + amt * 22) * DPR;
+      ctx.strokeStyle = c + "aa";
+      ctx.lineWidth = (1 + amt * 2.5) * DPR;
+      ctx.globalAlpha = 0.35 + 0.6 * amt;
+      ctx.stroke(); ctx.stroke();
+      ctx.restore();
+      if (sel) {
+        ctx.fillStyle = c + "cc";
+        ctx.fillText((gainV > 0 ? "+" : "") + gainV.toFixed(1) + " dB",
+                     hx + 10 * DPR, Math.max(12 * DPR, hy - 12 * DPR));
+      }
+    }
+    else if (Math.abs(gainV) > 0.05 && !ghost && dragBand !== bi) {
       const boost = gainV > 0;
       const amt = Math.abs(gainV) / 6;
       const blur = (5 + amt * 22) * DPR;
@@ -2281,7 +2353,8 @@ function bandAt(e) {
   for (let i = 0; i < 6; i++) {
     const pb = P.bands[i];
     if (!pb.on.get() && !ui.bands[i].configured) continue;
-    const hx = fx(pb.freq.get()), hy = 1 - (pb.lift.get() / 100) * 0.82;
+    // hit test against the DISPLAYED (modulated) handle — grab what you see
+    const hx = dispBand[i].freqN, hy = 1 - (dispBand[i].lift / 100) * 0.82;
     const d = Math.hypot(x - hx, y - hy);
     if (d < bd) { bd = d; best = i; }
   }
@@ -2400,6 +2473,7 @@ function qmRefreshRow(row, norm, text, color) {
   const rt = modRoutes.find(r => r.dst === widgetDest(row));   // routed → source-colour edge
   row.style.boxShadow = rt ? "inset 2px 0 0 " + BAND_COLORS[rt.src] : "";
   refreshModHandle(row._modH || (row._modH = makeModHandle(row)), row);
+  paintModMark(row.querySelector(".qm-track"), widgetDest(row));   // live modulated value
 }
 function updateQuickMenu() {
   const pb = PB(), wrap = spec.parentElement;
@@ -2657,11 +2731,18 @@ function loop(ts) {
     // only every other frame — a routed knob is a full 3-pass glow redraw, and
     // 30 Hz is plenty for the breathing ring (halves the steady cost).
     ringFrame = !ringFrame;
-    if (modRoutes.length && ringFrame)
+    if (modRoutes.length && ringFrame) {
       for (const k of ROUTED_KNOB_POOL) {
         const d = widgetDest(k.el);
         if (d !== null && modRoutes.some(r => r.dst === d)) k.refresh();
       }
+      // faders: only the marker moves — cheap style write, no canvas
+      for (const s of ROUTED_FADER_POOL) {
+        const d = widgetDest(s.el);
+        if (d !== null && modRoutes.some(r => r.dst === d))
+          paintModMark(s.el.querySelector(".hs-track"), d);
+      }
+    }
   } catch (e) { loopErr = e.message + " | " + (e.stack || "").split("\n")[1]; }
 }
 

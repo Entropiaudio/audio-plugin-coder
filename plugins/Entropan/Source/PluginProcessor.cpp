@@ -575,6 +575,15 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
         else if (cfg.mode == 3)                       // Chaos — free viscosity (unbounded wanderer)
             slewT = juce::jmin (2.0, 0.004 + i2 * 2.0);
+        else if (cfg.mode == 5)                       // Env — absolute floor, NOT rate-derived
+            // The detector ripples at 2× the programme frequency (rectification);
+            // without a floor (smooth=0 → coeff=1) the pan tracked that ripple
+            // per-sample, amplitude-modulating the band at audio rate — heard as
+            // noise that grew with ENV GAIN (hotter detector = steeper ripple).
+            // 5 ms kills the ripple while still feeling instant; SMOOTH adds
+            // glide on top. periodS is meaningless here — Env follows the audio,
+            // not the band's RATE.
+            slewT = 0.005 + i2 * 0.5;
         else                                          // Sine / Tri
             slewT = i2 * 0.10 * periodS;              // corner ≈ 1.6·rate at max
         m.slewCoeff = onePoleCoeff (slewT, currentSampleRate);
