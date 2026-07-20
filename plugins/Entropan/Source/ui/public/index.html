@@ -213,10 +213,17 @@
     width: 10px; height: 10px; border-radius: 50%;
     margin: -5px 0 0 -5px; box-shadow: 0 0 8px 2px rgba(255,255,255,0.25);
   }
-  .hslider .mod-dot {
-    display: none; position: absolute; top: 1px; right: -2px;
-    width: 5px; height: 5px; border-radius: 50%; pointer-events: none;
+  /* Routed-destination handle: the permanent way back to the amount dial.
+     Source-coloured, click-through-proof (its own mousedown stops the drag). */
+  .mod-handle {
+    display: none; position: absolute; z-index: 9;
+    width: 6px; height: 6px; border-radius: 50%; cursor: pointer;
+    box-shadow: 0 0 4px currentColor; transition: transform 90ms ease;
   }
+  .mod-handle:hover { transform: scale(1.6); }
+  .knob-wrap .mod-handle { top: 1px; right: 5px; }
+  .hslider .mod-handle { top: 1px; right: -2px; }
+  .qm-row  .mod-handle { top: 2px; right: 2px; }
   .route-x {
     font-family: inherit; font-size: 9px; width: 15px; height: 15px; line-height: 1; padding: 0;
     background: transparent; color: #d98a8a; border: 1px solid #5a3a3a; border-radius: 50%; cursor: pointer;
@@ -670,7 +677,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B60";
+const ENTROPAN_BUILD = "B61";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1122,6 +1129,33 @@ function openModEditor(route, x, y) {
   modEditor.style.left = clamp(x - 8, 4, vw - 22) + "px";   // centred on the drop point
   modEditor.style.top  = clamp(y + 8, 4, vh - 22) + "px";
 }
+/* Persistent handle on every routed destination — click it any time to bring
+   the amount dial back (the dial itself only auto-opens on drop). Cycles when
+   a destination carries several routes. */
+function makeModHandle(hostEl) {
+  const h = div_("mod-handle");
+  h.style.display = "none";
+  h.dataset.tip = "Click: edit this modulation amount";
+  h.addEventListener("mousedown", e => { e.stopPropagation(); e.preventDefault(); });  // never start the knob drag
+  h.addEventListener("click", e => {
+    e.stopPropagation();
+    const rs = modRoutes.filter(r => r.dst === widgetDest(hostEl));
+    if (!rs.length) return;
+    const open = modEditor.classList.contains("open");
+    const idx = rs.indexOf(meRoute);
+    const next = (open && idx >= 0) ? rs[(idx + 1) % rs.length] : rs[0];
+    const r = h.getBoundingClientRect();
+    openModEditor(next, r.left + r.width / 2, r.bottom);
+  });
+  hostEl.appendChild(h);
+  return h;
+}
+function refreshModHandle(h, hostEl) {
+  const rs = modRoutes.filter(r => r.dst === widgetDest(hostEl));
+  h.style.display = rs.length ? "block" : "none";
+  if (rs.length) h.style.color = h.style.background = BAND_COLORS[rs[0].src];
+}
+
 modEditor.addEventListener("mousedown", e => {
   if (!meRoute) return;
   const sy = e.clientY, d0 = meRoute.depth, rt = meRoute;
@@ -1219,6 +1253,7 @@ function makeKnob(containerId, label, opts) {
     el.title = "Right-click: lock / unlock (CHAOS skips locked params)";
   }
 
+  const modHandle = makeModHandle(el);
   const k = {
     el, color: opts.color,
     refresh() {
@@ -1226,6 +1261,7 @@ function makeKnob(containerId, label, opts) {
       const locked = opts.lockKey ? isLocked(opts.lockKey, opts.lockGlobal) : false;
       drawKnob(canvas, norm, k.color, locked);
       drawModRings(canvas, widgetDest(el));   // mod-matrix rings (outer arcs, source colours)
+      refreshModHandle(modHandle, el);
       ind.style.transform = `rotate(${-135 + clamp(norm, 0, 1) * 270}deg) translateY(-14px)`;
       // Locked: grey dot, no glow, dim face — position still readable (Chaosverb).
       ind.style.background = locked ? "#aaaaaa" : "#ffffff";
@@ -1267,8 +1303,7 @@ function makeHSlider(id, label, opts) {
     bindLockGesture(el, opts.lockKey);
     el.title = "Right-click: lock / unlock (CHAOS skips locked params)";
   }
-  const modDot = div_("mod-dot");
-  el.appendChild(modDot);
+  const modHandle = makeModHandle(el);
   const s = {
     el, color: opts.color,
     refresh() {
@@ -1279,9 +1314,7 @@ function makeHSlider(id, label, opts) {
                                      : `linear-gradient(90deg, ${s.color}55, ${s.color})`;
       val.textContent = opts.fmt();
       el.classList.toggle("locked", locked);
-      const rt = modRoutes.find(r => r.dst === widgetDest(el));   // mod-matrix marker
-      modDot.style.display = rt ? "block" : "none";
-      if (rt) modDot.style.background = BAND_COLORS[rt.src];
+      refreshModHandle(modHandle, el);   // mod-matrix marker + dial re-open
     }
   };
   let drag = false;
@@ -2269,6 +2302,7 @@ function qmRefreshRow(row, norm, text, color) {
   row.querySelector(".qm-value").textContent = text;
   const rt = modRoutes.find(r => r.dst === widgetDest(row));   // routed → source-colour edge
   row.style.boxShadow = rt ? "inset 2px 0 0 " + BAND_COLORS[rt.src] : "";
+  refreshModHandle(row._modH || (row._modH = makeModHandle(row)), row);
 }
 function updateQuickMenu() {
   const pb = PB(), wrap = spec.parentElement;
