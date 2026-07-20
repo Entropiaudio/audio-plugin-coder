@@ -231,16 +231,18 @@ void EntropanAudioProcessorEditor::timerCallback()
 
     // ── per-band mod values (post-slew × depth) + last MIDI note ──
     {
-        juce::Array<juce::var> pans, phases;
+        juce::Array<juce::var> pans, phases, srcs;
         for (int i = 0; i < EntropanAudioProcessor::kNumBands; ++i)
         {
             pans.add ((double) audioProcessor.modOutDepth[(size_t) i].load (std::memory_order_relaxed));
             phases.add ((double) audioProcessor.modPhase[(size_t) i].load (std::memory_order_relaxed));
+            srcs.add ((double) audioProcessor.modSrcVal[(size_t) i].load (std::memory_order_relaxed));
         }
 
         auto* obj = new juce::DynamicObject();
         obj->setProperty ("pans", pans);
         obj->setProperty ("phases", phases);
+        obj->setProperty ("srcs", srcs);   // raw modulator → live mod-matrix rings
         obj->setProperty ("midiNote", audioProcessor.lastMidiNote.load());
         webView->emitEventIfBrowserIsVisible ("modvals", juce::var (obj));
     }

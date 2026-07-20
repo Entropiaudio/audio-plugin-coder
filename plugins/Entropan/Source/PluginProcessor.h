@@ -251,6 +251,7 @@ public:
     std::atomic<int>   lastMidiNote { -1 };
     std::array<std::atomic<float>, kNumBands> modOutDepth {};   // post-slew mod × depth
     std::array<std::atomic<float>, kNumBands> modPhase {};       // cycle phase 0..1 (steps highlight)
+    std::array<std::atomic<float>, kNumBands> modSrcVal {};      // raw post-slew modulator −1..1 (mod-matrix source)
 
     // Analyzer tap: mono (L+R)/2 of the processed output, drained by the editor.
     int popAnalyzer (float* dest, int maxNum);

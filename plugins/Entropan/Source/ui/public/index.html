@@ -670,7 +670,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B57";
+const ENTROPAN_BUILD = "B58";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1003,6 +1003,7 @@ if (EMBEDDED) {
    ════════════════════════════════════════════════════════════════════ */
 const setRoutesNative = native("setRoutes"), getRoutesNative = native("getRoutes");
 let modRoutes = [];   // [{src 0-5, dst (band·10+slot | 60+g), depth −100..100}]
+const modSrcVals = [0, 0, 0, 0, 0, 0];   // live raw modulators (−1..1) — telemetry, or the sim in a browser
 const DEST_SLOT_NAMES = ["FREQ", "Q", "LIFT", "DEPTH", "GAIN", "RATE", "SMOOTH", "PHASE", "BIAS", "STEP SM"];
 const DEST_GLOBAL_NAMES = ["AMOUNT", "WOW", "FLUTTER", "LEVEL"];
 const destName = d => d >= 60 ? DEST_GLOBAL_NAMES[d - 60]
@@ -1023,21 +1024,26 @@ function loadRoutes() {
   };
   if (EMBEDDED) getRoutesNative().then(apply).catch(() => {});
 }
-/* thin outer arcs on a knob canvas: one per route, source band's colour,
-   sweep ∝ |depth| (dimmer when negative) */
+/* thin outer arc on a knob canvas: shows the FINAL modulated position — knob
+   value + live modulator × depth (e.g. knob 50% + mod 50% at peak → ring 100%).
+   One arc per route, source band's colour. */
 function drawModRings(canvas, dest) {
   if (dest === null) return;
   const rs = modRoutes.filter(r => r.dst === dest);
   if (!rs.length) return;
+  const base = destNorm(dest);
   const ctx = canvas.getContext("2d");
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.lineWidth = 1.2; ctx.lineCap = "round";
   rs.forEach((r, k) => {
     const rad = Math.min(33, ARC_RADIUS + 4 + k * 3);
+    const fin = clamp(base + modSrcVals[r.src] * r.depth / 100, 0, 1);
+    ctx.beginPath();   // faint full track so the live head reads against it
+    ctx.arc(KNOB_SIZE / 2, KNOB_SIZE / 2, rad, degToRad(ARC_START), degToRad(ARC_START + 270));
+    ctx.strokeStyle = BAND_COLORS[r.src] + "2a"; ctx.stroke();
     ctx.beginPath();
-    ctx.arc(KNOB_SIZE / 2, KNOB_SIZE / 2, rad, degToRad(ARC_START), degToRad(ARC_START + 270 * Math.abs(r.depth) / 100));
-    ctx.strokeStyle = BAND_COLORS[r.src] + (r.depth < 0 ? "66" : "cc");
-    ctx.lineWidth = 1.2; ctx.lineCap = "round";
-    ctx.stroke();
+    ctx.arc(KNOB_SIZE / 2, KNOB_SIZE / 2, rad, degToRad(ARC_START), degToRad(ARC_START + 270 * fin));
+    ctx.strokeStyle = BAND_COLORS[r.src] + "cc"; ctx.stroke();
   });
 }
 /* floating mod-amount editor — opens where a route is dropped (and on re-drop
@@ -1425,6 +1431,10 @@ hsPhase.el.dataset.mslot = 7;   hsStepSpeed.el.dataset.mslot = 5;
 hsStepSmooth.el.dataset.mslot = 9;
 knobAmount.el.dataset.mabs = 60; knobWow.el.dataset.mabs = 61;
 knobFlutter.el.dataset.mabs = 62; knobOut.el.dataset.mabs = 63;
+
+// knobs that can carry mod-matrix rings (animated per frame while routed)
+const ROUTED_KNOB_POOL = [knobFreq, knobWidth, knobLift, knobDepth, knobBias,
+                          knobAmount, knobWow, knobFlutter, knobOut];
 
 const modDragDot = document.getElementById("modDragDot");
 let routeDrag = null, dragGhost = null;
@@ -2321,6 +2331,7 @@ if (EMBEDDED) {
       lastModEvent = performance.now();
       for (let i = 0; i < 6; i++) ui.bands[i].pan = d.pans[i] || 0;
       if (d.phases) for (let i = 0; i < 6; i++) ui.bands[i].livePhase = d.phases[i];
+      if (d.srcs) for (let i = 0; i < 6; i++) modSrcVals[i] = d.srcs[i] || 0;
       if (d.midiNote !== undefined && d.midiNote >= 0) {
         midiFreq = 440 * Math.pow(2, (d.midiNote - 69) / 12);
         const names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
@@ -2450,6 +2461,7 @@ function tickMods(dt) {
       k = 1 - Math.exp(-dt / slewT);
     }
     b.mod += (b.target - b.mod) * k;                       // raw slewed modulator (-1..1)
+    if (!EMBEDDED) modSrcVals[i] = b.mod;                  // sim feeds the live mod-matrix rings
     const mv = pb.uni.get() ? (b.mod + 1) * 0.5 : b.mod;
     b.pan = clamp(pb.bias.get() / 100 + mv * (pb.depth.get() / 100) * (P.amount.get() / 100), -1, 1);
   }
@@ -2482,6 +2494,12 @@ function loop(ts) {
     drawScope();
     updateQuickMenu();
     if (PB().mode.get() === 4) drawSteps();
+    // live mod-matrix rings: only knobs that actually have routes repaint
+    if (modRoutes.length)
+      for (const k of ROUTED_KNOB_POOL) {
+        const d = widgetDest(k.el);
+        if (d !== null && modRoutes.some(r => r.dst === d)) k.refresh();
+      }
   } catch (e) { loopErr = e.message + " | " + (e.stack || "").split("\n")[1]; }
 }
 

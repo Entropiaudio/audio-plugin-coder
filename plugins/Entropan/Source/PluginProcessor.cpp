@@ -804,6 +804,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     for (int i = 0; i < kNumBands; ++i)
     {
         modOutDepth[(size_t) i].store (mods[(size_t) i].panOut, std::memory_order_relaxed);
+        modSrcVal[(size_t) i].store (mods[(size_t) i].value, std::memory_order_relaxed);   // mod-matrix source
         const double cyc = mods[(size_t) i].phase + (double) bb[(size_t) i].phaseOff;
         modPhase[(size_t) i].store ((float) (cyc - std::floor (cyc)), std::memory_order_relaxed);
     }
