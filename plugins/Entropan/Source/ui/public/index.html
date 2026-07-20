@@ -199,7 +199,35 @@
     opacity: 0.9; margin-bottom: 4px;
   }
   .sec-band { flex: 0 0 300px; position: relative; }   /* anchor for the link button */
-  .sec-mod  { flex: 1 1 auto; min-width: 0; }
+  .sec-mod  { flex: 1 1 auto; min-width: 0; position: relative; }
+  /* ── mod matrix ── */
+  .mod-drag-dot {
+    position: absolute; top: 6px; right: 14px; z-index: 5;
+    font-size: 8px; letter-spacing: 1px; padding: 2px 8px;
+    border: 1px solid var(--border-subtle); border-radius: 9px;
+    color: var(--text-dim); cursor: grab; user-select: none;
+  }
+  .mod-drag-dot:active { cursor: grabbing; }
+  .drag-ghost {
+    position: fixed; z-index: 90; pointer-events: none;
+    width: 10px; height: 10px; border-radius: 50%;
+    margin: -5px 0 0 -5px; box-shadow: 0 0 8px 2px rgba(255,255,255,0.25);
+  }
+  .routing-drag [data-mslot], .routing-drag [data-mabs] {
+    outline: 1px dashed var(--accent); outline-offset: 2px; border-radius: 8px;
+  }
+  .hslider .mod-dot {
+    display: none; position: absolute; top: 1px; right: -2px;
+    width: 5px; height: 5px; border-radius: 50%; pointer-events: none;
+  }
+  .route-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+  .route-name { flex: 1; font-size: 8.5px; letter-spacing: 0.5px; }
+  .route-depth { font-size: 8.5px; color: var(--text-secondary); cursor: ew-resize; min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+  .route-x {
+    font-family: inherit; font-size: 9px; width: 15px; height: 15px; line-height: 1; padding: 0;
+    background: transparent; color: #d98a8a; border: 1px solid #5a3a3a; border-radius: 50%; cursor: pointer;
+  }
+  .route-empty { font-size: 8px; color: var(--text-dim); padding: 3px 0; }
   .sec-out  { flex: 0 0 260px; }
   .sec-out .section-label { color: var(--section-output); opacity: 0.7; }
 
@@ -546,6 +574,7 @@
 
     <div class="section-col sec-mod">
       <div class="section-label" id="modSecLabel">Modulator</div>
+      <div class="mod-drag-dot" id="modDragDot" title="Drag onto a knob or fader to modulate it with this band's modulator">◉ MOD</div>
       <div class="mode-chips" id="modeChips"></div>
       <div class="mod-body">
         <canvas id="scopeCanvas"></canvas>
@@ -625,6 +654,10 @@
         <button class="settings-mini-btn" id="brightnessUp">+</button>
       </div>
     </div>
+    <div>
+      <div class="settings-row-label" style="padding-top:6px;">Mod Routes</div>
+      <div id="routesList"></div>
+    </div>
     <div class="settings-row">
       <span class="settings-row-label" id="buildInfo">—</span>
       <span class="settings-row-value" id="fpsInfo">— fps</span>
@@ -638,7 +671,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B51";
+const ENTROPAN_BUILD = "B52";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -959,7 +992,86 @@ if (EMBEDDED) {
     // params already updated via attachments — resync UI-local state + steps
     for (let i = 0; i < 6; i++) if (P.bands[i].on.get()) ui.bands[i].configured = true;
     reloadAllSteps();
+    loadRoutes();   // undo/redo/preset load can change the mod matrix
     refreshPanels();
+  });
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   MOD MATRIX (UI) — drag the MOD dot onto a knob/fader to route the
+   selected band's modulator there. Routes live in the plugin state
+   (undoable); DSP applies them block-rate in the normalized domain.
+   ════════════════════════════════════════════════════════════════════ */
+const setRoutesNative = native("setRoutes"), getRoutesNative = native("getRoutes");
+let modRoutes = [];   // [{src 0-5, dst (band·10+slot | 60+g), depth −100..100}]
+const DEST_SLOT_NAMES = ["FREQ", "Q", "LIFT", "DEPTH", "GAIN", "RATE", "SMOOTH", "PHASE", "BIAS", "STEP SM"];
+const DEST_GLOBAL_NAMES = ["AMOUNT", "WOW", "FLUTTER", "LEVEL"];
+const destName = d => d >= 60 ? DEST_GLOBAL_NAMES[d - 60]
+                              : "B" + (Math.floor(d / 10) + 1) + " " + DEST_SLOT_NAMES[d % 10];
+// widgets carry data-mslot (band-relative, resolved against the SELECTED band)
+// or data-mabs (absolute global dest)
+const widgetDest = el => el.dataset.mabs !== undefined ? +el.dataset.mabs
+                       : el.dataset.mslot !== undefined ? ui.selected * 10 + (+el.dataset.mslot) : null;
+function pushRoutes() {
+  if (EMBEDDED) setRoutesNative(JSON.stringify({ routes: modRoutes })).catch(() => {});
+  renderRoutesList(); refreshPanels();
+}
+function loadRoutes() {
+  const apply = j => {
+    try { const d = JSON.parse(j || "{}"); modRoutes = Array.isArray(d.routes) ? d.routes.filter(r => r && r.dst >= 0) : []; }
+    catch { modRoutes = []; }
+    renderRoutesList(); refreshPanels();
+  };
+  if (EMBEDDED) getRoutesNative().then(apply).catch(() => {});
+  else renderRoutesList();
+}
+/* thin outer arcs on a knob canvas: one per route, source band's colour,
+   sweep ∝ |depth| (dimmer when negative) */
+function drawModRings(canvas, dest) {
+  if (dest === null) return;
+  const rs = modRoutes.filter(r => r.dst === dest);
+  if (!rs.length) return;
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  rs.forEach((r, k) => {
+    const rad = Math.min(33, ARC_RADIUS + 4 + k * 3);
+    ctx.beginPath();
+    ctx.arc(KNOB_SIZE / 2, KNOB_SIZE / 2, rad, degToRad(ARC_START), degToRad(ARC_START + 270 * Math.abs(r.depth) / 100));
+    ctx.strokeStyle = BAND_COLORS[r.src] + (r.depth < 0 ? "66" : "cc");
+    ctx.lineWidth = 1.2; ctx.lineCap = "round";
+    ctx.stroke();
+  });
+}
+function renderRoutesList() {
+  const list = document.getElementById("routesList");
+  if (!list) return;
+  while (list.firstChild) list.removeChild(list.firstChild);
+  if (!modRoutes.length) {
+    const d = document.createElement("div");
+    d.className = "route-empty"; d.textContent = "drag the ◉ MOD dot onto a knob or fader";
+    list.appendChild(d); return;
+  }
+  modRoutes.forEach((r, idx) => {
+    const row = document.createElement("div"); row.className = "route-row";
+    const name = document.createElement("span"); name.className = "route-name";
+    name.textContent = "B" + (r.src + 1) + " → " + destName(r.dst);
+    name.style.color = BAND_COLORS[r.src];
+    const depth = document.createElement("span"); depth.className = "route-depth";
+    const fmt = () => { depth.textContent = (r.depth > 0 ? "+" : "") + Math.round(r.depth) + "%"; };
+    fmt();
+    depth.title = "Drag left/right to set modulation depth";
+    depth.addEventListener("mousedown", e => {   // ew-drag edits depth
+      const sx = e.clientX, d0 = r.depth;
+      const mv = ev => { r.depth = clamp(d0 + (ev.clientX - sx), -100, 100); fmt(); refreshPanels(); };
+      const done = () => { window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", done); pushRoutes(); };
+      window.addEventListener("mousemove", mv); window.addEventListener("mouseup", done);
+      e.preventDefault(); e.stopPropagation();
+    });
+    const x = document.createElement("button"); x.className = "route-x"; x.textContent = "×";
+    x.title = "Remove this modulation route";
+    x.onclick = () => { modRoutes.splice(idx, 1); pushRoutes(); };
+    row.appendChild(name); row.appendChild(depth); row.appendChild(x);
+    list.appendChild(row);
   });
 }
 
@@ -1043,6 +1155,7 @@ function makeKnob(containerId, label, opts) {
       const norm = opts.get();
       const locked = opts.lockKey ? isLocked(opts.lockKey, opts.lockGlobal) : false;
       drawKnob(canvas, norm, k.color, locked);
+      drawModRings(canvas, widgetDest(el));   // mod-matrix rings (outer arcs, source colours)
       ind.style.transform = `rotate(${-135 + clamp(norm, 0, 1) * 270}deg) translateY(-14px)`;
       // Locked: grey dot, no glow, dim face — position still readable (Chaosverb).
       ind.style.background = locked ? "#aaaaaa" : "#ffffff";
@@ -1084,6 +1197,8 @@ function makeHSlider(id, label, opts) {
     bindLockGesture(el, opts.lockKey);
     el.title = "Right-click: lock / unlock (CHAOS skips locked params)";
   }
+  const modDot = div_("mod-dot");
+  el.appendChild(modDot);
   const s = {
     el, color: opts.color,
     refresh() {
@@ -1094,6 +1209,9 @@ function makeHSlider(id, label, opts) {
                                      : `linear-gradient(90deg, ${s.color}55, ${s.color})`;
       val.textContent = opts.fmt();
       el.classList.toggle("locked", locked);
+      const rt = modRoutes.find(r => r.dst === widgetDest(el));   // mod-matrix marker
+      modDot.style.display = rt ? "block" : "none";
+      if (rt) modDot.style.background = BAND_COLORS[rt.src];
     }
   };
   let drag = false;
@@ -1250,6 +1368,47 @@ const hsStepSmooth = makeHSlider("hs_stepsmooth", "SMOOTH", {
   fmt: () => Math.round(PB().stepsmooth.get()) + "%"
 });
 
+/* ── mod-matrix destinations + drag source ──
+   band-relative slots resolve against the SELECTED band at drop time */
+knobFreq.el.dataset.mslot = 0;  knobWidth.el.dataset.mslot = 1;
+knobLift.el.dataset.mslot = 2;  knobDepth.el.dataset.mslot = 3;
+knobBias.el.dataset.mslot = 8;
+hsRate.el.dataset.mslot = 5;    hsInertia.el.dataset.mslot = 6;
+hsPhase.el.dataset.mslot = 7;   hsStepSpeed.el.dataset.mslot = 5;
+hsStepSmooth.el.dataset.mslot = 9;
+knobAmount.el.dataset.mabs = 60; knobWow.el.dataset.mabs = 61;
+knobFlutter.el.dataset.mabs = 62; knobOut.el.dataset.mabs = 63;
+
+const modDragDot = document.getElementById("modDragDot");
+let routeDrag = null, dragGhost = null;
+modDragDot.addEventListener("mousedown", e => {
+  routeDrag = { src: ui.selected };
+  dragGhost = div_("drag-ghost");
+  dragGhost.style.background = bandColor();
+  document.body.appendChild(dragGhost);
+  dragGhost.style.left = e.clientX + "px"; dragGhost.style.top = e.clientY + "px";
+  document.body.classList.add("routing-drag");
+  e.preventDefault();
+});
+window.addEventListener("mousemove", e => {
+  if (!routeDrag || !dragGhost) return;
+  dragGhost.style.left = e.clientX + "px"; dragGhost.style.top = e.clientY + "px";
+});
+window.addEventListener("mouseup", e => {
+  if (!routeDrag) return;
+  const hit = document.elementFromPoint(e.clientX, e.clientY);
+  const t = hit && hit.closest("[data-mslot],[data-mabs]");
+  if (t) {
+    const dst = widgetDest(t);
+    if (dst !== null && modRoutes.length < 8 && !modRoutes.some(r => r.src === routeDrag.src && r.dst === dst))
+      modRoutes.push({ src: routeDrag.src, dst, depth: 50 });
+    pushRoutes();
+  }
+  routeDrag = null;
+  if (dragGhost) { dragGhost.remove(); dragGhost = null; }
+  document.body.classList.remove("routing-drag");
+});
+
 /* mode chips */
 const modeChipsEl = document.getElementById("modeChips");
 MODES.forEach((m, i) => {
@@ -1376,6 +1535,8 @@ function refreshPanels() {
   bandTitle.textContent = "Band " + (ui.selected + 1);
   bandTitle.style.color = c;
   modTitle.style.color = c;
+  const mdd = document.getElementById("modDragDot");
+  mdd.style.color = c; mdd.style.borderColor = c + "88";   // drag source wears the band colour
   updateSectionLockVis(bandTitle);
   updateSectionLockVis(modTitle);
   updateSectionLockVis(outTitle);
@@ -2281,6 +2442,7 @@ requestAnimationFrame(fitShell);        // re-fit once real layout metrics exist
 window.addEventListener("resize", fitShell);
 
 fitShell();
+loadRoutes();    // pull persisted mod-matrix routes (after modRoutes exists)
 refreshPanels();
 
 /* Robust animation kick: some embedded WebViews drop rAF callbacks queued

@@ -70,6 +70,20 @@ public:
     juce::String getStepPresetsJson() const;
     void setStepPresetsJson (const juce::String& json);
 
+    // ── Mod matrix: band modulators → any continuous parameter ──
+    // Routes live as JSON in apvts.state ("modRoutes") → undoable + persisted.
+    // Applied at block rate in the NORMALIZED param domain (skew-aware), as an
+    // offset AFTER the atomic read — host automation and the UI stay untouched.
+    // dst index = band·10 + slot (freq,width,lift,depth,gain,rate,inertia,
+    // phase,bias,stepsmooth) or 60+ (amount,wow,flutter,output).
+    static constexpr int kMaxRoutes = 8;
+    static constexpr int kDestSlotsPerBand = 10;
+    static constexpr int kNumDests = kNumBands * kDestSlotsPerBand + 4;
+    struct ModRoute  { int src = 0; int dst = -1; float depth = 0.0f; };  // depth −100..+100 (% of full range)
+    struct RoutesData { int count = 0; ModRoute routes[kMaxRoutes]; };
+    juce::String getRoutesJson() const;
+    void setRoutesJson (const juce::String& json);
+
     // Re-roll (CHAOS button): re-deal random modulator states at next tick.
     void requestReroll() { rerollFlag.store (true); }
 
@@ -249,9 +263,17 @@ public:
 
 private:
     void parseStepsSnapshot (int bandIndex);
+    void parseRoutesSnapshot();   // message thread → RT snapshot (like steps)
 
     std::array<std::array<StepsData, 2>, kNumBands> stepsBuf {};
     std::array<std::atomic<int>, kNumBands> stepsActive {};
+
+    // mod-matrix RT snapshot + destination registry
+    std::array<RoutesData, 2> routesBuf {};
+    std::atomic<int> routesActive { 0 };
+    struct ModDest { std::atomic<float>* raw = nullptr; juce::RangedAudioParameter* param = nullptr; };
+    std::array<ModDest, kNumDests> modDests {};
+    std::array<float, kNumDests> modVal {};   // per-block post-modulation values (natural units)
     int scopePhase = 0;
 
     juce::AbstractFifo analyzerFifo { 1 << 14 };

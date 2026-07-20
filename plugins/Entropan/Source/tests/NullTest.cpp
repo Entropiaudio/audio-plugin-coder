@@ -741,6 +741,36 @@ int main()
         std::printf ("    max |Δsample| across flips = %.3f\n", maxJump);
     }
 
+    // ── T24: mod matrix — B1's modulator routed to global OUTPUT raises the level ──
+    {
+        auto runOut = [] (bool withRoute)
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (kSampleRate, kBlock);
+            setParam (p, "b1_on", 1.0f);
+            setParam (p, "b1_freq", 1000.0f); setParam (p, "b1_width", 2.0f);
+            setParam (p, "b1_lift", 0.0f);        // allpass-flat: pan path out of the picture
+            setParam (p, "b1_ratemode", 1.0f); setParam (p, "b1_rate", 0.02f);
+            setParam (p, "b1_phase", 90.0f);   setParam (p, "b1_inertia", 0.0f);   // sine pinned ≈ +1
+            if (withRoute)   // src band 0 → dst 63 (global output), +100%
+                p.setRoutesJson ("{\"routes\":[{\"src\":0,\"dst\":63,\"depth\":100}]}");
+            juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+            double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate;
+            double inE = 0, outE = 0;
+            for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk) {
+                for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+                p.processBlock (buf, midi);
+                if (blk < kWarmBlocks) continue;
+                for (int s = 0; s < kBlock; ++s) { inE += 0.5; outE += juce::square((double)buf.getSample(0,s)); }
+            }
+            return dB (outE / inE);
+        };
+        const double base = runOut (false), modded = runOut (true);
+        // output default 0 dB, norm 24/36; mod +1 → norm clamps to 1.0 → +12 dB
+        ok &= check ("T24 mod route drives OUTPUT (+12 dB)", std::abs (base) < 0.2 && modded > 11.0 && modded < 12.6);
+        std::printf ("    base = %+.2f dB, routed = %+.2f dB\n", base, modded);
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }

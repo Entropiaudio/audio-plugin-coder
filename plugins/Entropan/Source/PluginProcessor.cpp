@@ -127,6 +127,7 @@ bool EntropanAudioProcessor::restoreSnapshot (std::vector<juce::ValueTree>& from
     lastCommitted = stateForUndo (apvts.copyState());
     for (int i = 0; i < kNumBands; ++i)
         parseStepsSnapshot (i);
+    parseRoutesSnapshot();
     return true;
 }
 
@@ -318,6 +319,24 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
             apvts.getRawParameterValue (p + "stepsmooth")
         };
     }
+
+    // mod-matrix destination registry (raw atomic + ranged param for norm-domain offsets)
+    {
+        auto reg = [this] (int idx, const juce::String& id)
+        {
+            modDests[(size_t) idx] = { apvts.getRawParameterValue (id), apvts.getParameter (id) };
+        };
+        static const char* kBandSlots[kDestSlotsPerBand] =
+            { "freq", "width", "lift", "depth", "gain", "rate", "inertia", "phase", "bias", "stepsmooth" };
+        for (int i = 0; i < kNumBands; ++i)
+            for (int s = 0; s < kDestSlotsPerBand; ++s)
+                reg (i * kDestSlotsPerBand + s, "b" + juce::String (i + 1) + "_" + kBandSlots[s]);
+        reg (kNumBands * kDestSlotsPerBand + 0, "amount");
+        reg (kNumBands * kDestSlotsPerBand + 1, "wow");
+        reg (kNumBands * kDestSlotsPerBand + 2, "flutter");
+        reg (kNumBands * kDestSlotsPerBand + 3, "output");
+    }
+    parseRoutesSnapshot();
 }
 
 bool EntropanAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -386,7 +405,36 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // ── per-block parameter targets ──
     const int   seedV    = (int) pSeed->load();
     const float speedV   = kSpeedFactors[juce::jlimit (0, 5, (int) pSpeed->load())];
-    amountSm.setTargetValue (pAmount->load() * 0.01f);
+
+    // ── mod matrix: offset destinations in the NORMALIZED domain (block rate).
+    // Source = each band's post-slew modulator (last block's value: mods tick
+    // per sample below). Applied post-read → host automation/UI untouched.
+    {
+        const auto& rd = routesBuf[(size_t) routesActive.load (std::memory_order_acquire)];
+        float acc[kNumDests];
+        bool  touched[kNumDests] = {};
+        for (int r = 0; r < rd.count; ++r)
+        {
+            const auto& rt = rd.routes[r];
+            if (rt.dst < 0 || rt.dst >= kNumDests || modDests[(size_t) rt.dst].param == nullptr)
+                continue;
+            if (! touched[rt.dst]) { acc[rt.dst] = 0.0f; touched[rt.dst] = true; }
+            acc[rt.dst] += mods[(size_t) juce::jlimit (0, kNumBands - 1, rt.src)].value * rt.depth * 0.01f;
+        }
+        for (int d = 0; d < kNumDests; ++d)
+        {
+            const auto& md = modDests[(size_t) d];
+            if (md.raw == nullptr) continue;
+            const float raw = md.raw->load();
+            modVal[(size_t) d] = touched[d]
+                ? md.param->convertFrom0to1 (juce::jlimit (0.0f, 1.0f, md.param->convertTo0to1 (raw) + acc[d]))
+                : raw;
+        }
+    }
+    const float* bandMod = modVal.data();                       // band d = i*10+slot
+    const float* globMod = modVal.data() + kNumBands * kDestSlotsPerBand;   // amount,wow,flutter,output
+
+    amountSm.setTargetValue (globMod[0] * 0.01f);
 
     struct BandBlock   // per-block modulator config, gathered outside the sample loop
     {
@@ -412,10 +460,12 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const bool on = pp.on->load() > 0.5f;
         b.enable.setTargetValue (on ? 1.0f : 0.0f);
 
+        const float* mv = bandMod + i * kDestSlotsPerBand;   // this band's post-matrix values
+
         // Band edges from centre + width (octaves), clamped into the audible
         // range with a guaranteed f_lo < f_hi ordering.
-        const float freq  = pp.freq->load();
-        const float width = pp.width->load();
+        const float freq  = mv[0];
+        const float width = mv[1];
         const float fLoT = juce::jlimit (20.0f, 20000.0f, freq * std::pow (2.0f, -width * 0.5f));
         const float fHiT = juce::jlimit (fLoT * 1.02f, 20500.0f, freq * std::pow (2.0f,  width * 0.5f));
         if (! b.cutoffsInit) { b.fLoCur = fLoT; b.fHiCur = fHiT; b.cutoffsInit = true; }
@@ -437,19 +487,19 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             b.fHiApplied = b.fHiCur;
         }
 
-        b.lift.setTargetValue (pp.lift->load() * 0.01f);
-        b.gainLin.setTargetValue (juce::Decibels::decibelsToGain (pp.gain->load()));
+        b.lift.setTargetValue (mv[2] * 0.01f);
+        b.gainLin.setTargetValue (juce::Decibels::decibelsToGain (mv[4]));
 
         // ── modulator config ──
         cfg.mode     = (int) pp.mode->load();
         cfg.rateMode = (int) pp.ratemode->load();
-        cfg.phaseOff = pp.phase->load() / 360.0f;
+        cfg.phaseOff = mv[7] / 360.0f;
         cfg.uni      = pp.uni->load() > 0.5f;
         cfg.biasFree = pp.biasFree->load() > 0.5f;
         cfg.steps    = &stepsBuf[(size_t) i][(size_t) stepsActive[(size_t) i].load (std::memory_order_acquire)];
         anyEnv = anyEnv || cfg.mode == 5;
-        b.depth.setTargetValue (pp.depth->load() * 0.01f);
-        b.bias.setTargetValue (juce::jlimit (-1.0f, 1.0f, pp.bias->load() * 0.01f));
+        b.depth.setTargetValue (mv[3] * 0.01f);
+        b.bias.setTargetValue (juce::jlimit (-1.0f, 1.0f, mv[8] * 0.01f));
 
         double rateHz = 0.0;
         if (cfg.rateMode == 0)        // sync
@@ -459,7 +509,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
         else if (cfg.rateMode == 1)   // free (up to audio rate)
         {
-            rateHz = (double) pp.rate->load() * speedV;
+            rateHz = (double) mv[5] * speedV;
         }
         else                          // MIDI: last note frequency (0 = frozen)
         {
@@ -477,7 +527,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         //   S&H/Steps  — slew capped at cyclePeriod/3.5 → pan always ARRIVES at
         //                the full target before the next deal
         //   Drift/Chaos— free viscosity (unbounded wanderers by nature)
-        const float  inertia = pp.inertia->load() * 0.01f;
+        const float  inertia = mv[6] * 0.01f;
         const double i2 = (double) inertia * inertia;
         const double periodS = cfg.cycPerSample > 1.0e-9
                                  ? 1.0 / (cfg.cycPerSample * currentSampleRate) : 1.0e9;
@@ -486,7 +536,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             slewT = juce::jmin (0.004 + i2 * 2.0, periodS / 3.5);
         else if (cfg.mode == 4)                      // Steps — dedicated SMOOTH (square → glide)
         {
-            const float sm = pp.stepSmooth->load() * 0.01f;   // 0 = square, 1 = glide
+            const float sm = mv[9] * 0.01f;   // 0 = square, 1 = glide
             if (sm < 1.0e-4f)
                 slewT = 0.0;
             else
@@ -503,7 +553,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         m.slewCoeff = onePoleCoeff (slewT, currentSampleRate);
     }
 
-    outGainSm.setTargetValue (juce::Decibels::decibelsToGain (pOutput->load()));
+    outGainSm.setTargetValue (juce::Decibels::decibelsToGain (globMod[3]));
     bypassSm.setTargetValue (pBypass->load() > 0.5f ? 1.0f : 0.0f);
     // Serial chains bands; Parallel runs each on the dry input. The topology is
     // CONTINUOUS in rx = routingSm (0..1): band input lerps chain→dry and both
@@ -519,8 +569,8 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const float envGainLin = juce::Decibels::decibelsToGain (pEnvGain->load());   // detector drive
 
     // ── wow & flutter setup ──
-    const float wowAmt  = pWow->load()     * 0.01f;
-    const float flutAmt = pFlutter->load() * 0.01f;
+    const float wowAmt  = globMod[1] * 0.01f;
+    const float flutAmt = globMod[2] * 0.01f;
     const bool  wfOn    = (wowAmt > 0.001f || flutAmt > 0.001f);
     wfEngage.setTargetValue (wfOn ? 1.0f : 0.0f);
     const double wowInc  = 0.4  / currentSampleRate;   // ~0.4 Hz wow (slow tape drift)
@@ -829,6 +879,45 @@ void EntropanAudioProcessor::setStepPresetsJson (const juce::String& json)
     f.replaceWithText (json);
 }
 
+//==============================================================================
+juce::String EntropanAudioProcessor::getRoutesJson() const
+{
+    return apvts.state.getProperty ("modRoutes", juce::String()).toString();
+}
+
+void EntropanAudioProcessor::setRoutesJson (const juce::String& json)
+{
+    apvts.state.setProperty ("modRoutes", json, nullptr);
+    parseRoutesSnapshot();
+}
+
+void EntropanAudioProcessor::parseRoutesSnapshot()
+{
+    // Message-thread only. Writes the inactive snapshot, then publishes it.
+    const auto parsed = juce::JSON::parse (getRoutesJson());
+    const int inactive = 1 - routesActive.load();
+    auto& rd = routesBuf[(size_t) inactive];
+    rd = RoutesData {};
+
+    if (auto* obj = parsed.getDynamicObject())
+        if (auto* arr = obj->getProperty ("routes").getArray())
+            for (const auto& rv : *arr)
+            {
+                if (rd.count >= kMaxRoutes) break;
+                if (auto* ro = rv.getDynamicObject())
+                {
+                    auto& rt = rd.routes[rd.count];
+                    rt.src   = juce::jlimit (0, kNumBands - 1, (int) ro->getProperty ("src"));
+                    rt.dst   = (int) ro->getProperty ("dst");
+                    rt.depth = juce::jlimit (-100.0f, 100.0f, (float) (double) ro->getProperty ("depth"));
+                    if (rt.dst >= 0 && rt.dst < kNumDests)
+                        ++rd.count;
+                }
+            }
+
+    routesActive.store (inactive, std::memory_order_release);
+}
+
 void EntropanAudioProcessor::parseStepsSnapshot (int bandIndex)
 {
     // Message-thread only. Writes the inactive snapshot, then publishes it.
@@ -891,6 +980,7 @@ void EntropanAudioProcessor::setStateInformation (const void* data, int sizeInBy
             apvts.replaceState (juce::ValueTree::fromXml (*xmlState));
             for (int i = 0; i < kNumBands; ++i)
                 parseStepsSnapshot (i);
+            parseRoutesSnapshot();
             undoStack.clear();
             redoStack.clear();
             lastCommitted = stateForUndo (apvts.copyState());
