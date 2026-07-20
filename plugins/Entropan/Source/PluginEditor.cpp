@@ -188,9 +188,17 @@ EntropanAudioProcessorEditor::EntropanAudioProcessorEditor (EntropanAudioProcess
                 // Go through the obfuscation macro rather than calling
                 // isUnlocked() directly — module guidance, makes the check
                 // harder to patch out of the shipped binary.
-                const bool unlocked = (bool) MB_IS_UNLOCKED_OBFUSCATED (mb).first;
+                const auto unlockedPair = MB_IS_UNLOCKED_OBFUSCATED (mb);
+                const bool unlocked = (bool) unlockedPair.first;
                 const bool trial    = (bool) mb.isTrial();
                 const bool offline  = (bool) mb.isOfflineActivated();
+
+                // Surface the client's own error text. Without this the only
+                // report is whatever the Activate screen renders, which is too
+                // vague to act on ("Could not parse server response").
+                juce::String err = unlockedPair.second;
+                if (err.isEmpty()) err = mb.getLastError();
+                obj->setProperty ("error", err);
 
                 obj->setProperty ("state", ! unlocked ? "unlicensed"
                                          : trial      ? "trial_active"

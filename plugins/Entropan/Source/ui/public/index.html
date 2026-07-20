@@ -679,6 +679,11 @@
       <span class="settings-row-label" id="licenseEmail"></span>
       <span class="settings-row-value" id="licenseExpiry"></span>
     </div>
+    <div id="licenseErrorRow" style="display:none; padding:2px 0 4px;">
+      <span class="settings-row-value" id="licenseError"
+            style="color:#d98a8a; font-size:9px; line-height:1.35; display:block;
+                   white-space:normal; word-break:break-word;"></span>
+    </div>
     <div class="settings-row">
       <span class="settings-row-label" id="buildInfo">—</span>
       <span class="settings-row-value" id="fpsInfo">— fps</span>
@@ -692,7 +697,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B63";
+const ENTROPAN_BUILD = "B64";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -2629,6 +2634,8 @@ const licenseState = document.getElementById("licenseState");
 const licenseEmail = document.getElementById("licenseEmail");
 const licenseExpiry = document.getElementById("licenseExpiry");
 const licenseDeactivate = document.getElementById("licenseDeactivate");
+const licenseErrorRow = document.getElementById("licenseErrorRow");
+const licenseError = document.getElementById("licenseError");
 
 const LICENSE_LABEL = {
   licensed: "Activated", trial_active: "Trial", offline_activated: "Activated (offline)",
@@ -2651,6 +2658,10 @@ function refreshLicense() {
     licenseExpiry.textContent = s.expirationMs > 0
       ? (s.isTrial ? "ends " : "renews ") + new Date(s.expirationMs).toLocaleDateString()
       : "";
+    // Only meaningful while inactive — a working license reports no error.
+    const showErr = !!s.error && !s.active;
+    licenseErrorRow.style.display = showErr ? "block" : "none";
+    licenseError.textContent = showErr ? s.error : "";
   }).catch(() => {});
 }
 
