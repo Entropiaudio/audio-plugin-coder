@@ -249,6 +249,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::crea
             juce::AudioParameterFloatAttributes().withLabel ("deg")));
         params.push_back (std::make_unique<juce::AudioParameterBool> (
             juce::ParameterID { p + "uni", 1 }, label + "Unipolar", false));
+        params.push_back (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID { p + "freeze", 1 }, label + "Freeze", false));
         params.push_back (std::make_unique<juce::AudioParameterFloat> (
             juce::ParameterID { p + "bias", 1 }, label + "Bias",
             juce::NormalisableRange<float> (-100.0f, 100.0f, 0.01f), 0.0f,
@@ -329,6 +331,7 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
             apvts.getRawParameterValue (p + "inertia"),
             apvts.getRawParameterValue (p + "phase"),
             apvts.getRawParameterValue (p + "uni"),
+            apvts.getRawParameterValue (p + "freeze"),
             apvts.getRawParameterValue (p + "bias"),
             apvts.getRawParameterValue (p + "override"),
             apvts.getRawParameterValue (p + "stepsmooth")
@@ -476,6 +479,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         float  phaseOff = 0.0f;
         float  lorenzDt = 0.0f;
         bool   uni = false;
+        bool   freeze = false;     // pause: hold all six waveform values, stop the clock
         bool   biasFree = false;   // override: bias not headroom-clamped → pan may reach the rail
         const StepsData* steps = nullptr;   // RT snapshot, resolved once per block
     };
@@ -527,6 +531,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         cfg.rateMode = (int) pp.ratemode->load();
         cfg.phaseOff = mv[7] / 360.0f;
         cfg.uni      = pp.uni->load() > 0.5f;
+        cfg.freeze   = pp.freeze->load() > 0.5f;
         cfg.biasFree = pp.biasFree->load() > 0.5f;
         cfg.steps    = &stepsBuf[(size_t) i][(size_t) stepsActive[(size_t) i].load (std::memory_order_acquire)];
         anyEnv = anyEnv || cfg.mode == 5;
@@ -689,6 +694,13 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 continue;   // fully disengaged: stage is a wire (filters stay cold)
 
             // ── modulator tick (per sample) ──
+            // FREEZE pauses the band's whole modulation clock: phase holds, no
+            // new targets, no slew — all six values (and any routes fed from
+            // them) hold perfectly still. Depth/bias/gain smoothing stays live
+            // above, so the held position still responds to the knobs. Free-run
+            // resumes seamlessly; sync recomputes from song position on
+            // release (same jump as a playhead relocate).
+            if (! cfg.freeze) {
             if (cfg.rateMode == 0 && hasPpq && playing)
             {
                 // Sync while rolling: phase is a pure function of song position
@@ -758,6 +770,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             // each waveform slews independently (its own coefficient)
             for (int t = 0; t < kNumWaves; ++t)
                 m.value[t] += (m.target[t] - m.value[t]) * m.slewCoeff[t];
+            }   // ! cfg.freeze
 
             // pan takes the MODE-selected waveform → uni/bipolar transform →
             // static bias → depth·amount. Bipolar: swing L↔R through centre.

@@ -48,9 +48,10 @@ juce::StringArray EntropanAudioProcessorEditor::toggleParamIds()
     {
         ids.add ("b" + juce::String (i) + "_on");
         ids.add ("b" + juce::String (i) + "_uni");
+        ids.add ("b" + juce::String (i) + "_freeze");
         ids.add ("b" + juce::String (i) + "_override");
     }
-    return ids;   // 2 + 6×3 = 20
+    return ids;   // 2 + 6×4 = 26
 }
 
 //==============================================================================

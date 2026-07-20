@@ -271,6 +271,17 @@
     color: var(--text-dim); cursor: grab; user-select: none;
   }
   .mod-drag-dot:active { cursor: grabbing; }
+  /* per-band modulation pause — sits left of the MOD pill */
+  .mod-freeze-btn {
+    position: absolute; top: 5px; right: 74px; z-index: 5;
+    font-size: 9px; line-height: 1; padding: 3px 7px;
+    background: transparent; border: 1px solid var(--border-subtle);
+    border-radius: 9px; color: var(--text-dim); cursor: pointer; user-select: none;
+  }
+  .mod-freeze-btn.frozen {
+    color: #7fd4ff; border-color: #7fd4ff;
+    box-shadow: 0 0 7px #7fd4ff55; text-shadow: 0 0 5px #7fd4ff;
+  }
   .drag-ghost {
     position: fixed; z-index: 90; pointer-events: none;
     width: 10px; height: 10px; border-radius: 50%;
@@ -651,6 +662,7 @@
 
     <div class="section-col sec-mod">
       <div class="section-label" id="modSecLabel">Modulator</div>
+      <button class="mod-freeze-btn" id="modFreezeBtn" data-tip="Pause this band's modulation — all waveforms hold their value">⏸</button>
       <div class="mod-drag-dot" id="modDragDot" title="Drag onto a knob or fader to modulate it with this band's modulator">◉ MOD</div>
       <div class="mode-chips" id="modeChips"></div>
       <div class="mod-body">
@@ -769,7 +781,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B69";
+const ENTROPAN_BUILD = "B70";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -819,6 +831,7 @@ function bandIds(i) { const p = `b${i + 1}_`; return {
   inertia: { id: p + "inertia", kind: "slider", def: 60 },
   phase:   { id: p + "phase",   kind: "slider", def: 0 },
   uni:     { id: p + "uni",     kind: "toggle", def: false },
+  freeze:  { id: p + "freeze",  kind: "toggle", def: false },
   bias:    { id: p + "bias",    kind: "slider", def: 0 },
   override:{ id: p + "override",kind: "toggle", def: false },
   stepsmooth:{ id: p + "stepsmooth", kind: "slider", def: 0 }
@@ -1662,6 +1675,11 @@ function startRouteDrag(src, stype, e) {
 }
 // the MOD dot routes the band's currently selected waveform
 modDragDot.addEventListener("mousedown", e => startRouteDrag(ui.selected, PB().mode.get(), e));
+
+/* per-band modulation pause (freeze). DSP holds all six waveform values while
+   set; the scope/rings/markers freeze with them via telemetry. */
+const modFreezeBtn = document.getElementById("modFreezeBtn");
+modFreezeBtn.onclick = () => { PB().freeze.set(!PB().freeze.get()); refreshPanels(); };
 window.addEventListener("mousemove", e => {
   if (!routeDrag || !dragGhost) return;
   dragGhost.style.left = e.clientX + "px"; dragGhost.style.top = e.clientY + "px";
@@ -1849,6 +1867,11 @@ function refreshPanels() {
   modTitle.style.color = c;
   const mdd = document.getElementById("modDragDot");
   mdd.style.color = c; mdd.style.borderColor = c + "88";   // drag source wears the band colour
+  const frozen = PB().freeze.get();
+  modFreezeBtn.classList.toggle("frozen", frozen);
+  modFreezeBtn.textContent = frozen ? "▶" : "⏸";
+  modFreezeBtn.dataset.tip = frozen ? "Resume this band's modulation"
+                                    : "Pause this band's modulation — all waveforms hold their value";
   updateSectionLockVis(bandTitle);
   updateSectionLockVis(modTitle);
   updateSectionLockVis(outTitle);
@@ -2700,6 +2723,11 @@ function tickMods(dt) {
   for (let i = 0; i < 6; i++) {
     const pb = P.bands[i], b = ui.bands[i];
     if (!pb.on.get()) { b.pan = 0; continue; }
+    if (pb.freeze.get()) {   // paused: waveforms hold, pan stays live to the knobs (mirrors DSP)
+      const mvF = pb.uni.get() ? (b.mod + 1) * 0.5 : b.mod;
+      b.pan = clamp(pb.bias.get() / 100 + mvF * (pb.depth.get() / 100) * (P.amount.get() / 100), -1, 1);
+      continue;
+    }
     const f = Math.min(simRateHz(i), 30); // visual sim caps at 30 Hz (real DSP goes to audio rate)
     b.phi = (b.phi + f * dt) % 1;
     const ph = (b.phi + pb.phase.get() / 360) % 1;

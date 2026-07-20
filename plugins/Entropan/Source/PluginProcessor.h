@@ -221,6 +221,7 @@ private:
         std::atomic<float>* inertia;
         std::atomic<float>* phase;
         std::atomic<float>* uni;
+        std::atomic<float>* freeze;     // pause the band's modulators (all six hold their value)
         std::atomic<float>* bias;
         std::atomic<float>* biasFree;   // override: drop the bias headroom clamp (pan may hit the rail)
         std::atomic<float>* stepSmooth; // Steps mode: 0 = square, 100 = glide between steps

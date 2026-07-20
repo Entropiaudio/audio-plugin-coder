@@ -936,6 +936,43 @@ int main()
         std::printf ("    max block diff: self %.3g dB, cross %.2f dB\n", dSelf, dCross);
     }
 
+    // ── T29: FREEZE pauses the band's modulation — balance holds still while
+    //         frozen, moves again on release ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        setParam (p, "b1_on", 1.0f);
+        setParam (p, "b1_freq", 1000.0f); setParam (p, "b1_width", 2.0f);
+        setParam (p, "b1_lift", 100.0f);  setParam (p, "b1_depth", 100.0f);
+        setParam (p, "b1_ratemode", 1.0f); setParam (p, "b1_rate", 2.0f);   // 2 Hz sine sweep
+        setParam (p, "b1_inertia", 0.0f);
+        juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+        double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate;
+        auto runPhase = [&] (int blocks, double& swing)
+        {
+            double mn = 1.0e9, mx = -1.0e9;
+            for (int blk = 0; blk < blocks; ++blk) {
+                for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+                p.processBlock (buf, midi);
+                double el = 1.0e-12, er = 1.0e-12;
+                for (int s = 0; s < kBlock; ++s) { el += juce::square ((double) buf.getSample (0, s));
+                                                   er += juce::square ((double) buf.getSample (1, s)); }
+                const double bal = (el - er) / (el + er);
+                mn = juce::jmin (mn, bal); mx = juce::jmax (mx, bal);
+            }
+            swing = mx - mn;
+        };
+        double swimBefore = 0, swimFrozen = 0, swimAfter = 0;
+        runPhase (kWarmBlocks + 100, swimBefore);          // free-running: full sweep
+        setParam (p, "b1_freeze", 1.0f);
+        runPhase (10, swimFrozen); runPhase (100, swimFrozen);   // settle a beat, then measure
+        setParam (p, "b1_freeze", 0.0f);
+        runPhase (100, swimAfter);
+        // 2 Hz over ~1 s sweeps the full L↔R range; frozen must sit dead still
+        ok &= check ("T29 freeze holds, release resumes", swimBefore > 1.0 && swimFrozen < 0.01 && swimAfter > 1.0);
+        std::printf ("    balance swing: before %.2f, frozen %.4f, after %.2f\n", swimBefore, swimFrozen, swimAfter);
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }
