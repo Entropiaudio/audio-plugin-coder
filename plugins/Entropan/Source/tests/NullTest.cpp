@@ -311,7 +311,7 @@ int main()
         {
             const juce::String b = "b" + juce::String (i + 1) + "_";
             setParam (p, b + "on", 1.0f);
-            setParam (p, b + "mode", (float) i);          // sine, tri, s&h, drift, chaos, steps
+            setParam (p, b + "mode", (float) i);          // sine, tri, s&h, chaos, steps, env
             setParam (p, b + "ratemode", 1.0f);
             setParam (p, b + "rate", i == 0 ? 200.0f : 2.0f);  // one audio-rate band
             setParam (p, b + "depth", 100.0f);

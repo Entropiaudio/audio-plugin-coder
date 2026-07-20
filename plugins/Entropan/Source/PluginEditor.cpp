@@ -337,11 +337,11 @@ EntropanAudioProcessorEditor::EntropanAudioProcessorEditor (EntropanAudioProcess
                                          : trial      ? "trial_active"
                                          : offline    ? "offline_activated"
                                                       : "licensed");
-                obj->setProperty ("active",    unlocked);
-                obj->setProperty ("isTrial",   trial);
-                obj->setProperty ("isOffline", offline);
-                obj->setProperty ("email",     mb.getUserId());
-                obj->setProperty ("userName",  mb.getUserName());
+                obj->setProperty ("active",  unlocked);
+                obj->setProperty ("isTrial", trial);
+                obj->setProperty ("email",   mb.getUserId());
+                // offline reaches the UI folded into "state"; nothing reads a
+                // separate isOffline/userName, so none are sent
 
                 const auto exp = mb.getLicenseExpiration();
                 obj->setProperty ("expirationMs", (juce::int64) exp.toMilliseconds());
@@ -472,6 +472,14 @@ void EntropanAudioProcessorEditor::timerCallback()
     }
 #endif
 
+    // Everything below builds telemetry for the web UI. When the WebView is
+    // hidden (Activate overlay up, or host hid us) JUCE drops the events at
+    // emit time — but only AFTER we would have paid for the full 4096-pt FFT
+    // and array building, 60×/s for nobody. Skip it. (The overlay swap above
+    // must stay ahead of this gate or a licensed UI could never swap back in.)
+    if (! webView->isVisible())
+        return;
+
     // ── per-band mod values (post-slew × depth) + last MIDI note ──
     {
         juce::Array<juce::var> pans, phases, srcs;
@@ -481,6 +489,7 @@ void EntropanAudioProcessorEditor::timerCallback()
             phases.add ((double) audioProcessor.modPhase[(size_t) i].load (std::memory_order_relaxed));
         }
         // srcs: band-major × waveform (6×6 = 36) — routes tap any waveform now
+        srcs.ensureStorageAllocated (EntropanAudioProcessor::kNumBands * EntropanAudioProcessor::kNumWaves);
         for (int k = 0; k < EntropanAudioProcessor::kNumBands * EntropanAudioProcessor::kNumWaves; ++k)
             srcs.add ((double) audioProcessor.modSrcVal[(size_t) k].load (std::memory_order_relaxed));
 

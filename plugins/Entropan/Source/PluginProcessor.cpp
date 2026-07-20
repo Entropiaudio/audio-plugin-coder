@@ -204,7 +204,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::crea
         juce::NormalisableRange<float> (-36.0f, 36.0f, 0.01f), 0.0f,   // bipolar: drive up or down
         juce::AudioParameterFloatAttributes().withLabel ("dB")));
 
-    // ─── Per band (16 × 6 = 96) ───
+    // ─── Per band (17 × 6 = 102) ───
     for (int i = 0; i < kNumBands; ++i)
     {
         const juce::String p = "b" + juce::String (i + 1) + "_";
@@ -384,7 +384,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     if (rerollFlag.exchange (false))
     {
-        ++rerollOffset;   // shifts every random stream (S&H / Drift)
+        ++rerollOffset;   // shifts every random stream (S&H)
         for (int i = 0; i < kNumBands; ++i)   // kick the Lorenz attractors
         {
             auto& m = mods[(size_t) i];
@@ -435,6 +435,15 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // per sample below), through the SOURCE BAND'S POLARITY: BI swings the
     // destination ±depth around the knob, UNI pushes one-way from it (sign of
     // depth = direction). Applied post-read → host automation/UI untouched.
+    // Per-band consumer mask: bit t set → waveform t has a consumer this block
+    // (the band's own MODE, OR'd in below, or any route tapping it here). Only
+    // masked waveforms tick in the sample loop — with no routes that is one
+    // waveform per band instead of six. A dormant waveform holds its value
+    // (same spirit as FREEZE) and catches up over one slew constant when a
+    // route first taps it; the pan's own waveform is always masked in, so the
+    // audible path is bit-identical. Routes swap only at block boundaries
+    // (RT snapshot), so the mask cannot go stale mid-block.
+    juce::uint8 waveMask[kNumBands] = {};
     {
         const auto& rd = routesBuf[(size_t) routesActive.load (std::memory_order_acquire)];
         float acc[kNumDests];
@@ -450,6 +459,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const int ty = rt.stype >= 0 && rt.stype < kNumWaves
                              ? rt.stype
                              : juce::jlimit (0, kNumWaves - 1, (int) bandParams[(size_t) src].mode->load());
+            waveMask[src] = (juce::uint8) (waveMask[src] | (1u << ty));
             const float raw = mods[(size_t) src].value[ty];
             const bool srcUni = bandParams[(size_t) src].uni->load() > 0.5f;
             const float s = srcUni ? (raw + 1.0f) * 0.5f    // 0..1, one-way
@@ -481,6 +491,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         bool   uni = false;
         bool   freeze = false;     // pause: hold all six waveform values, stop the clock
         bool   biasFree = false;   // override: bias not headroom-clamped → pan may reach the rail
+        juce::uint8 waves = 0;     // consumer mask: which waveforms tick this block
         const StepsData* steps = nullptr;   // RT snapshot, resolved once per block
     };
     std::array<BandBlock, kNumBands> bb;
@@ -527,14 +538,18 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         b.gainLin.setTargetValue (juce::Decibels::decibelsToGain (mv[4]));
 
         // ── modulator config ──
-        cfg.mode     = (int) pp.mode->load();
+        cfg.mode     = juce::jlimit (0, kNumWaves - 1, (int) pp.mode->load());
         cfg.rateMode = (int) pp.ratemode->load();
         cfg.phaseOff = mv[7] / 360.0f;
         cfg.uni      = pp.uni->load() > 0.5f;
         cfg.freeze   = pp.freeze->load() > 0.5f;
         cfg.biasFree = pp.biasFree->load() > 0.5f;
+        // routes' bits (gathered in the matrix scan) + the pan's own waveform
+        cfg.waves    = (juce::uint8) (waveMask[i] | (1u << cfg.mode));
         cfg.steps    = &stepsBuf[(size_t) i][(size_t) stepsActive[(size_t) i].load (std::memory_order_acquire)];
-        anyEnv = anyEnv || cfg.mode == 5;
+        // Env consumed by anything on this band (its MODE or any route bit 5)
+        // → the global detector must run. Replaces the separate route scan.
+        anyEnv = anyEnv || (cfg.waves & (1u << 5)) != 0;
         b.depth.setTargetValue (mv[3] * 0.01f);
         b.bias.setTargetValue (juce::jlimit (-1.0f, 1.0f, mv[8] * 0.01f));
 
@@ -563,12 +578,13 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         //                waveform passes at ~full amplitude (reach preserved)
         //   S&H/Steps  — slew capped at cyclePeriod/3.5 → pan always ARRIVES at
         //                the full target before the next deal
-        //   Drift/Chaos— free viscosity (unbounded wanderers by nature)
+        //   Chaos      — free viscosity (an unbounded wanderer by nature)
         const float  inertia = mv[6] * 0.01f;
         const double i2 = (double) inertia * inertia;
         const double periodS = cfg.cycPerSample > 1.0e-9
                                  ? 1.0 / (cfg.cycPerSample * currentSampleRate) : 1.0e9;
         // All six waveforms run per band (any can feed the mod matrix), so every
+        // (formulas mirrored by the browser sim in index.html tickMods — keep in sync)
         // one gets its own coefficient — same formulas as when it was the single
         // mode-selected engine:
         for (int t = 0; t < kNumWaves; ++t)
@@ -611,19 +627,6 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // recombination laws blend, so flipping the switch never steps the filter
     // inputs (a hard swap popped). Settled endpoints are bit-exact serial/parallel.
     routingSm.setTargetValue (pRouting->load() > 0.5f ? 1.0f : 0.0f);
-
-    // A route tapping the Env waveform needs the detector too — even when no
-    // band's own MODE is Env (stype 5 explicit, or −1 following an Env band).
-    {
-        const auto& rd = routesBuf[(size_t) routesActive.load (std::memory_order_acquire)];
-        for (int r = 0; r < rd.count && ! anyEnv; ++r)
-        {
-            const auto& rt = rd.routes[r];
-            const int src = juce::jlimit (0, kNumBands - 1, rt.src);
-            anyEnv = rt.stype == 5
-                  || (rt.stype < 0 && (int) bandParams[(size_t) src].mode->load() == 5);
-        }
-    }
 
     // ── envelope-follower coefficients (global detection circuit) ──
     const bool  envRms  = pEnvRms->load() > 0.5f;
@@ -722,12 +725,17 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             // (Different RATES per destination = route from another band — each
             // band has its own clock.)
 
-            // Sine / Tri: pure functions of phase
-            m.target[0] = std::sin ((float) frac * juce::MathConstants<float>::twoPi);
-            m.target[1] = 1.0f - 4.0f * std::abs ((float) frac - 0.5f);
+            // Only waveforms with a consumer this block tick (cfg.waves) — a
+            // dormant one holds its value and slews back in when first tapped.
+            const juce::uint8 wm = cfg.waves;
 
+            // Sine / Tri: pure functions of phase
+            if (wm & (1u << 0)) m.target[0] = std::sin ((float) frac * juce::MathConstants<float>::twoPi);
+            if (wm & (1u << 1)) m.target[1] = 1.0f - 4.0f * std::abs ((float) frac - 0.5f);
+
+            if (wm & (1u << 2))
             { // S&H: new deal each cycle boundary (phase-offset agnostic)
-              // (smooth it with the SMOOTH fader for a Drift-style glide)
+              // (smooth it with the SMOOTH fader for a glide)
                 const auto shCell = (juce::int64) std::floor (m.phase);
                 if (shCell != m.lastCell || seedV != m.lastSeed || rerollOffset != m.lastReroll)
                 {   // hash only when the cell (or its inputs) change
@@ -737,6 +745,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 m.target[2] = m.cellA;
             }
 
+            if (wm & (1u << 3))
             { // Chaos: Lorenz, x-component normalised (one stream per band)
                 const float dt = cfg.lorenzDt;
                 const double nx = m.lx + 10.0 * (m.ly - m.lx) * dt;
@@ -747,6 +756,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 m.target[3] = juce::jlimit (-1.0f, 1.0f, (float) (m.lx / 18.0));
             }
 
+            if (wm & (1u << 4))
             { // Steps: slot-stable ratchets + glue runs (RT snapshot, per block)
                 const auto& sd = *cfg.steps;
                 if (sd.count > 0)
@@ -765,11 +775,13 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             }
 
             // Env: global envelope follower
-            m.target[5] = juce::jlimit (-1.0f, 1.0f, globalEnv * 2.0f - 1.0f);
+            if (wm & (1u << 5))
+                m.target[5] = juce::jlimit (-1.0f, 1.0f, globalEnv * 2.0f - 1.0f);
 
-            // each waveform slews independently (its own coefficient)
+            // each consumed waveform slews independently (its own coefficient)
             for (int t = 0; t < kNumWaves; ++t)
-                m.value[t] += (m.target[t] - m.value[t]) * m.slewCoeff[t];
+                if (wm & (1u << t))
+                    m.value[t] += (m.target[t] - m.value[t]) * m.slewCoeff[t];
             }   // ! cfg.freeze
 
             // pan takes the MODE-selected waveform → uni/bipolar transform →
@@ -777,7 +789,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             // Unipolar: (v+1)/2 = centre→one side (works for every waveform,
             // incl. Env). Bias offsets the resting centre. panOut = the final
             // pan, so scope/telemetry show it exactly.
-            const float panV0 = m.value[juce::jlimit (0, kNumWaves - 1, cfg.mode)];
+            const float panV0 = m.value[cfg.mode];   // mode pre-clamped at block rate
             const float mv    = cfg.uni ? (panV0 + 1.0f) * 0.5f : panV0;
             // Limit bias to the headroom left by the swing so bias + full swing
             // never crosses ±1 (no rail-clipping / flattened modulation). Override
@@ -880,8 +892,15 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         modOutDepth[(size_t) i].store (mods[(size_t) i].panOut, std::memory_order_relaxed);
         for (int t = 0; t < kNumWaves; ++t)   // mod-matrix sources: every waveform
             modSrcVal[(size_t) (i * kNumWaves + t)].store (mods[(size_t) i].value[t], std::memory_order_relaxed);
-        const double cyc = mods[(size_t) i].phase + (double) bb[(size_t) i].phaseOff;
-        modPhase[(size_t) i].store ((float) (cyc - std::floor (cyc)), std::memory_order_relaxed);
+        // Frozen band: hold the LAST phase telemetry too. m.phase itself is
+        // frozen, but phaseOff re-derives from the live Phase parameter every
+        // block — without this gate, host automation of Phase made the Steps
+        // highlight sweep while the audio was provably frozen.
+        if (! bb[(size_t) i].freeze)
+        {
+            const double cyc = mods[(size_t) i].phase + (double) bb[(size_t) i].phaseOff;
+            modPhase[(size_t) i].store ((float) (cyc - std::floor (cyc)), std::memory_order_relaxed);
+        }
     }
 
 
@@ -1005,10 +1024,13 @@ void EntropanAudioProcessor::parseRoutesSnapshot()
                     // rate/smooth/phase/stepsmooth is self-feedback. The UI
                     // refuses the drop; this also drops any such route arriving
                     // from an old session. (Audio slots + cross-band stay legal.)
+                    // Mirrors SELF_MOD_SLOTS in index.html — change both together.
+                    static constexpr int kSelfModSlots[] = { 5, 6, 7, 9 };   // rate, smooth, phase, stepsmooth
                     const int slot = rt.dst % kDestSlotsPerBand;
                     const bool selfMod = rt.dst < kNumBands * kDestSlotsPerBand
                                       && rt.dst / kDestSlotsPerBand == rt.src
-                                      && (slot == 5 || slot == 6 || slot == 7 || slot == 9);
+                                      && std::find (std::begin (kSelfModSlots), std::end (kSelfModSlots), slot)
+                                             != std::end (kSelfModSlots);
                     if (rt.dst >= 0 && rt.dst < kNumDests && ! selfMod)
                         ++rd.count;
                 }

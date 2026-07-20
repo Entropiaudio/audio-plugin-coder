@@ -282,7 +282,7 @@ public:
 
     // ── UI telemetry (Phase 4.3) ──
     std::atomic<int>   lastMidiNote { -1 };
-    std::array<std::atomic<float>, kNumBands> modOutDepth {};   // post-slew mod × depth
+    std::array<std::atomic<float>, kNumBands> modOutDepth {};   // final pan (bias + depth·amount) — UI rings/indicator
     std::array<std::atomic<float>, kNumBands> modPhase {};       // cycle phase 0..1 (steps highlight)
     // raw post-slew source values −1..1, one per (band, waveform) — the UI's
     // rings/markers need whichever waveform each route actually taps

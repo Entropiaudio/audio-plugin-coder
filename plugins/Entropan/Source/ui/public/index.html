@@ -298,10 +298,6 @@
   .knob-wrap .mod-handle { top: 1px; right: 5px; }
   .hslider .mod-handle { top: 1px; right: -2px; }
   .qm-row  .mod-handle { top: 2px; right: 2px; }
-  .route-x {
-    font-family: inherit; font-size: 9px; width: 15px; height: 15px; line-height: 1; padding: 0;
-    background: transparent; color: #d98a8a; border: 1px solid #5a3a3a; border-radius: 50%; cursor: pointer;
-  }
   /* floating mod-amount dial: link-icon-sized (16px). The arc IS the value —
      drag ↑↓ sets depth, right-click removes; exact % lives in the tooltip. */
   .mod-editor {
@@ -602,9 +598,9 @@
     </div>
     <div class="header-center">
       <div class="chaos-row">
-        <button class="undo-btn" id="undoBtn" title="Undo" disabled>↶</button>
-        <button class="mutate-btn" id="rerollBtn" title="Re-deal all random modulators">CHAOS</button>
-        <button class="undo-btn" id="redoBtn" title="Redo" disabled>↷</button>
+        <button class="undo-btn" id="undoBtn" data-tip="Undo" disabled>↶</button>
+        <button class="mutate-btn" id="rerollBtn" data-tip="Re-deal all random modulators">CHAOS</button>
+        <button class="undo-btn" id="redoBtn" data-tip="Redo" disabled>↷</button>
       </div>
       <div class="preset-bar">
         <button class="preset-btn" id="presetBtn"><span id="presetCurrent">— select preset —</span> ▾</button>
@@ -622,7 +618,7 @@
   <div class="spectrum-wrap">
     <canvas id="spectrum"></canvas>
     <div class="quick-menu" id="quickMenu">
-      <div class="qm-grip" id="qmGrip" title="Drag to move"></div>
+      <div class="qm-grip" id="qmGrip" data-tip="Drag to move"></div>
       <div class="qm-row" id="qm_rate">
         <div class="qm-label">RATE</div><div class="qm-value"></div>
         <div class="qm-track"><div class="qm-fill"></div></div>
@@ -654,7 +650,7 @@
         <div class="knob-wrap" id="knob_depth"></div>
         <div class="knob-wrap" id="knob_bias"></div>
       </div>
-      <button class="link-btn" id="overrideToggle" title="DEPTH↔BIAS link: linked = bias trims depth (no clip) · broken = free depth, pan can reach the rail">
+      <button class="link-btn" id="overrideToggle" data-tip="DEPTH↔BIAS link: linked = bias trims depth (no clip) · broken = free depth, pan can reach the rail">
         <svg class="icon-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M9 17H7A5 5 0 0 1 7 7h2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
         <svg class="icon-unlink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M9 17H7A5 5 0 0 1 7 7h2"/><line x1="5" y1="19" x2="19" y2="5"/></svg>
       </button>
@@ -663,7 +659,7 @@
     <div class="section-col sec-mod">
       <div class="section-label" id="modSecLabel">Modulator</div>
       <button class="mod-freeze-btn" id="modFreezeBtn" data-tip="Pause this band's modulation — all waveforms hold their value">⏸</button>
-      <div class="mod-drag-dot" id="modDragDot" title="Drag onto a knob or fader to modulate it with this band's modulator">◉ MOD</div>
+      <div class="mod-drag-dot" id="modDragDot" data-tip="Drag onto a knob or fader to modulate it with this band's modulator">◉ MOD</div>
       <div class="mode-chips" id="modeChips"></div>
       <div class="mod-body">
         <canvas id="scopeCanvas"></canvas>
@@ -695,8 +691,8 @@
             </div>
             <div class="step-count-row">
               <select class="step-preset-sel" id="stepPresetSel"></select>
-              <button class="step-save-btn" id="stepSaveBtn" title="Save current pattern as preset">SAVE</button>
-              <button class="step-save-btn step-del-btn" id="stepDelBtn" title="Delete the selected ★ preset" disabled>DEL</button>
+              <button class="step-save-btn" id="stepSaveBtn" data-tip="Save current pattern as preset">SAVE</button>
+              <button class="step-save-btn step-del-btn" id="stepDelBtn" data-tip="Delete the selected ★ preset" disabled>DEL</button>
               <span>STEPS</span>
               <button class="seed-arrow" id="stepDown">−</button>
               <span class="seed-val" id="stepCount">8</span>
@@ -773,7 +769,7 @@
       <div class="preset-save-actions" id="presetSaveActions"></div>
     </div>
   </div>
-  <div class="resize-grip" id="resizeGrip" title="Drag to resize"></div>
+  <div class="resize-grip" id="resizeGrip" data-tip="Drag to resize"></div>
 </div>
 
 <script type="module">
@@ -781,7 +777,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B71";
+const ENTROPAN_BUILD = "B72";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1116,24 +1112,26 @@ if (EMBEDDED) {
 const setRoutesNative = native("setRoutes"), getRoutesNative = native("getRoutes");
 let modRoutes = [];   // [{src 0-5, dst (band·10+slot | 60+g), depth −100..100}]
 // live raw source values (−1..1), band-major × waveform (6×6) — telemetry, or
-// the sim in a browser. Index = band*6 + waveform (Sine,Tri,S&H,Chaos,Steps,Env).
+// the sim in a browser. Index = band*6 + waveform. Names live in MODES.
 const modSrcVals = new Array(36).fill(0);
-const WAVE_NAMES = ["SINE", "TRI", "S&H", "CHAOS", "STEPS", "ENV"];
 // a route's waveform: explicit stype, or the source band's current MODE (legacy −1)
 const routeWave = r => (r.stype >= 0 ? r.stype : P.bands[r.src].mode.get());
+// per-band destination slot indices (dst = band·10 + slot). MUST match the C++
+// kBandSlots order in PluginProcessor.cpp — dst crosses the WebView bridge raw.
+const SLOT = { FREQ: 0, WIDTH: 1, LIFT: 2, DEPTH: 3, GAIN: 4,
+               RATE: 5, SMOOTH: 6, PHASE: 7, BIAS: 8, STEPSMOOTH: 9 };
 // A modulation may not modulate its OWN parameters: all six waveforms share the
 // band's clock, so band N's source driving band N's RATE / SMOOTH / PHASE /
 // STEP-SMOOTH feeds straight back into itself. Cross-band is legal (that's the
 // FM trick), and same-band AUDIO params (freq/width/lift/depth/gain/bias) too.
-const SELF_MOD_SLOTS = [5, 6, 7, 9];   // rate, smooth, phase, stepsmooth
+const SELF_MOD_SLOTS = [SLOT.RATE, SLOT.SMOOTH, SLOT.PHASE, SLOT.STEPSMOOTH];
 const isSelfModDest = (src, dst) =>
   dst < 60 && Math.floor(dst / 10) === src && SELF_MOD_SLOTS.includes(dst % 10);
 // A route inherits its SOURCE band's polarity: BI swings ± around the knob,
 // UNI pushes one-way from it. (Raw value stays raw; the transform lives here.)
-const routeSrcVal = r => {
-  const v = modSrcVals[r.src * 6 + routeWave(r)] || 0;
-  return P.bands[r.src].uni.get() ? (v + 1) / 2 : v;
-};
+// band polarity transform: BI passes −1..1 through, UNI folds to 0..1 (one-way)
+const applyPolarity = (pb, v) => (pb.uni.get() ? (v + 1) / 2 : v);
+const routeSrcVal = r => applyPolarity(P.bands[r.src], modSrcVals[r.src * 6 + routeWave(r)] || 0);
 const DEST_SLOT_NAMES = ["FREQ", "Q", "LIFT", "DEPTH", "GAIN", "RATE", "SMOOTH", "PHASE", "BIAS", "STEP SM"];
 const DEST_GLOBAL_NAMES = ["AMOUNT", "WOW", "FLUTTER", "LEVEL"];
 const destName = d => d >= 60 ? DEST_GLOBAL_NAMES[d - 60]
@@ -1187,7 +1185,7 @@ function drawModRings(canvas, dest) {
   });
 }
 /* floating mod-amount editor — opens where a route is dropped (and on re-drop
-   over an existing connection). Drag the circle ↑↓ to set depth, × removes. */
+   over an existing connection). Drag the circle ↑↓ to set depth; right-click removes. */
 let meRoute = null;
 const modEditor = document.createElement("div"); modEditor.className = "mod-editor";
 const meCanvas = document.createElement("canvas");
@@ -1207,7 +1205,7 @@ function meDraw() {
   ctx.beginPath();
   ctx.arc(C, C, 5, -Math.PI / 2, -Math.PI / 2 + (meRoute.depth < 0 ? -sweep : sweep), meRoute.depth < 0);
   ctx.strokeStyle = BAND_COLORS[meRoute.src]; ctx.stroke();
-  modEditor.dataset.tip = "B" + (meRoute.src + 1) + " " + (WAVE_NAMES[routeWave(meRoute)] || "")
+  modEditor.dataset.tip = "B" + (meRoute.src + 1) + " " + (MODES[routeWave(meRoute)] || "")
     + " → " + destName(meRoute.dst) + " · "
     + (meRoute.depth > 0 ? "+" : "") + Math.round(meRoute.depth) + "%"
     + (P.bands[meRoute.src].uni.get() ? " · UNI (one-way)" : " · BI (±)")
@@ -1253,6 +1251,7 @@ const destHeadroom = (dst, src) => {
 // show the same final value everywhere a parameter is drawn (spectrum bells,
 // track markers, knob rings) — not just the base the user set.
 const modNormOffset = dst => {
+  if (!modRoutes.length) return 0;   // common case — skip the scan entirely
   let o = 0;
   for (const r of modRoutes) if (r.dst === dst) o += routeSrcVal(r) * r.depth / 100;
   return o;
@@ -1262,14 +1261,16 @@ const moddedNorm = dst => clamp(destNorm(dst) + modNormOffset(dst), 0, 1);
 const dispBand = Array.from({ length: 6 }, () => ({ freqN: 0, oct: 1, lift: 0, gainDb: 0, gainMod: false }));
 function refreshDispBands() {
   for (let i = 0; i < 6; i++) {
-    const pb = P.bands[i], d = dispBand[i], base = i * 10;
-    d.freqN = clamp(fx(pb.freq.get()) + modNormOffset(base), 0, 1);
-    d.oct = normToOct(clamp(octToNorm(pb.width.get()) + modNormOffset(base + 1), 0, 1));
-    d.lift = clamp(pb.lift.get() / 100 + modNormOffset(base + 2), 0, 1) * 100;
-    d.gainMod = modRoutes.some(r => r.dst === base + 4);
-    d.gainDb = clamp((pb.gain.get() + 6) / 12 + modNormOffset(base + 4), 0, 1) * 12 - 6;
+    const d = dispBand[i], base = i * 10;
+    // moddedNorm = destNorm + route offsets, clamped — ONE source of truth for
+    // the per-slot mapping (destNorm's switch), not a re-derived copy here
+    d.freqN = moddedNorm(base + SLOT.FREQ);
+    d.oct = normToOct(moddedNorm(base + SLOT.WIDTH));
+    d.lift = moddedNorm(base + SLOT.LIFT) * 100;
+    d.gainMod = modRoutes.some(r => r.dst === base + SLOT.GAIN);
+    d.gainDb = moddedNorm(base + SLOT.GAIN) * 12 - 6;
     // any bell-geometry route: the aura's cache key would churn every frame
-    d.geoMod = modRoutes.some(r => r.dst >= base && r.dst <= base + 2);
+    d.geoMod = modRoutes.some(r => r.dst >= base && r.dst <= base + SLOT.LIFT);
   }
 }
 // shared marker painter for fader/quick-menu tracks
@@ -1414,7 +1415,7 @@ function makeKnob(containerId, label, opts) {
   el.appendChild(body); el.appendChild(labelEl); el.appendChild(val);
   if (opts.lockKey) {
     bindLockGesture(el, opts.lockKey, opts.lockGlobal);
-    el.title = "Right-click: lock / unlock (CHAOS skips locked params)";
+    el.dataset.tip = "Right-click: lock / unlock (CHAOS skips locked params)";
   }
 
   const modHandle = makeModHandle(el);
@@ -1476,7 +1477,7 @@ function makeHSlider(id, label, opts) {
   el.appendChild(labelEl); el.appendChild(val); el.appendChild(track);
   if (opts.lockKey) {
     bindLockGesture(el, opts.lockKey);
-    el.title = "Right-click: lock / unlock (CHAOS skips locked params)";
+    el.dataset.tip = "Right-click: lock / unlock (CHAOS skips locked params)";
   }
   const modHandle = makeModHandle(el);
   const s = {
@@ -1649,12 +1650,12 @@ const hsStepSmooth = makeHSlider("hs_stepsmooth", "SMOOTH", {
 
 /* ── mod-matrix destinations + drag source ──
    band-relative slots resolve against the SELECTED band at drop time */
-knobFreq.el.dataset.mslot = 0;  knobWidth.el.dataset.mslot = 1;
-knobLift.el.dataset.mslot = 2;  knobDepth.el.dataset.mslot = 3;
-knobBias.el.dataset.mslot = 8;
-hsRate.el.dataset.mslot = 5;    hsInertia.el.dataset.mslot = 6;
-hsPhase.el.dataset.mslot = 7;   hsStepSpeed.el.dataset.mslot = 5;
-hsStepSmooth.el.dataset.mslot = 9;
+knobFreq.el.dataset.mslot = SLOT.FREQ;   knobWidth.el.dataset.mslot = SLOT.WIDTH;
+knobLift.el.dataset.mslot = SLOT.LIFT;   knobDepth.el.dataset.mslot = SLOT.DEPTH;
+knobBias.el.dataset.mslot = SLOT.BIAS;
+hsRate.el.dataset.mslot = SLOT.RATE;     hsInertia.el.dataset.mslot = SLOT.SMOOTH;
+hsPhase.el.dataset.mslot = SLOT.PHASE;   hsStepSpeed.el.dataset.mslot = SLOT.RATE;
+hsStepSmooth.el.dataset.mslot = SLOT.STEPSMOOTH;
 knobAmount.el.dataset.mabs = 60; knobWow.el.dataset.mabs = 61;
 knobFlutter.el.dataset.mabs = 62; knobOut.el.dataset.mabs = 63;
 
@@ -1672,7 +1673,6 @@ function startRouteDrag(src, stype, e) {
   dragGhost.style.background = BAND_COLORS[src];
   document.body.appendChild(dragGhost);
   dragGhost.style.left = e.clientX + "px"; dragGhost.style.top = e.clientY + "px";
-  document.body.classList.add("routing-drag");
   e.preventDefault();
 }
 // the MOD dot routes the band's currently selected waveform
@@ -1708,7 +1708,6 @@ window.addEventListener("mouseup", e => {
   }
   routeDrag = null;
   if (dragGhost) { dragGhost.remove(); dragGhost = null; }
-  document.body.classList.remove("routing-drag");
 });
 
 /* mode chips — click selects the band's pan MODE; DRAG one onto a knob/fader
@@ -1740,13 +1739,13 @@ MODES.forEach((m, i) => {
 });
 // MODE lock — right-click the mode strip (chips dim when locked)
 bindLockGesture(modeChipsEl, "mode");
-modeChipsEl.title = "Right-click: lock / unlock Mod Type (CHAOS skips locked params)";
+modeChipsEl.dataset.tip = "Right-click: lock / unlock Mod Type (CHAOS skips locked params)";
 
 // Section titles lock every parameter in the section (Chaosverb: click = group lock).
 function setupSectionTitle(id, sectionId, keys, verb, global) {
   const el = document.getElementById(id);
   el.classList.add("lockable");
-  el.title = "Click: lock / unlock all " + verb + " parameters against CHAOS";
+  el.dataset.tip = "Click: lock / unlock all " + verb + " parameters against CHAOS";
   el.onclick = () => toggleSectionLock(sectionId, keys, global);
   el._keys = keys; el._global = global;
   return el;
@@ -1989,7 +1988,7 @@ function drawSteps() {
   for (let i = 0; i < n; ) {
     // draw one glued run [i, i+runLen) as a single wide step (ratchets span it)
     const st = b.steps[i];
-    let runLen = 1; while (i + runLen < n && b.steps[i + runLen].tie) runLen++;
+    const runLen = stepRunLen(b, i);   // i is always a run leader here
     const runX = i * slotW, runW = runLen * slotW, subW = runW / st.subdiv;
     for (let m = 0; m < st.subdiv; m++) {
       const v = st.vals[m];
@@ -2268,9 +2267,13 @@ function drawSpectrum(t) {
   }
   ctx.lineTo(W, ay(anaBins - 1));
   ctx.lineTo(W, H); ctx.closePath();
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, "rgba(232,226,214,0.10)"); g.addColorStop(1, "rgba(232,226,214,0.0)");
-  ctx.fillStyle = g; ctx.fill();
+  // gradient cached per height (static stops) — same pattern as drawGridCached
+  if (!drawSpectrum._g || drawSpectrum._gH !== H) {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, "rgba(232,226,214,0.10)"); g.addColorStop(1, "rgba(232,226,214,0.0)");
+    drawSpectrum._g = g; drawSpectrum._gH = H;
+  }
+  ctx.fillStyle = drawSpectrum._g; ctx.fill();
   ctx.strokeStyle = "rgba(232,226,214,0.25)"; ctx.lineWidth = DPR; ctx.stroke();
 
   const topH = H * 0.82;
@@ -2536,14 +2539,17 @@ let qmAnchor = { x: 0, y: 0 };
   window.addEventListener("mouseup", () => drag = null);
 })();
 function qmRefreshRow(row, norm, text, color) {
-  row.querySelector(".qm-fill").style.width = (clamp(norm, 0, 1) * 100) + "%";
-  row.querySelector(".qm-fill").style.background = `linear-gradient(90deg, ${color}55, ${color})`;
-  row.querySelector(".qm-value").textContent = text;
-  // routed state is carried by the dot handle + track marker alone — the old
-  // inset left-edge stripe doubled up and read as a stray line (user report)
-  row.style.boxShadow = "";
+  // element lookups memoized on the row — this runs every frame for 4 rows
+  const els = row._qmEls || (row._qmEls = {
+    fill: row.querySelector(".qm-fill"),
+    value: row.querySelector(".qm-value"),
+    track: row.querySelector(".qm-track"),
+  });
+  els.fill.style.width = (clamp(norm, 0, 1) * 100) + "%";
+  els.fill.style.background = `linear-gradient(90deg, ${color}55, ${color})`;
+  els.value.textContent = text;
   refreshModHandle(row._modH || (row._modH = makeModHandle(row)), row);
-  paintModMark(row.querySelector(".qm-track"), widgetDest(row));   // live modulated value
+  paintModMark(els.track, widgetDest(row));   // live modulated value
 }
 function updateQuickMenu() {
   const pb = PB(), wrap = spec.parentElement;
@@ -2596,8 +2602,8 @@ qmDragRow(qmDepth, n => { setDepthEff(PB(), ui.selected, n * 100); knobDepth.ref
 qmDragRow(qmGain, n => { PB().gain.set(-6 + n * 12); }, () => PB().gain.set(0));
 qmDragRow(qmBias, n => { setBiasRemembered(PB(), ui.selected, -100 + n * 200); knobBias.refresh(); knobDepth.refresh(); }, () => setBiasRemembered(PB(), ui.selected, 0));
 // floating band rows are mod destinations too (GAIN is only reachable here)
-qmRate.dataset.mslot = 5; qmDepth.dataset.mslot = 3;
-qmGain.dataset.mslot = 4; qmBias.dataset.mslot = 8;
+qmRate.dataset.mslot = SLOT.RATE; qmDepth.dataset.mslot = SLOT.DEPTH;
+qmGain.dataset.mslot = SLOT.GAIN; qmBias.dataset.mslot = SLOT.BIAS;
 
 /* ════════════════════════════════════════════════════════════════════
    SCOPE + LOCAL MODULATOR SIM
@@ -2725,11 +2731,10 @@ function tickMods(dt) {
   for (let i = 0; i < 6; i++) {
     const pb = P.bands[i], b = ui.bands[i];
     if (!pb.on.get()) { b.pan = 0; continue; }
-    if (pb.freeze.get()) {   // paused: waveforms hold, pan stays live to the knobs (mirrors DSP)
-      const mvF = pb.uni.get() ? (b.mod + 1) * 0.5 : b.mod;
-      b.pan = clamp(pb.bias.get() / 100 + mvF * (pb.depth.get() / 100) * (P.amount.get() / 100), -1, 1);
-      continue;
-    }
+    // freeze gates ONLY the waveform tick (mirrors the DSP's !cfg.freeze scope);
+    // the shared pan tail below runs either way, so the held position stays
+    // live to the depth/bias/amount knobs without a second copy of the formula
+    if (!pb.freeze.get()) {
     const f = Math.min(simRateHz(i), 30); // visual sim caps at 30 Hz (real DSP goes to audio rate)
     b.phi = (b.phi + f * dt) % 1;
     const ph = (b.phi + pb.phase.get() / 360) % 1;
@@ -2739,7 +2744,7 @@ function tickMods(dt) {
     const tgt = [0, 0, 0, 0, 0, 0];
     tgt[0] = Math.sin(ph * Math.PI * 2);
     tgt[1] = 1 - 4 * Math.abs(ph - 0.5);
-    {   // S&H (smooth it via the SMOOTH fader for a Drift-style glide)
+    {   // S&H (smooth it via the SMOOTH fader for a glide)
       const cell = Math.floor(simClock * f);
       if (cell !== b.lastDeal) { b.lastDeal = cell; b.shVal = hash(cell * 6 + i + P.seed.get() + b.driftA) * 2 - 1; }
       tgt[2] = b.shVal || 0;
@@ -2757,7 +2762,8 @@ function tickMods(dt) {
     // Env (preview only — real plugin drives this from audio telemetry)
     tgt[5] = Math.sin(simClock * 1.7 + i) * 0.5 + Math.sin(simClock * 5.3) * 0.2;
 
-    // per-waveform slew, same formulas as the DSP
+    // per-waveform slew — MUST mirror the DSP formulas (PluginProcessor.cpp,
+    // "All six waveforms run per band" block); retune there → retune here
     const inr = pb.inertia.get() / 100, i2 = inr * inr, per = 1 / Math.max(f, 1e-6);
     for (let t = 0; t < 6; t++) {
       let k;
@@ -2774,7 +2780,8 @@ function tickMods(dt) {
     }
     b.target = tgt[pb.mode.get()] ?? 0;
     b.mod = b.waves[pb.mode.get()] ?? 0;                   // pan follows the selected MODE
-    const mv = pb.uni.get() ? (b.mod + 1) * 0.5 : b.mod;
+    }   // !freeze
+    const mv = applyPolarity(pb, b.mod);
     b.pan = clamp(pb.bias.get() / 100 + mv * (pb.depth.get() / 100) * (P.amount.get() / 100), -1, 1);
   }
 }
@@ -2968,10 +2975,8 @@ const tipEl = document.createElement("div");
 tipEl.className = "ui-tooltip";
 document.body.appendChild(tipEl);
 /* move titles to data-tip once (kills the broken native path) */
-document.querySelectorAll("[title]").forEach(el => {
-  el.dataset.tip = el.getAttribute("title");
-  el.removeAttribute("title");
-});
+// (tooltips are authored as data-tip directly — WKWebView never renders native
+// title attributes, so none exist in this document)
 document.addEventListener("mouseover", e => {
   const t = e.target.closest("[data-tip]");
   if (!t || !tooltipsEnabled) { tipEl.classList.remove("visible"); return; }
