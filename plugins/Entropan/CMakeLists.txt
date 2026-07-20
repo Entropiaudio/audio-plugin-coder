@@ -41,6 +41,9 @@ juce_add_binary_data(Entropan_WebUI
 # ============================================
 juce_add_plugin(Entropan
     COMPANY_NAME "Entropia Audio"
+    # Explicit: JUCE would otherwise derive "com.Entropia Audio.Entropan" from
+    # COMPANY_NAME — a space in the bundle ID breaks notarisation/Gatekeeper.
+    BUNDLE_ID "com.entropiaudio.Entropan"
     PLUGIN_MANUFACTURER_CODE Etpa
     PLUGIN_CODE Etpn
     FORMATS ${PLUGIN_FORMATS}
