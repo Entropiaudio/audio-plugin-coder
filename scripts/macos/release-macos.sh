@@ -107,6 +107,7 @@ productbuild --distribution "$OUT/_pkgs/distribution.xml" \
              --sign "$INSTALLER_CERT" --timestamp \
              "$PKG" >/dev/null
 rm -rf "$OUT/_stage" "$OUT/_pkgs"
+cp "plugins/${PLUGIN}/Documentation/BETA-README.md" "$OUT/README.md"   # ships next to the pkg
 
 # ── 4. notarise + staple ──────────────────────────────────────────────────────
 if [[ $SKIP_NOTARIZE -eq 1 ]]; then
