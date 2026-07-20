@@ -769,7 +769,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B68";
+const ENTROPAN_BUILD = "B69";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1108,6 +1108,13 @@ const modSrcVals = new Array(36).fill(0);
 const WAVE_NAMES = ["SINE", "TRI", "S&H", "CHAOS", "STEPS", "ENV"];
 // a route's waveform: explicit stype, or the source band's current MODE (legacy −1)
 const routeWave = r => (r.stype >= 0 ? r.stype : P.bands[r.src].mode.get());
+// A modulation may not modulate its OWN parameters: all six waveforms share the
+// band's clock, so band N's source driving band N's RATE / SMOOTH / PHASE /
+// STEP-SMOOTH feeds straight back into itself. Cross-band is legal (that's the
+// FM trick), and same-band AUDIO params (freq/width/lift/depth/gain/bias) too.
+const SELF_MOD_SLOTS = [5, 6, 7, 9];   // rate, smooth, phase, stepsmooth
+const isSelfModDest = (src, dst) =>
+  dst < 60 && Math.floor(dst / 10) === src && SELF_MOD_SLOTS.includes(dst % 10);
 // A route inherits its SOURCE band's polarity: BI swings ± around the knob,
 // UNI pushes one-way from it. (Raw value stays raw; the transform lives here.)
 const routeSrcVal = r => {
@@ -1128,7 +1135,12 @@ function pushRoutes() {
 }
 function loadRoutes() {
   const apply = j => {
-    try { const d = JSON.parse(j || "{}"); modRoutes = Array.isArray(d.routes) ? d.routes.filter(r => r && r.dst >= 0) : []; }
+    try {
+      const d = JSON.parse(j || "{}");
+      modRoutes = Array.isArray(d.routes)
+        ? d.routes.filter(r => r && r.dst >= 0 && !isSelfModDest(r.src, r.dst))
+        : [];
+    }
     catch { modRoutes = []; }
     refreshPanels();
   };
@@ -1660,7 +1672,7 @@ window.addEventListener("mouseup", e => {
   const t = hit && hit.closest("[data-mslot],[data-mabs]");
   if (t) {
     const dst = widgetDest(t);
-    if (dst !== null) {
+    if (dst !== null && !isSelfModDest(routeDrag.src, dst)) {
       // re-drop of the SAME waveform on an existing connection edits it;
       // a different waveform onto the same knob is a new route (they sum)
       let rt = modRoutes.find(r => r.src === routeDrag.src && r.dst === dst
@@ -2502,8 +2514,9 @@ function qmRefreshRow(row, norm, text, color) {
   row.querySelector(".qm-fill").style.width = (clamp(norm, 0, 1) * 100) + "%";
   row.querySelector(".qm-fill").style.background = `linear-gradient(90deg, ${color}55, ${color})`;
   row.querySelector(".qm-value").textContent = text;
-  const rt = modRoutes.find(r => r.dst === widgetDest(row));   // routed → source-colour edge
-  row.style.boxShadow = rt ? "inset 2px 0 0 " + BAND_COLORS[rt.src] : "";
+  // routed state is carried by the dot handle + track marker alone — the old
+  // inset left-edge stripe doubled up and read as a stray line (user report)
+  row.style.boxShadow = "";
   refreshModHandle(row._modH || (row._modH = makeModHandle(row)), row);
   paintModMark(row.querySelector(".qm-track"), widgetDest(row));   // live modulated value
 }

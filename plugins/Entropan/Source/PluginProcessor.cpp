@@ -987,7 +987,16 @@ void EntropanAudioProcessor::parseRoutesSnapshot()
                                  : -1;
                     rt.dst   = (int) ro->getProperty ("dst");
                     rt.depth = juce::jlimit (-100.0f, 100.0f, (float) (double) ro->getProperty ("depth"));
-                    if (rt.dst >= 0 && rt.dst < kNumDests)
+                    // A modulation may not modulate its OWN parameters: all six
+                    // waveforms share the band's clock, so band N → band N's
+                    // rate/smooth/phase/stepsmooth is self-feedback. The UI
+                    // refuses the drop; this also drops any such route arriving
+                    // from an old session. (Audio slots + cross-band stay legal.)
+                    const int slot = rt.dst % kDestSlotsPerBand;
+                    const bool selfMod = rt.dst < kNumBands * kDestSlotsPerBand
+                                      && rt.dst / kDestSlotsPerBand == rt.src
+                                      && (slot == 5 || slot == 6 || slot == 7 || slot == 9);
+                    if (rt.dst >= 0 && rt.dst < kNumDests && ! selfMod)
                         ++rd.count;
                 }
             }

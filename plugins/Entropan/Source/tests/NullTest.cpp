@@ -891,6 +891,51 @@ int main()
         std::printf ("    SINE route %.2f … %+.2f dB   follow-mode(flat) %.2f … %+.2f dB\n", sLo, sHi, fLo, fHi);
     }
 
+    // ── T28: self-feedback routes are refused — band N → its own RATE is a
+    //         no-op (identical output to no route), cross-band rate mod works ──
+    {
+        auto runRate = [] (const char* routesJson, std::vector<double>& blocks)
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (kSampleRate, kBlock);
+            setParam (p, "b1_on", 1.0f);
+            setParam (p, "b1_freq", 1000.0f); setParam (p, "b1_width", 2.0f);
+            setParam (p, "b1_lift", 100.0f); setParam (p, "b1_depth", 100.0f);
+            setParam (p, "b1_ratemode", 1.0f); setParam (p, "b1_rate", 2.0f);
+            setParam (p, "b1_inertia", 0.0f);
+            // band 2: enabled but allpass-flat (lift 0) — inaudible itself, its
+            // modulator ticks, so a cross-band route has a live source
+            setParam (p, "b2_on", 1.0f); setParam (p, "b2_lift", 0.0f);
+            setParam (p, "b2_ratemode", 1.0f); setParam (p, "b2_rate", 0.7f);
+            if (routesJson != nullptr) p.setRoutesJson (routesJson);
+            juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+            double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate;
+            blocks.clear();
+            for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk) {
+                for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+                p.processBlock (buf, midi);
+                if (blk < kWarmBlocks) continue;
+                double e = 1.0e-12;
+                for (int s = 0; s < kBlock; ++s) e += juce::square ((double) buf.getSample (0, s));
+                blocks.push_back (dB (e / (0.5 * kBlock)));
+            }
+        };
+        std::vector<double> base, self, cross;
+        runRate (nullptr, base);
+        runRate ("{\"routes\":[{\"src\":0,\"stype\":0,\"dst\":5,\"depth\":100}]}", self);    // b1 → OWN rate: refused
+        runRate ("{\"routes\":[{\"src\":1,\"stype\":0,\"dst\":5,\"depth\":100}]}", cross);   // b2 → b1 rate: legal
+        double dSelf = 0, dCross = 0;
+        for (size_t k = 0; k < base.size(); ++k) {
+            dSelf  = juce::jmax (dSelf,  std::abs (self[k]  - base[k]));
+            dCross = juce::jmax (dCross, std::abs (cross[k] - base[k]));
+        }
+        // self must be a byte-level no-op (route dropped at parse); cross must
+        // actually diverge (route accepted, live source) — proves the filter
+        // rejects exactly the self case, not the whole matrix.
+        ok &= check ("T28 self rate-mod refused, cross-band legal", dSelf < 1.0e-9 && dCross > 0.5);
+        std::printf ("    max block diff: self %.3g dB, cross %.2f dB\n", dSelf, dCross);
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }
