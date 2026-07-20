@@ -781,7 +781,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B70";
+const ENTROPAN_BUILD = "B71";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1237,12 +1237,14 @@ function destNorm(dst) {
 }
 // modulation may only travel to the rails from where the knob currently sits.
 // UNI is one-way: +depth ≤ (1 − pos)·100, −depth ≥ −pos·100.
-// BI swings both ways, so it must fit the SMALLER side: |depth| ≤ min(pos, 1−pos)·100
-// (at a knob extreme that's 0 — the hint to switch that band to UNI).
+// BI swings both ways and may use the LARGER side: |depth| ≤ max(pos, 1−pos)·100.
+// The short side clamps at the rail (intentional flat-top) — the old min() rule
+// pinned the dial to 0 whenever the knob sat at an extreme, which made a knob
+// at 100% unmodulatable instead of modulatable downward.
 const destHeadroom = (dst, src) => {
   const n = destNorm(dst);
   if (P.bands[src].uni.get()) return { min: -n * 100, max: (1 - n) * 100 };
-  const m = Math.min(n, 1 - n) * 100;
+  const m = Math.max(n, 1 - n) * 100;
   return { min: -m, max: m };
 };
 
