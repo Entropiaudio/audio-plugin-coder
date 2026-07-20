@@ -34,6 +34,7 @@ class EntropanAudioProcessor : public juce::AudioProcessor
 public:
     static constexpr int kNumBands = 6;
     static constexpr int kMaxSteps = 16;
+    static constexpr int kNumWaves = 6;   // Sine, Tri, S&H, Chaos, Steps, Env
 
     EntropanAudioProcessor();
     // Defined in the .cpp: the Moonbase client is held by unique_ptr to an
@@ -101,10 +102,13 @@ public:
     // offset AFTER the atomic read — host automation and the UI stay untouched.
     // dst index = band·10 + slot (freq,width,lift,depth,gain,rate,inertia,
     // phase,bias,stepsmooth) or 60+ (amount,wow,flutter,output).
-    static constexpr int kMaxRoutes = 8;
+    static constexpr int kMaxRoutes = 16;
     static constexpr int kDestSlotsPerBand = 10;
     static constexpr int kNumDests = kNumBands * kDestSlotsPerBand + 4;
-    struct ModRoute  { int src = 0; int dst = -1; float depth = 0.0f; };  // depth −100..+100 (% of full range)
+    // stype: which of the source band's six waveforms drives the route
+    // (0..5 explicit; −1 = follow the band's selected MODE — the pre-B68
+    // behaviour, kept so old sessions load identically).
+    struct ModRoute  { int src = 0; int stype = -1; int dst = -1; float depth = 0.0f; };  // depth −100..+100
     struct RoutesData { int count = 0; ModRoute routes[kMaxRoutes]; };
     juce::String getRoutesJson() const;
     void setRoutesJson (const juce::String& json);
@@ -179,15 +183,18 @@ private:
     struct Modulator
     {
         double phase   = 0.0;    // cycle position 0..1 (free/MIDI accumulate; sync derives from PPQ)
-        float  value   = 0.0f;   // post-slew output (-1..1)
-        double lx = 0.1, ly = 0.0, lz = 0.0;   // Lorenz state
-        float  slewCoeff = 0.0f; // per-sample one-pole coefficient (from inertia)
-        float  target  = 0.0f;
+        // ALL six waveforms run off this one clock, each with its own slew —
+        // the pan uses value[mode], the mod matrix can tap any of them
+        // independently (S&H on freq while Sine drives gain, etc.).
+        float  value[kNumWaves] {};      // post-slew outputs (-1..1), one per waveform
+        float  target[kNumWaves] {};
+        float  slewCoeff[kNumWaves] {};  // per-sample one-pole coefficients
+        double lx = 0.1, ly = 0.0, lz = 0.0;   // Lorenz state (one stream per band)
         float  panOut  = 0.0f;   // final pan (post bias + depth·amount) for scope/telemetry
         // S&H cell-hash cache — the hashed value is constant for a whole cell,
-        // so rehash only when (cell, seed, reroll, mode) changes.
+        // so rehash only when (cell, seed, reroll) changes.
         juce::int64 lastCell = std::numeric_limits<juce::int64>::min();
-        int    lastSeed = -1, lastReroll = -1, lastMode = -1;
+        int    lastSeed = -1, lastReroll = -1;
         float  cellA = 0.0f;
     };
     std::array<Modulator, kNumBands> mods;
@@ -276,7 +283,9 @@ public:
     std::atomic<int>   lastMidiNote { -1 };
     std::array<std::atomic<float>, kNumBands> modOutDepth {};   // post-slew mod × depth
     std::array<std::atomic<float>, kNumBands> modPhase {};       // cycle phase 0..1 (steps highlight)
-    std::array<std::atomic<float>, kNumBands> modSrcVal {};      // raw post-slew modulator −1..1 (mod-matrix source)
+    // raw post-slew source values −1..1, one per (band, waveform) — the UI's
+    // rings/markers need whichever waveform each route actually taps
+    std::array<std::atomic<float>, kNumBands * kNumWaves> modSrcVal {};
 
     // Analyzer tap: mono (L+R)/2 of the processed output, drained by the editor.
     int popAnalyzer (float* dest, int maxNum);

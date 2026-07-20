@@ -851,6 +851,46 @@ int main()
         std::printf ("    balance total variation: %.3f (floor active)\n", tv);
     }
 
+    // ── T27: waveforms are independent sources — a SINE route swings while the
+    //         band's own MODE is Steps with a flat pattern (pan engine idle) ──
+    // Also proves the legacy path: the same route WITHOUT stype follows the
+    // band's mode (flat steps) and must NOT move the level.
+    {
+        auto runStype = [] (const char* routesJson, double& lo, double& hi)
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (kSampleRate, kBlock);
+            setParam (p, "b1_on", 1.0f);
+            setParam (p, "b1_freq", 1000.0f); setParam (p, "b1_width", 2.0f);
+            setParam (p, "b1_lift", 0.0f);          // allpass-flat: only the routed LEVEL moves
+            setParam (p, "b1_mode", 4.0f);          // Steps…
+            p.setStepsJson (0, "{\"count\":4,\"steps\":[{\"subdiv\":1,\"vals\":[0]},{\"subdiv\":1,\"vals\":[0]},{\"subdiv\":1,\"vals\":[0]},{\"subdiv\":1,\"vals\":[0]}]}");   // …all flat
+            setParam (p, "b1_ratemode", 1.0f); setParam (p, "b1_rate", 2.0f);
+            setParam (p, "b1_inertia", 0.0f);
+            p.setRoutesJson (routesJson);
+            juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+            double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate;
+            lo = 1.0e9; hi = -1.0e9;
+            for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk) {
+                for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+                p.processBlock (buf, midi);
+                if (blk < kWarmBlocks) continue;
+                double e = 1.0e-12;
+                for (int s = 0; s < kBlock; ++s) e += juce::square ((double) buf.getSample (0, s));
+                const double d = dB (e / (0.5 * kBlock));
+                lo = juce::jmin (lo, d); hi = juce::jmax (hi, d);
+            }
+        };
+        double sLo = 0, sHi = 0, fLo = 0, fHi = 0;
+        // explicit SINE waveform → swings ±12 dB even though the band's MODE is flat Steps
+        runStype ("{\"routes\":[{\"src\":0,\"stype\":0,\"dst\":63,\"depth\":100}]}", sLo, sHi);
+        // no stype → follows the band's MODE (flat steps) → level must stay put
+        runStype ("{\"routes\":[{\"src\":0,\"dst\":63,\"depth\":100}]}", fLo, fHi);
+        ok &= check ("T27 stype independent of band mode", sHi > 6.0 && sLo < -6.0
+                                                        && std::abs (fLo) < 0.5 && std::abs (fHi) < 0.5);
+        std::printf ("    SINE route %.2f … %+.2f dB   follow-mode(flat) %.2f … %+.2f dB\n", sLo, sHi, fLo, fHi);
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }

@@ -769,7 +769,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B67";
+const ENTROPAN_BUILD = "B68";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1102,10 +1102,18 @@ if (EMBEDDED) {
    ════════════════════════════════════════════════════════════════════ */
 const setRoutesNative = native("setRoutes"), getRoutesNative = native("getRoutes");
 let modRoutes = [];   // [{src 0-5, dst (band·10+slot | 60+g), depth −100..100}]
-const modSrcVals = [0, 0, 0, 0, 0, 0];   // live raw modulators (−1..1) — telemetry, or the sim in a browser
+// live raw source values (−1..1), band-major × waveform (6×6) — telemetry, or
+// the sim in a browser. Index = band*6 + waveform (Sine,Tri,S&H,Chaos,Steps,Env).
+const modSrcVals = new Array(36).fill(0);
+const WAVE_NAMES = ["SINE", "TRI", "S&H", "CHAOS", "STEPS", "ENV"];
+// a route's waveform: explicit stype, or the source band's current MODE (legacy −1)
+const routeWave = r => (r.stype >= 0 ? r.stype : P.bands[r.src].mode.get());
 // A route inherits its SOURCE band's polarity: BI swings ± around the knob,
 // UNI pushes one-way from it. (Raw value stays raw; the transform lives here.)
-const routeSrcVal = r => P.bands[r.src].uni.get() ? (modSrcVals[r.src] + 1) / 2 : modSrcVals[r.src];
+const routeSrcVal = r => {
+  const v = modSrcVals[r.src * 6 + routeWave(r)] || 0;
+  return P.bands[r.src].uni.get() ? (v + 1) / 2 : v;
+};
 const DEST_SLOT_NAMES = ["FREQ", "Q", "LIFT", "DEPTH", "GAIN", "RATE", "SMOOTH", "PHASE", "BIAS", "STEP SM"];
 const DEST_GLOBAL_NAMES = ["AMOUNT", "WOW", "FLUTTER", "LEVEL"];
 const destName = d => d >= 60 ? DEST_GLOBAL_NAMES[d - 60]
@@ -1174,7 +1182,8 @@ function meDraw() {
   ctx.beginPath();
   ctx.arc(C, C, 5, -Math.PI / 2, -Math.PI / 2 + (meRoute.depth < 0 ? -sweep : sweep), meRoute.depth < 0);
   ctx.strokeStyle = BAND_COLORS[meRoute.src]; ctx.stroke();
-  modEditor.dataset.tip = "B" + (meRoute.src + 1) + " → " + destName(meRoute.dst) + " · "
+  modEditor.dataset.tip = "B" + (meRoute.src + 1) + " " + (WAVE_NAMES[routeWave(meRoute)] || "")
+    + " → " + destName(meRoute.dst) + " · "
     + (meRoute.depth > 0 ? "+" : "") + Math.round(meRoute.depth) + "%"
     + (P.bands[meRoute.src].uni.get() ? " · UNI (one-way)" : " · BI (±)")
     + " · drag ↑↓ · right-click removes";
@@ -1630,15 +1639,17 @@ const ROUTED_FADER_POOL = [hsRate, hsInertia, hsPhase, hsStepSpeed, hsStepSmooth
 
 const modDragDot = document.getElementById("modDragDot");
 let routeDrag = null, dragGhost = null;
-modDragDot.addEventListener("mousedown", e => {
-  routeDrag = { src: ui.selected };
+function startRouteDrag(src, stype, e) {
+  routeDrag = { src, stype };
   dragGhost = div_("drag-ghost");
-  dragGhost.style.background = bandColor();
+  dragGhost.style.background = BAND_COLORS[src];
   document.body.appendChild(dragGhost);
   dragGhost.style.left = e.clientX + "px"; dragGhost.style.top = e.clientY + "px";
   document.body.classList.add("routing-drag");
   e.preventDefault();
-});
+}
+// the MOD dot routes the band's currently selected waveform
+modDragDot.addEventListener("mousedown", e => startRouteDrag(ui.selected, PB().mode.get(), e));
 window.addEventListener("mousemove", e => {
   if (!routeDrag || !dragGhost) return;
   dragGhost.style.left = e.clientX + "px"; dragGhost.style.top = e.clientY + "px";
@@ -1650,11 +1661,13 @@ window.addEventListener("mouseup", e => {
   if (t) {
     const dst = widgetDest(t);
     if (dst !== null) {
-      // re-drop on an existing connection edits it instead of duplicating
-      let rt = modRoutes.find(r => r.src === routeDrag.src && r.dst === dst);
-      if (!rt && modRoutes.length < 8) {
+      // re-drop of the SAME waveform on an existing connection edits it;
+      // a different waveform onto the same knob is a new route (they sum)
+      let rt = modRoutes.find(r => r.src === routeDrag.src && r.dst === dst
+                                && routeWave(r) === routeDrag.stype);
+      if (!rt && modRoutes.length < 16) {
         const lim = destHeadroom(dst, routeDrag.src);   // default +50, capped by remaining travel
-        rt = { src: routeDrag.src, dst, depth: clamp(50, lim.min, lim.max) };
+        rt = { src: routeDrag.src, stype: routeDrag.stype, dst, depth: clamp(50, lim.min, lim.max) };
         modRoutes.push(rt);
       }
       pushRoutes();
@@ -1666,12 +1679,31 @@ window.addEventListener("mouseup", e => {
   document.body.classList.remove("routing-drag");
 });
 
-/* mode chips */
+/* mode chips — click selects the band's pan MODE; DRAG one onto a knob/fader
+   routes THAT waveform (all six run per band, so S&H can drive freq while
+   Sine drives gain). Drag threshold keeps the two gestures apart. */
 const modeChipsEl = document.getElementById("modeChips");
 MODES.forEach((m, i) => {
   const b = document.createElement("button");
   b.className = "mode-chip"; b.textContent = m;
-  b.onclick = () => { PB().mode.set(i); refreshPanels(); };
+  let down = null, dragged = false;
+  b.addEventListener("mousedown", e => {
+    if (e.button !== 0) return;
+    down = { x: e.clientX, y: e.clientY }; dragged = false;
+    e.preventDefault();
+  });
+  window.addEventListener("mousemove", e => {
+    if (!down || dragged) return;
+    if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) {
+      dragged = true;
+      startRouteDrag(ui.selected, i, e);   // this chip's waveform as the source
+    }
+  });
+  window.addEventListener("mouseup", () => {
+    if (down && !dragged) { PB().mode.set(i); refreshPanels(); }
+    down = null;
+  });
+  b.dataset.tip = "Click: pan mode · drag onto a knob: modulate it with " + m;
   modeChipsEl.appendChild(b);
 });
 // MODE lock — right-click the mode strip (chips dim when locked)
@@ -2564,7 +2596,7 @@ if (EMBEDDED) {
       lastModEvent = performance.now();
       for (let i = 0; i < 6; i++) ui.bands[i].pan = d.pans[i] || 0;
       if (d.phases) for (let i = 0; i < 6; i++) ui.bands[i].livePhase = d.phases[i];
-      if (d.srcs) for (let i = 0; i < 6; i++) modSrcVals[i] = d.srcs[i] || 0;
+      if (d.srcs) for (let i = 0; i < 36; i++) modSrcVals[i] = d.srcs[i] || 0;   // band-major × waveform
       if (d.midiNote !== undefined && d.midiNote >= 0) {
         midiFreq = 440 * Math.pow(2, (d.midiNote - 69) / 12);
         const names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
@@ -2658,43 +2690,47 @@ function tickMods(dt) {
     const f = Math.min(simRateHz(i), 30); // visual sim caps at 30 Hz (real DSP goes to audio rate)
     b.phi = (b.phi + f * dt) % 1;
     const ph = (b.phi + pb.phase.get() / 360) % 1;
-    switch (pb.mode.get()) {
-      case 0: b.target = Math.sin(ph * Math.PI * 2); break;
-      case 1: b.target = 1 - 4 * Math.abs(ph - 0.5); break;
-      case 2: {   // S&H (smooth it via the SMOOTH fader for a Drift-style glide)
-        const cell = Math.floor(simClock * f);
-        if (cell !== b.lastDeal) { b.lastDeal = cell; b.target = hash(cell * 6 + i + P.seed.get() + b.driftA) * 2 - 1; }
-        break;
-      }
-      case 3: {
-        const s = 10, r = 28, be = 8 / 3, sc = Math.min(0.02, dt * f * 1.2);
-        const { x, y, z } = b.lz;
-        b.lz.x = x + s * (y - x) * sc;
-        b.lz.y = y + (x * (r - z) - y) * sc;
-        b.lz.z = z + (x * y - be * z) * sc;
-        if (!isFinite(b.lz.x)) b.lz = { x: 0.1, y: 0, z: 0 };
-        b.target = clamp(b.lz.x / 18, -1, 1); break;
-      }
-      case 4: {
-        b.target = stepValueAt(b, (simClock * f) + pb.phase.get() / 360); break;
-      }
-      case 5: { // Env (preview only — real plugin drives this from audio telemetry)
-        b.target = Math.sin(simClock * 1.7 + i) * 0.5 + Math.sin(simClock * 5.3) * 0.2; break;
-      }
+
+    // ── all six waveforms tick from the band's one clock (mirrors the DSP) ──
+    if (!b.waves) b.waves = [0, 0, 0, 0, 0, 0];
+    const tgt = [0, 0, 0, 0, 0, 0];
+    tgt[0] = Math.sin(ph * Math.PI * 2);
+    tgt[1] = 1 - 4 * Math.abs(ph - 0.5);
+    {   // S&H (smooth it via the SMOOTH fader for a Drift-style glide)
+      const cell = Math.floor(simClock * f);
+      if (cell !== b.lastDeal) { b.lastDeal = cell; b.shVal = hash(cell * 6 + i + P.seed.get() + b.driftA) * 2 - 1; }
+      tgt[2] = b.shVal || 0;
     }
-    const mode = pb.mode.get();
-    let k;
-    if (mode <= 1) k = 1;                          // sine/tri: no slew
-    else {
-      const inr = pb.inertia.get() / 100, i2 = inr * inr, per = 1 / Math.max(f, 1e-6);
-      let slewT;
-      if (mode === 2 || mode === 4) slewT = Math.min(0.004 + i2 * 2.0, per / 3.5);   // S&H / Steps
-      else if (mode === 3) slewT = Math.min(2.0, 0.004 + i2 * 2.0);                    // Chaos
-      else slewT = i2 * 0.10 * per;
-      k = 1 - Math.exp(-dt / slewT);
+    {   // Chaos
+      const s = 10, r = 28, be = 8 / 3, sc = Math.min(0.02, dt * f * 1.2);
+      const { x, y, z } = b.lz;
+      b.lz.x = x + s * (y - x) * sc;
+      b.lz.y = y + (x * (r - z) - y) * sc;
+      b.lz.z = z + (x * y - be * z) * sc;
+      if (!isFinite(b.lz.x)) b.lz = { x: 0.1, y: 0, z: 0 };
+      tgt[3] = clamp(b.lz.x / 18, -1, 1);
     }
-    b.mod += (b.target - b.mod) * k;                       // raw slewed modulator (-1..1)
-    if (!EMBEDDED) modSrcVals[i] = b.mod;                  // sim feeds the live mod-matrix rings
+    tgt[4] = stepValueAt(b, (simClock * f) + pb.phase.get() / 360);
+    // Env (preview only — real plugin drives this from audio telemetry)
+    tgt[5] = Math.sin(simClock * 1.7 + i) * 0.5 + Math.sin(simClock * 5.3) * 0.2;
+
+    // per-waveform slew, same formulas as the DSP
+    const inr = pb.inertia.get() / 100, i2 = inr * inr, per = 1 / Math.max(f, 1e-6);
+    for (let t = 0; t < 6; t++) {
+      let k;
+      if (t <= 1) k = 1;                                                        // sine/tri
+      else {
+        let slewT;
+        if (t === 2 || t === 4) slewT = Math.min(0.004 + i2 * 2.0, per / 3.5);  // S&H / Steps
+        else if (t === 3) slewT = Math.min(2.0, 0.004 + i2 * 2.0);              // Chaos
+        else slewT = 0.005 + i2 * 0.5;                                          // Env (B67 floor)
+        k = 1 - Math.exp(-dt / slewT);
+      }
+      b.waves[t] += (tgt[t] - b.waves[t]) * k;
+      if (!EMBEDDED) modSrcVals[i * 6 + t] = b.waves[t];   // sim feeds rings/markers/bells
+    }
+    b.target = tgt[pb.mode.get()] ?? 0;
+    b.mod = b.waves[pb.mode.get()] ?? 0;                   // pan follows the selected MODE
     const mv = pb.uni.get() ? (b.mod + 1) * 0.5 : b.mod;
     b.pan = clamp(pb.bias.get() / 100 + mv * (pb.depth.get() / 100) * (P.amount.get() / 100), -1, 1);
   }

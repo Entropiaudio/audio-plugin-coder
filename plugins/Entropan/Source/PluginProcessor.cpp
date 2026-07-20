@@ -443,9 +443,14 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 continue;
             if (! touched[rt.dst]) { acc[rt.dst] = 0.0f; touched[rt.dst] = true; }
             const int src = juce::jlimit (0, kNumBands - 1, rt.src);
+            // stype picks the source band's waveform; −1 follows its MODE (legacy)
+            const int ty = rt.stype >= 0 && rt.stype < kNumWaves
+                             ? rt.stype
+                             : juce::jlimit (0, kNumWaves - 1, (int) bandParams[(size_t) src].mode->load());
+            const float raw = mods[(size_t) src].value[ty];
             const bool srcUni = bandParams[(size_t) src].uni->load() > 0.5f;
-            const float s = srcUni ? (mods[(size_t) src].value + 1.0f) * 0.5f    // 0..1, one-way
-                                   : mods[(size_t) src].value;                   // −1..1, both ways
+            const float s = srcUni ? (raw + 1.0f) * 0.5f    // 0..1, one-way
+                                   : raw;                   // −1..1, both ways
             acc[rt.dst] += s * rt.depth * 0.01f;
         }
         for (int d = 0; d < kNumDests; ++d)
@@ -558,35 +563,40 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const double i2 = (double) inertia * inertia;
         const double periodS = cfg.cycPerSample > 1.0e-9
                                  ? 1.0 / (cfg.cycPerSample * currentSampleRate) : 1.0e9;
-        double slewT;
-        if (cfg.mode == 2)                           // S&H
-            slewT = juce::jmin (0.004 + i2 * 2.0, periodS / 3.5);
-        else if (cfg.mode == 4)                      // Steps — dedicated SMOOTH (square → glide)
+        // All six waveforms run per band (any can feed the mod matrix), so every
+        // one gets its own coefficient — same formulas as when it was the single
+        // mode-selected engine:
+        for (int t = 0; t < kNumWaves; ++t)
         {
-            const float sm = mv[9] * 0.01f;   // 0 = square, 1 = glide
-            if (sm < 1.0e-4f)
-                slewT = 0.0;
-            else
+            double slewT;
+            if (t == 2)                               // S&H
+                slewT = juce::jmin (0.004 + i2 * 2.0, periodS / 3.5);
+            else if (t == 4)                          // Steps — dedicated SMOOTH (square → glide)
             {
-                const int cnt = cfg.steps->count;
-                const double stepDur = cnt > 0 ? periodS / (double) cnt : periodS;
-                slewT = (double) sm * sm * stepDur * 1.5;      // corner scales with one step
+                const float sm = mv[9] * 0.01f;   // 0 = square, 1 = glide
+                if (sm < 1.0e-4f)
+                    slewT = 0.0;
+                else
+                {
+                    const int cnt = cfg.steps->count;
+                    const double stepDur = cnt > 0 ? periodS / (double) cnt : periodS;
+                    slewT = (double) sm * sm * stepDur * 1.5;  // corner scales with one step
+                }
             }
+            else if (t == 3)                          // Chaos — free viscosity (unbounded wanderer)
+                slewT = juce::jmin (2.0, 0.004 + i2 * 2.0);
+            else if (t == 5)                          // Env — absolute floor, NOT rate-derived
+                // The detector ripples at 2× the programme frequency; without a
+                // floor (smooth=0 → coeff=1) the pan tracked that ripple
+                // per-sample — audio-rate AM heard as noise that grew with ENV
+                // GAIN. 5 ms kills the ripple while still feeling instant;
+                // SMOOTH adds glide. periodS is meaningless here — Env follows
+                // the audio, not the band's RATE. (B67, T26)
+                slewT = 0.005 + i2 * 0.5;
+            else                                      // Sine / Tri
+                slewT = i2 * 0.10 * periodS;          // corner ≈ 1.6·rate at max
+            m.slewCoeff[t] = onePoleCoeff (slewT, currentSampleRate);
         }
-        else if (cfg.mode == 3)                       // Chaos — free viscosity (unbounded wanderer)
-            slewT = juce::jmin (2.0, 0.004 + i2 * 2.0);
-        else if (cfg.mode == 5)                       // Env — absolute floor, NOT rate-derived
-            // The detector ripples at 2× the programme frequency (rectification);
-            // without a floor (smooth=0 → coeff=1) the pan tracked that ripple
-            // per-sample, amplitude-modulating the band at audio rate — heard as
-            // noise that grew with ENV GAIN (hotter detector = steeper ripple).
-            // 5 ms kills the ripple while still feeling instant; SMOOTH adds
-            // glide on top. periodS is meaningless here — Env follows the audio,
-            // not the band's RATE.
-            slewT = 0.005 + i2 * 0.5;
-        else                                          // Sine / Tri
-            slewT = i2 * 0.10 * periodS;              // corner ≈ 1.6·rate at max
-        m.slewCoeff = onePoleCoeff (slewT, currentSampleRate);
     }
 
     outGainSm.setTargetValue (juce::Decibels::decibelsToGain (globMod[3]));
@@ -596,6 +606,19 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // recombination laws blend, so flipping the switch never steps the filter
     // inputs (a hard swap popped). Settled endpoints are bit-exact serial/parallel.
     routingSm.setTargetValue (pRouting->load() > 0.5f ? 1.0f : 0.0f);
+
+    // A route tapping the Env waveform needs the detector too — even when no
+    // band's own MODE is Env (stype 5 explicit, or −1 following an Env band).
+    {
+        const auto& rd = routesBuf[(size_t) routesActive.load (std::memory_order_acquire)];
+        for (int r = 0; r < rd.count && ! anyEnv; ++r)
+        {
+            const auto& rt = rd.routes[r];
+            const int src = juce::jlimit (0, kNumBands - 1, rt.src);
+            anyEnv = rt.stype == 5
+                  || (rt.stype < 0 && (int) bandParams[(size_t) src].mode->load() == 5);
+        }
+    }
 
     // ── envelope-follower coefficients (global detection circuit) ──
     const bool  envRms  = pEnvRms->load() > 0.5f;
@@ -681,66 +704,68 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const double cyc = m.phase + (double) cfg.phaseOff;
             const double frac = cyc - std::floor (cyc);
 
-            switch (cfg.mode)
-            {
-                case 0: m.target = std::sin ((float) frac * juce::MathConstants<float>::twoPi); break;
-                case 1: m.target = 1.0f - 4.0f * std::abs ((float) frac - 0.5f); break;
-                case 2: // S&H: new deal each cycle boundary (phase-offset agnostic)
-                {       // (smooth it with the SMOOTH fader for a Drift-style glide)
-                    const auto shCell = (juce::int64) std::floor (m.phase);
-                    if (shCell != m.lastCell || seedV != m.lastSeed
-                        || rerollOffset != m.lastReroll || cfg.mode != m.lastMode)
-                    {   // hash only when the cell (or its inputs) change — same values, ~never rehashed
-                        m.cellA = cellNoise (shCell, i, seedV, rerollOffset);
-                        m.lastCell = shCell; m.lastSeed = seedV;
-                        m.lastReroll = rerollOffset; m.lastMode = cfg.mode;
-                    }
-                    m.target = m.cellA;
-                    break;
+            // ── all six waveforms tick from this one clock ──
+            // The pan takes value[mode]; the mod matrix may tap ANY of them, so
+            // S&H can drive freq while Sine drives gain from the same band.
+            // (Different RATES per destination = route from another band — each
+            // band has its own clock.)
+
+            // Sine / Tri: pure functions of phase
+            m.target[0] = std::sin ((float) frac * juce::MathConstants<float>::twoPi);
+            m.target[1] = 1.0f - 4.0f * std::abs ((float) frac - 0.5f);
+
+            { // S&H: new deal each cycle boundary (phase-offset agnostic)
+              // (smooth it with the SMOOTH fader for a Drift-style glide)
+                const auto shCell = (juce::int64) std::floor (m.phase);
+                if (shCell != m.lastCell || seedV != m.lastSeed || rerollOffset != m.lastReroll)
+                {   // hash only when the cell (or its inputs) change
+                    m.cellA = cellNoise (shCell, i, seedV, rerollOffset);
+                    m.lastCell = shCell; m.lastSeed = seedV; m.lastReroll = rerollOffset;
                 }
-                case 3: // Chaos: Lorenz, x-component normalised
-                {
-                    const float dt = cfg.lorenzDt;
-                    const double nx = m.lx + 10.0 * (m.ly - m.lx) * dt;
-                    const double ny = m.ly + (m.lx * (28.0 - m.lz) - m.ly) * dt;
-                    const double nz = m.lz + (m.lx * m.ly - (8.0 / 3.0) * m.lz) * dt;
-                    m.lx = nx; m.ly = ny; m.lz = nz;
-                    if (! std::isfinite (m.lx)) { m.lx = 0.1; m.ly = 0.0; m.lz = 0.0; }
-                    m.target = juce::jlimit (-1.0f, 1.0f, (float) (m.lx / 18.0));
-                    break;
-                }
-                case 4: // Steps: slot-stable ratchets + glue runs (RT snapshot, per block)
-                {
-                    const auto& sd = *cfg.steps;
-                    if (sd.count > 0)
-                    {
-                        const double sp = frac * (double) sd.count;         // position in cells
-                        const int cell = juce::jlimit (0, sd.count - 1, (int) sp);
-                        const int rs  = sd.runStart[cell];                  // glued run leader
-                        const int rl  = juce::jmax (1, sd.runLen[cell]);
-                        const auto& sl = sd.slots[rs];                      // leader holds the value
-                        const double local = (sp - (double) rs) / (double) rl;   // 0..1 across the run
-                        const int sub = juce::jlimit (0, sl.subdiv - 1, (int) (local * (double) sl.subdiv));
-                        m.target = sl.vals[sub];
-                    }
-                    else
-                        m.target = 0.0f;
-                    break;
-                }
-                case 5: // Env: global envelope follower drives the pan
-                    m.target = juce::jlimit (-1.0f, 1.0f, globalEnv * 2.0f - 1.0f);
-                    break;
-                default:
-                    m.target = 0.0f;
-                    break;
+                m.target[2] = m.cellA;
             }
 
-            // inertia slew → uni/bipolar transform → static bias → depth·amount.
-            // Bipolar: swing L↔R through centre. Unipolar: (v+1)/2 = centre→one
-            // side (works for every mode, incl. Env). Bias offsets the resting
-            // centre. panOut = the final pan, so scope/telemetry show it exactly.
-            m.value += (m.target - m.value) * m.slewCoeff;
-            const float mv    = cfg.uni ? (m.value + 1.0f) * 0.5f : m.value;
+            { // Chaos: Lorenz, x-component normalised (one stream per band)
+                const float dt = cfg.lorenzDt;
+                const double nx = m.lx + 10.0 * (m.ly - m.lx) * dt;
+                const double ny = m.ly + (m.lx * (28.0 - m.lz) - m.ly) * dt;
+                const double nz = m.lz + (m.lx * m.ly - (8.0 / 3.0) * m.lz) * dt;
+                m.lx = nx; m.ly = ny; m.lz = nz;
+                if (! std::isfinite (m.lx)) { m.lx = 0.1; m.ly = 0.0; m.lz = 0.0; }
+                m.target[3] = juce::jlimit (-1.0f, 1.0f, (float) (m.lx / 18.0));
+            }
+
+            { // Steps: slot-stable ratchets + glue runs (RT snapshot, per block)
+                const auto& sd = *cfg.steps;
+                if (sd.count > 0)
+                {
+                    const double sp = frac * (double) sd.count;         // position in cells
+                    const int cell = juce::jlimit (0, sd.count - 1, (int) sp);
+                    const int rs  = sd.runStart[cell];                  // glued run leader
+                    const int rl  = juce::jmax (1, sd.runLen[cell]);
+                    const auto& sl = sd.slots[rs];                      // leader holds the value
+                    const double local = (sp - (double) rs) / (double) rl;   // 0..1 across the run
+                    const int sub = juce::jlimit (0, sl.subdiv - 1, (int) (local * (double) sl.subdiv));
+                    m.target[4] = sl.vals[sub];
+                }
+                else
+                    m.target[4] = 0.0f;
+            }
+
+            // Env: global envelope follower
+            m.target[5] = juce::jlimit (-1.0f, 1.0f, globalEnv * 2.0f - 1.0f);
+
+            // each waveform slews independently (its own coefficient)
+            for (int t = 0; t < kNumWaves; ++t)
+                m.value[t] += (m.target[t] - m.value[t]) * m.slewCoeff[t];
+
+            // pan takes the MODE-selected waveform → uni/bipolar transform →
+            // static bias → depth·amount. Bipolar: swing L↔R through centre.
+            // Unipolar: (v+1)/2 = centre→one side (works for every waveform,
+            // incl. Env). Bias offsets the resting centre. panOut = the final
+            // pan, so scope/telemetry show it exactly.
+            const float panV0 = m.value[juce::jlimit (0, kNumWaves - 1, cfg.mode)];
+            const float mv    = cfg.uni ? (panV0 + 1.0f) * 0.5f : panV0;
             // Limit bias to the headroom left by the swing so bias + full swing
             // never crosses ±1 (no rail-clipping / flattened modulation). Override
             // (biasFree) lifts that cap so a hard bias can keep full depth — the
@@ -840,7 +865,8 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     for (int i = 0; i < kNumBands; ++i)
     {
         modOutDepth[(size_t) i].store (mods[(size_t) i].panOut, std::memory_order_relaxed);
-        modSrcVal[(size_t) i].store (mods[(size_t) i].value, std::memory_order_relaxed);   // mod-matrix source
+        for (int t = 0; t < kNumWaves; ++t)   // mod-matrix sources: every waveform
+            modSrcVal[(size_t) (i * kNumWaves + t)].store (mods[(size_t) i].value[t], std::memory_order_relaxed);
         const double cyc = mods[(size_t) i].phase + (double) bb[(size_t) i].phaseOff;
         modPhase[(size_t) i].store ((float) (cyc - std::floor (cyc)), std::memory_order_relaxed);
     }
@@ -955,6 +981,10 @@ void EntropanAudioProcessor::parseRoutesSnapshot()
                 {
                     auto& rt = rd.routes[rd.count];
                     rt.src   = juce::jlimit (0, kNumBands - 1, (int) ro->getProperty ("src"));
+                    // absent (old sessions) → −1 = follow the band's MODE
+                    rt.stype = ro->hasProperty ("stype")
+                                 ? juce::jlimit (-1, kNumWaves - 1, (int) ro->getProperty ("stype"))
+                                 : -1;
                     rt.dst   = (int) ro->getProperty ("dst");
                     rt.depth = juce::jlimit (-100.0f, 100.0f, (float) (double) ro->getProperty ("depth"));
                     if (rt.dst >= 0 && rt.dst < kNumDests)

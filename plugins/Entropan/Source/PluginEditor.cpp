@@ -478,8 +478,10 @@ void EntropanAudioProcessorEditor::timerCallback()
         {
             pans.add ((double) audioProcessor.modOutDepth[(size_t) i].load (std::memory_order_relaxed));
             phases.add ((double) audioProcessor.modPhase[(size_t) i].load (std::memory_order_relaxed));
-            srcs.add ((double) audioProcessor.modSrcVal[(size_t) i].load (std::memory_order_relaxed));
         }
+        // srcs: band-major × waveform (6×6 = 36) — routes tap any waveform now
+        for (int k = 0; k < EntropanAudioProcessor::kNumBands * EntropanAudioProcessor::kNumWaves; ++k)
+            srcs.add ((double) audioProcessor.modSrcVal[(size_t) k].load (std::memory_order_relaxed));
 
         auto* obj = new juce::DynamicObject();
         obj->setProperty ("pans", pans);
