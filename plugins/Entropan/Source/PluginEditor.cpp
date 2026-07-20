@@ -1,6 +1,10 @@
 #include "PluginEditor.h"
 #include "BinaryData.h"
 
+#if ENTROPAN_MOONBASE
+ #include <moonbase_JUCEClient/moonbase_JUCEClient.h>   // ActivationUI + MOONBASE_* macros
+#endif
+
 namespace
 {
     juce::var makeUndoState (bool canUndo, bool canRedo)
@@ -172,6 +176,16 @@ EntropanAudioProcessorEditor::EntropanAudioProcessorEditor (EntropanAudioProcess
     webView = std::make_unique<juce::WebBrowserComponent> (options);
     addAndMakeVisible (*webView);
 
+#if ENTROPAN_MOONBASE
+    // Moonbase Activate screen: created AFTER the WebView so it is added on top.
+    // On first launch (no license) the module shows it automatically; once
+    // activated it hides itself. setSize() later triggers resized(), which gives
+    // it full-editor bounds.
+    MOONBASE_INIT_ACTIVATION_UI (audioProcessor);
+    if (activationUI != nullptr)
+        activationUI->setWelcomePageText ("Entropan", "Entropia Audio");
+#endif
+
     // ── 3. Attachments last ──
     {
         int idx = 0;
@@ -228,6 +242,21 @@ void EntropanAudioProcessorEditor::timerCallback()
 {
     if (webView == nullptr)
         return;
+
+#if ENTROPAN_MOONBASE
+    // The Activate overlay is a native JUCE panel, but WebBrowserComponent is
+    // backed by a native platform view (WKWebView / WebView2) that always paints
+    // ABOVE JUCE-drawn components — setAlwaysOnTop on the overlay is ignored.
+    // So the two must be mutually exclusive: swap the web UI out whenever the
+    // overlay needs the screen, and bring it back when it steps aside.
+    // Cheap — setVisible only fires on an actual state change.
+    if (activationUI != nullptr)
+    {
+        const bool overlayVisible = activationUI->getVisibility().isVisible;
+        if (webView->isVisible() == overlayVisible)
+            webView->setVisible (! overlayVisible);
+    }
+#endif
 
     // ── per-band mod values (post-slew × depth) + last MIDI note ──
     {
@@ -364,6 +393,12 @@ void EntropanAudioProcessorEditor::resized()
 {
     if (webView != nullptr)
         webView->setBounds (getLocalBounds());
+
+#if ENTROPAN_MOONBASE
+    // Keep the Activate overlay covering the whole editor at any size. Skipping
+    // this is the #1 documented cause of "the activation screen never appears".
+    MOONBASE_RESIZE_ACTIVATION_UI;
+#endif
 
     audioProcessor.apvts.state.setProperty ("editorWidth",  getWidth(),  nullptr);
     audioProcessor.apvts.state.setProperty ("editorHeight", getHeight(), nullptr);

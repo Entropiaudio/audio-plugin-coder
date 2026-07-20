@@ -1,6 +1,10 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+#if ENTROPAN_MOONBASE   // gate default lives in PluginProcessor.h (included above)
+ #include <moonbase_JUCEClient/moonbase_JUCEClient.h>   // API + MOONBASE_* macros
+#endif
+
 //==============================================================================
 namespace
 {
@@ -94,7 +98,18 @@ EntropanAudioProcessor::EntropanAudioProcessor()
     }
 
     lastCommitted = stateForUndo (apvts.copyState());   // undo baseline
+
+#if ENTROPAN_MOONBASE
+    // Moonbase licensing: company + product id (the id MUST match
+    // Resources/moonbase_api_config.json) and the plugin version. Version comes
+    // from JucePlugin_VersionString so it can never go stale against the build.
+    moonbaseClient = MOONBASE_INIT_API ("Entropia Audio", "entropan", JucePlugin_VersionString);
+#endif
 }
+
+// Out-of-line: the Moonbase client is a unique_ptr to a type that is incomplete
+// in the header, so the destructor must be emitted where the type is complete.
+EntropanAudioProcessor::~EntropanAudioProcessor() = default;
 
 //==============================================================================
 void EntropanAudioProcessor::commitUndoIfChanged()
@@ -337,6 +352,12 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
         reg (kNumBands * kDestSlotsPerBand + 3, "output");
     }
     parseRoutesSnapshot();
+
+#if ENTROPAN_MOONBASE
+    // Give the trial/lock signal interrupter the current rate so its timing is
+    // correct. No-op while licensed or in trial.
+    MOONBASE_PREPARE_TO_PLAY (sampleRate, samplesPerBlock);
+#endif
 }
 
 bool EntropanAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -827,6 +848,16 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             analyzerStore[(size_t) (start2 + k)] = 0.5f * (left[s2] + right[s2]);
         analyzerFifo.finishedWrite (size1 + size2);
     }
+
+#if ENTROPAN_MOONBASE
+    // Licensing gate (RT-safe). While licensed — and during the trial — this is
+    // a no-op: one atomic read. Once a trial lapses with no purchase the module
+    // periodically silences the FINAL output, so the plugin can be auditioned
+    // but not used in production. Applied to the whole block after all DSP.
+    // The only earlier return in this function is the zero-length-block case,
+    // which has nothing to interrupt — no bypass hole.
+    MOONBASE_PROCESS (buffer);
+#endif
 }
 
 int EntropanAudioProcessor::popAnalyzer (float* dest, int maxNum)

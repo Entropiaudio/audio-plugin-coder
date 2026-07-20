@@ -24,6 +24,18 @@ else()
 endif()
 
 # ============================================
+# MOONBASE LICENSING (vendored JUCE module under modules/)
+# ============================================
+# The module's prebuild scrambles moonbase_api_config.json into obfuscated C++
+# headers at build time. Point it at THIS plugin's config explicitly: the
+# module's default search path is the top-level source dir, which is wrong in a
+# multi-plugin monorepo. Must run before juce_add_plugin (module docs).
+set(MOONBASE_JUCECLIENT_CONFIG_JSON
+    "${CMAKE_CURRENT_SOURCE_DIR}/Resources/moonbase_api_config.json"
+    CACHE FILEPATH "Path to Entropan's moonbase_api_config.json" FORCE)
+add_subdirectory(modules/moonbase_JUCEClient)
+
+# ============================================
 # BINARY DATA (Web UI resources)
 # ============================================
 juce_add_binary_data(Entropan_WebUI
@@ -76,6 +88,7 @@ target_include_directories(Entropan
 target_link_libraries(Entropan
     PRIVATE
         Entropan_WebUI
+        moonbase_JUCEClient           # Moonbase licensing (vendored module)
         juce::juce_audio_basics
         juce::juce_audio_devices
         juce::juce_audio_formats
@@ -102,7 +115,15 @@ target_compile_definitions(Entropan
     PUBLIC
         JUCE_WEB_BROWSER=1
         JUCE_VST3_CAN_REPLACE_VST2=0
+        # --- Moonbase licensing module flags ---
+        INCLUDE_MOONBASE_UI=1     # use the module's built-in Activate screen
+        MOONBASE_APP_MODE=0       # plugin wording, not standalone-app wording
+        ENABLE_WEBUI_HELPERS=0    # native overlay; we bridge status by hand
 )
+
+# The Moonbase prebuild generates obfuscated config headers that Entropan's own
+# translation units include — it must finish before they compile.
+add_dependencies(Entropan moonbase_JUCEClient_prebuild)
 
 if(WIN32)
     target_compile_definitions(Entropan
@@ -161,5 +182,10 @@ if(ENTROPAN_BUILD_TESTS)
             JUCE_WEB_BROWSER=1
             JUCE_USE_CURL=0
             JUCE_STANDALONE_APPLICATION=1
+            # Licensing compiled OUT of the harness. It shares PluginProcessor.cpp
+            # with the product, and on an unactivated machine the lapsed-trial gate
+            # periodically silences the output — which would corrupt every null test
+            # with failures that look like DSP bugs.
+            ENTROPAN_MOONBASE=0
     )
 endif()

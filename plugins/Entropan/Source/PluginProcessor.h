@@ -4,6 +4,21 @@
 #include <juce_dsp/juce_dsp.h>
 #include <limits>
 
+// Moonbase licensing is compiled in unless a tool build opts out with
+// -DENTROPAN_MOONBASE=0. The null-test harness compiles these same sources, and
+// on an unactivated machine the lapsed-trial gate periodically silences the
+// output — which would corrupt every measurement with what look like DSP bugs.
+#ifndef ENTROPAN_MOONBASE
+ #define ENTROPAN_MOONBASE 1
+#endif
+
+#if ENTROPAN_MOONBASE
+// Forward declaration only. The full module header (obfuscation + GUI deps) is
+// pulled into PluginProcessor.cpp and PluginEditor.cpp, not into every TU that
+// includes this header.
+namespace Moonbase { namespace JUCEClient { struct API; } }
+#endif
+
 //==============================================================================
 /**
  * Entropan — band-targeted spectral panner (Entropia Audio).
@@ -21,7 +36,9 @@ public:
     static constexpr int kMaxSteps = 16;
 
     EntropanAudioProcessor();
-    ~EntropanAudioProcessor() override = default;
+    // Defined in the .cpp: the Moonbase client is held by unique_ptr to an
+    // incomplete type here, so the destructor can't be defaulted inline.
+    ~EntropanAudioProcessor() override;
 
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
@@ -53,6 +70,14 @@ public:
 
     //==============================================================================
     juce::AudioProcessorValueTreeState apvts;
+
+#if ENTROPAN_MOONBASE
+    // Moonbase licensing client (trial + activation). Constructed in the ctor;
+    // public so the editor can build the Activate screen from it. The audio
+    // thread only ever calls its RT-safe processBlock() via MOONBASE_PROCESS at
+    // the end of our processBlock.
+    std::unique_ptr<Moonbase::JUCEClient::API> moonbaseClient;
+#endif
 
     // Step-sequencer data (non-APVTS state): one JSON string per band inside
     // apvts.state, so it rides along with session/preset save-load.

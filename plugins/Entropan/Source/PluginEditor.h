@@ -4,6 +4,12 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "PluginProcessor.h"
 
+#if ENTROPAN_MOONBASE   // gate default lives in PluginProcessor.h (included above)
+// Moonbase Activate screen — forward declaration only; the full module header is
+// included in PluginEditor.cpp.
+namespace Moonbase { namespace JUCEClient { struct ActivationUI; } }
+#endif
+
 //==============================================================================
 /**
  * Entropan Plugin Editor — WebView UI (Chaosverb-clone design system).
@@ -67,6 +73,14 @@ private:
 
     juce::ComponentBoundsConstrainer constrainer;
     EntropanAudioProcessor& audioProcessor;
+
+#if ENTROPAN_MOONBASE
+    // Moonbase Activate screen (native overlay). Created from the processor's
+    // licensing client in the ctor (after the WebView, so it sits on top) and
+    // sized to the whole editor in resized(). Declared LAST ⇒ destroyed FIRST,
+    // before the WebView and its attachments.
+    std::unique_ptr<Moonbase::JUCEClient::ActivationUI> activationUI;
+#endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EntropanAudioProcessorEditor)
 };
