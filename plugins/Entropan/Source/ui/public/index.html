@@ -697,7 +697,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B64";
+const ENTROPAN_BUILD = "B65";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1295,14 +1295,25 @@ function makeKnob(containerId, label, opts) {
       val.style.color = locked ? "#444" : "";
     }
   };
-  let dragging = false, lastY = 0;
-  el.addEventListener("mousedown", e => { dragging = true; lastY = e.clientY; e.preventDefault(); });
+  // Drag accumulates into dragNorm rather than re-reading opts.get() each move.
+  // For a quantized param (SPEED snaps to 6 positions) reading back returns the
+  // SNAPPED value, so a few px of motion rounds straight back to where it was
+  // and the remainder is thrown away — only a single flick big enough to cross
+  // half a step in ONE event moved it. Accumulating locally lets small moves add
+  // up. Re-synced on every mousedown, so external changes are still picked up.
+  let dragging = false, lastY = 0, dragNorm = 0;
+  el.addEventListener("mousedown", e => {
+    dragging = true; lastY = e.clientY;
+    dragNorm = clamp(opts.get(), 0, 1);
+    e.preventDefault();
+  });
   window.addEventListener("mousemove", e => {
     if (!dragging) return;
     const deltaY = lastY - e.clientY;
     lastY = e.clientY;
     const sensitivity = 0.005 * (e.shiftKey ? 0.2 : 1);   // reference feel
-    opts.set(clamp(opts.get() + deltaY * sensitivity, 0, 1));
+    dragNorm = clamp(dragNorm + deltaY * sensitivity, 0, 1);
+    opts.set(dragNorm);
     k.refresh();
   });
   window.addEventListener("mouseup", () => dragging = false);
