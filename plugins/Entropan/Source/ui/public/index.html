@@ -213,21 +213,37 @@
     width: 10px; height: 10px; border-radius: 50%;
     margin: -5px 0 0 -5px; box-shadow: 0 0 8px 2px rgba(255,255,255,0.25);
   }
+  /* while dragging the MOD dot every valid destination breathes a light glow */
   .routing-drag [data-mslot], .routing-drag [data-mabs] {
-    outline: 1px dashed var(--accent); outline-offset: 2px; border-radius: 8px;
+    box-shadow: 0 0 9px 2px rgba(212, 165, 116, 0.22);
+    border-radius: 8px;
   }
   .hslider .mod-dot {
     display: none; position: absolute; top: 1px; right: -2px;
     width: 5px; height: 5px; border-radius: 50%; pointer-events: none;
   }
-  .route-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
-  .route-name { flex: 1; font-size: 8.5px; letter-spacing: 0.5px; }
-  .route-depth { font-size: 8.5px; color: var(--text-secondary); cursor: ew-resize; min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
   .route-x {
     font-family: inherit; font-size: 9px; width: 15px; height: 15px; line-height: 1; padding: 0;
     background: transparent; color: #d98a8a; border: 1px solid #5a3a3a; border-radius: 50%; cursor: pointer;
   }
-  .route-empty { font-size: 8px; color: var(--text-dim); padding: 3px 0; }
+  /* floating mod-amount editor: appears where a route is dropped */
+  .mod-editor {
+    position: fixed; z-index: 95; display: none; width: 96px;
+    padding: 7px 9px 9px 9px; border-radius: 10px;
+    background: var(--bg-card); border: 1px solid var(--border-bright);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  }
+  .mod-editor.open { display: block; }
+  .mod-editor .me-name { font-size: 7.5px; letter-spacing: 0.5px; margin-bottom: 5px; padding-right: 14px; }
+  .mod-editor .me-circle {
+    width: 46px; height: 46px; margin: 0 auto; border-radius: 50%;
+    border: 1px solid var(--border-bright); background: var(--bg-elevated);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9.5px; font-variant-numeric: tabular-nums;
+    cursor: ns-resize; user-select: none;
+  }
+  .mod-editor .me-hint { font-size: 6.5px; color: var(--text-dim); text-align: center; margin-top: 4px; letter-spacing: 0.5px; }
+  .mod-editor .me-x { position: absolute; top: 4px; right: 4px; }
   .sec-out  { flex: 0 0 260px; }
   .sec-out .section-label { color: var(--section-output); opacity: 0.7; }
 
@@ -543,12 +559,12 @@
         <div class="qm-label">DEPTH</div><div class="qm-value"></div>
         <div class="qm-track"><div class="qm-fill"></div></div>
       </div>
-      <div class="qm-row" id="qm_gain">
-        <div class="qm-label">GAIN</div><div class="qm-value"></div>
-        <div class="qm-track"><div class="qm-fill"></div></div>
-      </div>
       <div class="qm-row" id="qm_bias">
         <div class="qm-label">BIAS</div><div class="qm-value"></div>
+        <div class="qm-track"><div class="qm-fill"></div></div>
+      </div>
+      <div class="qm-row" id="qm_gain">
+        <div class="qm-label">GAIN</div><div class="qm-value"></div>
         <div class="qm-track"><div class="qm-fill"></div></div>
       </div>
     </div>
@@ -654,10 +670,6 @@
         <button class="settings-mini-btn" id="brightnessUp">+</button>
       </div>
     </div>
-    <div>
-      <div class="settings-row-label" style="padding-top:6px;">Mod Routes</div>
-      <div id="routesList"></div>
-    </div>
     <div class="settings-row">
       <span class="settings-row-label" id="buildInfo">—</span>
       <span class="settings-row-value" id="fpsInfo">— fps</span>
@@ -671,7 +683,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B53";
+const ENTROPAN_BUILD = "B54";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1014,16 +1026,15 @@ const widgetDest = el => el.dataset.mabs !== undefined ? +el.dataset.mabs
                        : el.dataset.mslot !== undefined ? ui.selected * 10 + (+el.dataset.mslot) : null;
 function pushRoutes() {
   if (EMBEDDED) setRoutesNative(JSON.stringify({ routes: modRoutes })).catch(() => {});
-  renderRoutesList(); refreshPanels();
+  refreshPanels();
 }
 function loadRoutes() {
   const apply = j => {
     try { const d = JSON.parse(j || "{}"); modRoutes = Array.isArray(d.routes) ? d.routes.filter(r => r && r.dst >= 0) : []; }
     catch { modRoutes = []; }
-    renderRoutesList(); refreshPanels();
+    refreshPanels();
   };
   if (EMBEDDED) getRoutesNative().then(apply).catch(() => {});
-  else renderRoutesList();
 }
 /* thin outer arcs on a knob canvas: one per route, source band's colour,
    sweep ∝ |depth| (dimmer when negative) */
@@ -1042,38 +1053,48 @@ function drawModRings(canvas, dest) {
     ctx.stroke();
   });
 }
-function renderRoutesList() {
-  const list = document.getElementById("routesList");
-  if (!list) return;
-  while (list.firstChild) list.removeChild(list.firstChild);
-  if (!modRoutes.length) {
-    const d = document.createElement("div");
-    d.className = "route-empty"; d.textContent = "drag the ◉ MOD dot onto a knob or fader";
-    list.appendChild(d); return;
-  }
-  modRoutes.forEach((r, idx) => {
-    const row = document.createElement("div"); row.className = "route-row";
-    const name = document.createElement("span"); name.className = "route-name";
-    name.textContent = "B" + (r.src + 1) + " → " + destName(r.dst);
-    name.style.color = BAND_COLORS[r.src];
-    const depth = document.createElement("span"); depth.className = "route-depth";
-    const fmt = () => { depth.textContent = (r.depth > 0 ? "+" : "") + Math.round(r.depth) + "%"; };
-    fmt();
-    depth.title = "Drag left/right to set modulation depth";
-    depth.addEventListener("mousedown", e => {   // ew-drag edits depth
-      const sx = e.clientX, d0 = r.depth;
-      const mv = ev => { r.depth = clamp(d0 + (ev.clientX - sx), -100, 100); fmt(); refreshPanels(); };
-      const done = () => { window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", done); pushRoutes(); };
-      window.addEventListener("mousemove", mv); window.addEventListener("mouseup", done);
-      e.preventDefault(); e.stopPropagation();
-    });
-    const x = document.createElement("button"); x.className = "route-x"; x.textContent = "×";
-    x.title = "Remove this modulation route";
-    x.onclick = () => { modRoutes.splice(idx, 1); pushRoutes(); };
-    row.appendChild(name); row.appendChild(depth); row.appendChild(x);
-    list.appendChild(row);
-  });
+/* floating mod-amount editor — opens where a route is dropped (and on re-drop
+   over an existing connection). Drag the circle ↑↓ to set depth, × removes. */
+let meRoute = null;
+const modEditor = document.createElement("div"); modEditor.className = "mod-editor";
+const meName = document.createElement("div"); meName.className = "me-name";
+const meCircle = document.createElement("div"); meCircle.className = "me-circle";
+const meHint = document.createElement("div"); meHint.className = "me-hint"; meHint.textContent = "drag ↑↓ · − inverts";
+const meX = document.createElement("button"); meX.className = "route-x me-x"; meX.textContent = "×";
+meX.title = "Remove this modulation route";
+modEditor.appendChild(meName); modEditor.appendChild(meCircle);
+modEditor.appendChild(meHint); modEditor.appendChild(meX);
+document.body.appendChild(modEditor);
+const meFmt = () => { if (meRoute) meCircle.textContent = (meRoute.depth > 0 ? "+" : "") + Math.round(meRoute.depth) + "%"; };
+function openModEditor(route, x, y) {
+  meRoute = route;
+  meName.textContent = "B" + (route.src + 1) + " → " + destName(route.dst);
+  meName.style.color = BAND_COLORS[route.src];
+  meCircle.style.borderColor = BAND_COLORS[route.src];
+  meFmt();
+  modEditor.classList.add("open");
+  const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+  modEditor.style.left = clamp(x - 48, 4, vw - 104) + "px";
+  modEditor.style.top  = clamp(y + 14, 4, vh - 104) + "px";
 }
+meCircle.addEventListener("mousedown", e => {
+  if (!meRoute) return;
+  const sy = e.clientY, d0 = meRoute.depth, rt = meRoute;
+  const mv = ev => { rt.depth = clamp(d0 + (sy - ev.clientY), -100, 100); meFmt(); refreshPanels(); };
+  const done = () => { window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", done); pushRoutes(); };
+  window.addEventListener("mousemove", mv); window.addEventListener("mouseup", done);
+  e.preventDefault(); e.stopPropagation();
+});
+meX.addEventListener("click", () => {
+  modRoutes = modRoutes.filter(r => r !== meRoute);
+  meRoute = null;
+  modEditor.classList.remove("open");
+  pushRoutes();
+});
+document.addEventListener("mousedown", e => {
+  if (modEditor.classList.contains("open") && !modEditor.contains(e.target))
+    modEditor.classList.remove("open");
+});
 
 /* ════════════════════════════════════════════════════════════════════
    WIDGET FACTORIES (Chaosverb-clone rendering)
@@ -1400,9 +1421,16 @@ window.addEventListener("mouseup", e => {
   const t = hit && hit.closest("[data-mslot],[data-mabs]");
   if (t) {
     const dst = widgetDest(t);
-    if (dst !== null && modRoutes.length < 8 && !modRoutes.some(r => r.src === routeDrag.src && r.dst === dst))
-      modRoutes.push({ src: routeDrag.src, dst, depth: 50 });
-    pushRoutes();
+    if (dst !== null) {
+      // re-drop on an existing connection edits it instead of duplicating
+      let rt = modRoutes.find(r => r.src === routeDrag.src && r.dst === dst);
+      if (!rt && modRoutes.length < 8) {
+        rt = { src: routeDrag.src, dst, depth: 50 };
+        modRoutes.push(rt);
+      }
+      pushRoutes();
+      if (rt) openModEditor(rt, e.clientX, e.clientY);
+    }
   }
   routeDrag = null;
   if (dragGhost) { dragGhost.remove(); dragGhost = null; }
@@ -2174,6 +2202,8 @@ function qmRefreshRow(row, norm, text, color) {
   row.querySelector(".qm-fill").style.width = (clamp(norm, 0, 1) * 100) + "%";
   row.querySelector(".qm-fill").style.background = `linear-gradient(90deg, ${color}55, ${color})`;
   row.querySelector(".qm-value").textContent = text;
+  const rt = modRoutes.find(r => r.dst === widgetDest(row));   // routed → source-colour edge
+  row.style.boxShadow = rt ? "inset 2px 0 0 " + BAND_COLORS[rt.src] : "";
 }
 function updateQuickMenu() {
   const pb = PB(), wrap = spec.parentElement;
@@ -2225,6 +2255,9 @@ qmDragRow(qmRate, n => {
 qmDragRow(qmDepth, n => { setDepthEff(PB(), ui.selected, n * 100); knobDepth.refresh(); }, () => setDepthEff(PB(), ui.selected, 100));
 qmDragRow(qmGain, n => { PB().gain.set(-6 + n * 12); }, () => PB().gain.set(0));
 qmDragRow(qmBias, n => { setBiasRemembered(PB(), ui.selected, -100 + n * 200); knobBias.refresh(); knobDepth.refresh(); }, () => setBiasRemembered(PB(), ui.selected, 0));
+// floating band rows are mod destinations too (GAIN is only reachable here)
+qmRate.dataset.mslot = 5; qmDepth.dataset.mslot = 3;
+qmGain.dataset.mslot = 4; qmBias.dataset.mslot = 8;
 
 /* ════════════════════════════════════════════════════════════════════
    SCOPE + LOCAL MODULATOR SIM
