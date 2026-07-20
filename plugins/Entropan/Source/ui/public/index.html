@@ -667,6 +667,18 @@
         <button class="settings-mini-btn" id="brightnessUp">+</button>
       </div>
     </div>
+    <div class="settings-row" id="licenseRow" style="display:none;">
+      <span class="settings-row-label">License</span>
+      <div style="display:flex; align-items:center; gap:6px;">
+        <span class="settings-row-value" id="licenseState">—</span>
+        <button class="settings-mini-btn" id="licenseDeactivate"
+                style="width:auto; padding:0 6px; display:none;">Deactivate</button>
+      </div>
+    </div>
+    <div class="settings-row" id="licenseDetailRow" style="display:none;">
+      <span class="settings-row-label" id="licenseEmail"></span>
+      <span class="settings-row-value" id="licenseExpiry"></span>
+    </div>
     <div class="settings-row">
       <span class="settings-row-label" id="buildInfo">—</span>
       <span class="settings-row-value" id="fpsInfo">— fps</span>
@@ -680,7 +692,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B62";
+const ENTROPAN_BUILD = "B63";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -2607,8 +2619,58 @@ window.addEventListener("load", kickLoop);
 /* ── SETTINGS (Chaosverb set: tooltips, window size presets, brightness) ── */
 const settingsPopover = document.getElementById("settingsPopover");
 document.getElementById("buildInfo").textContent = "V0.1.0 · " + ENTROPAN_BUILD + (EMBEDDED ? " · plugin" : " · browser");
+/* ── licensing panel (Moonbase) ──────────────────────────────────────────────
+   Status is pulled fresh each time the popover opens rather than polled: it
+   only changes on activation/deactivation, both of which the user drives. */
+const getLicenseNative = native("getLicenseStatus"), deactivateNative = native("deactivateLicense");
+const licenseRow = document.getElementById("licenseRow");
+const licenseDetailRow = document.getElementById("licenseDetailRow");
+const licenseState = document.getElementById("licenseState");
+const licenseEmail = document.getElementById("licenseEmail");
+const licenseExpiry = document.getElementById("licenseExpiry");
+const licenseDeactivate = document.getElementById("licenseDeactivate");
+
+const LICENSE_LABEL = {
+  licensed: "Activated", trial_active: "Trial", offline_activated: "Activated (offline)",
+  unlicensed: "Not activated", unavailable: "Unavailable",
+};
+
+function refreshLicense() {
+  if (!EMBEDDED) return;                       // browser preview has no backend
+  getLicenseNative().then(s => {
+    if (!s) return;
+    licenseRow.style.display = "flex";
+    licenseState.textContent = LICENSE_LABEL[s.state] || s.state;
+    licenseState.style.color = s.active ? "" : "#d98a8a";
+    // Deactivate only makes sense for a real activation — a trial has nothing
+    // to release, and an unlicensed instance has nothing to release either.
+    licenseDeactivate.style.display = (s.active && !s.isTrial) ? "block" : "none";
+    const hasDetail = !!(s.email || s.expirationMs > 0);
+    licenseDetailRow.style.display = hasDetail ? "flex" : "none";
+    licenseEmail.textContent = s.email || "";
+    licenseExpiry.textContent = s.expirationMs > 0
+      ? (s.isTrial ? "ends " : "renews ") + new Date(s.expirationMs).toLocaleDateString()
+      : "";
+  }).catch(() => {});
+}
+
+licenseDeactivate.addEventListener("click", () => {
+  licenseDeactivate.disabled = true;
+  licenseDeactivate.textContent = "…";
+  deactivateNative().then(r => {
+    licenseDeactivate.disabled = false;
+    licenseDeactivate.textContent = "Deactivate";
+    if (r && !r.success) licenseState.textContent = r.message || "Failed";
+    refreshLicense();
+  }).catch(() => {
+    licenseDeactivate.disabled = false;
+    licenseDeactivate.textContent = "Deactivate";
+  });
+});
+
 document.getElementById("settingsBtn").addEventListener("click", e => {
   settingsPopover.classList.toggle("open");
+  if (settingsPopover.classList.contains("open")) refreshLicense();
   e.stopPropagation();
 });
 document.addEventListener("mousedown", e => {

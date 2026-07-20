@@ -169,6 +169,79 @@ EntropanAudioProcessorEditor::EntropanAudioProcessorEditor (EntropanAudioProcess
                 complete (audioProcessor.getRoutesJson());
             });
 
+#if ENTROPAN_MOONBASE
+    // ── licensing bridge: web settings panel ↔ Moonbase ──
+    options = options
+        .withNativeFunction ("getLicenseStatus",
+            [this] (const juce::Array<juce::var>&, auto complete)
+            {
+                auto* obj = new juce::DynamicObject();
+                if (audioProcessor.moonbaseClient == nullptr)
+                {
+                    obj->setProperty ("state",  "unavailable");
+                    obj->setProperty ("active", false);
+                    complete (juce::var (obj));
+                    return;
+                }
+
+                auto& mb = *audioProcessor.moonbaseClient;
+                // Go through the obfuscation macro rather than calling
+                // isUnlocked() directly — module guidance, makes the check
+                // harder to patch out of the shipped binary.
+                const bool unlocked = (bool) MB_IS_UNLOCKED_OBFUSCATED (mb).first;
+                const bool trial    = (bool) mb.isTrial();
+                const bool offline  = (bool) mb.isOfflineActivated();
+
+                obj->setProperty ("state", ! unlocked ? "unlicensed"
+                                         : trial      ? "trial_active"
+                                         : offline    ? "offline_activated"
+                                                      : "licensed");
+                obj->setProperty ("active",    unlocked);
+                obj->setProperty ("isTrial",   trial);
+                obj->setProperty ("isOffline", offline);
+                obj->setProperty ("email",     mb.getUserId());
+                obj->setProperty ("userName",  mb.getUserName());
+
+                const auto exp = mb.getLicenseExpiration();
+                obj->setProperty ("expirationMs", (juce::int64) exp.toMilliseconds());
+                complete (juce::var (obj));
+            })
+        .withNativeFunction ("deactivateLicense",
+            [this] (const juce::Array<juce::var>&, auto complete)
+            {
+                if (audioProcessor.moonbaseClient == nullptr)
+                {
+                    auto* obj = new juce::DynamicObject();
+                    obj->setProperty ("success", false);
+                    obj->setProperty ("message", "Licensing unavailable.");
+                    complete (juce::var (obj));
+                    return;
+                }
+
+                audioProcessor.moonbaseClient->deactivateLicense (
+                    [this, complete] (bool ok)
+                    {
+                        auto* obj = new juce::DynamicObject();
+                        obj->setProperty ("success", ok);
+                        obj->setProperty ("message", ok
+                            ? juce::String ("License deactivated.")
+                            : juce::String ("Deactivation failed — check your internet connection."));
+                        complete (juce::var (obj));
+
+                        // Hand the screen back to the Activate overlay. The
+                        // timerCallback swap would get there on its own, but
+                        // only after the module notices; do it immediately so
+                        // the user never sees a live UI they no longer own.
+                        if (ok)
+                            juce::MessageManager::callAsync ([this]
+                            {
+                                if (activationUI != nullptr) activationUI->update();
+                                if (webView != nullptr)      webView->setVisible (false);
+                            });
+                    });
+            });
+#endif
+
     for (auto& r : sliderRelays)  options = options.withOptionsFrom (*r);
     for (auto& r : comboRelays)   options = options.withOptionsFrom (*r);
     for (auto& r : toggleRelays)  options = options.withOptionsFrom (*r);
