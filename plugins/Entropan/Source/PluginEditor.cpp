@@ -169,6 +169,138 @@ EntropanAudioProcessorEditor::EntropanAudioProcessorEditor (EntropanAudioProcess
                 complete (audioProcessor.getRoutesJson());
             });
 
+    // ── plugin presets (Chaosverb pattern: PropertiesFile stores) ──
+    // Two separate stores: "Entropan.presets" holds named snapshots under
+    // preset_<name> keys; "Entropan.defaults" holds the values a fresh instance
+    // starts from. Unlike Chaosverb, a preset also captures the non-APVTS state
+    // (per-band step patterns + mod routes) — params alone would silently drop
+    // half the sound.
+    {
+        auto presetProps = [] (const char* suffix)
+        {
+            juce::PropertiesFile::Options opts;
+            opts.applicationName     = "Entropan";
+            opts.filenameSuffix      = suffix;
+            opts.osxLibrarySubFolder = "Application Support";
+            return opts;
+        };
+
+        auto snapshotToVar = [this]() -> juce::var
+        {
+            auto* o = new juce::DynamicObject();
+            juce::StringArray pairs;
+            for (auto* param : audioProcessor.apvts.processor.getParameters())
+                if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (param))
+                    pairs.add (rp->getParameterID() + "=" + juce::String (rp->getValue(), 6));
+            o->setProperty ("params", pairs.joinIntoString ("|"));
+            juce::Array<juce::var> steps;
+            for (int i = 0; i < EntropanAudioProcessor::kNumBands; ++i)
+                steps.add (audioProcessor.getStepsJson (i));
+            o->setProperty ("steps", steps);
+            o->setProperty ("routes", audioProcessor.getRoutesJson());
+            return juce::var (o);
+        };
+
+        auto applySnapshot = [this] (const juce::var& v)
+        {
+            juce::StringArray pairs;
+            pairs.addTokens (v.getProperty ("params", "").toString(), "|", "");
+            for (const auto& pair : pairs)
+            {
+                const auto eq = pair.indexOfChar ('=');
+                if (eq < 0) continue;
+                if (auto* p = audioProcessor.apvts.getParameter (pair.substring (0, eq)))
+                    p->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f,
+                        pair.substring (eq + 1).getFloatValue()));
+            }
+            if (auto* steps = v.getProperty ("steps", juce::var()).getArray())
+                for (int i = 0; i < juce::jmin (steps->size(), (int) EntropanAudioProcessor::kNumBands); ++i)
+                    audioProcessor.setStepsJson (i, (*steps)[i].toString());
+            const auto routes = v.getProperty ("routes", "").toString();
+            if (routes.isNotEmpty())
+                audioProcessor.setRoutesJson (routes);
+        };
+
+        options = options
+            .withNativeFunction ("listPluginPresets",
+                [presetProps] (const juce::Array<juce::var>&, auto complete)
+                {
+                    juce::ApplicationProperties props;
+                    props.setStorageParameters (presetProps (".presets"));
+                    const auto& all = props.getUserSettings()->getAllProperties();
+                    juce::Array<juce::var> names;
+                    for (const auto& key : all.getAllKeys())
+                        if (key.startsWith ("preset_"))
+                            names.add (key.substring (7));
+                    complete (juce::var (names));
+                })
+            .withNativeFunction ("savePluginPreset",
+                [presetProps, snapshotToVar] (const juce::Array<juce::var>& args, auto complete)
+                {
+                    const auto name = args.size() >= 1 ? args[0].toString().trim() : juce::String();
+                    if (name.isEmpty()) { complete (juce::var (false)); return; }
+                    juce::ApplicationProperties props;
+                    props.setStorageParameters (presetProps (".presets"));
+                    auto* user = props.getUserSettings();
+                    user->setValue ("preset_" + name, juce::JSON::toString (snapshotToVar(), true));
+                    user->setNeedsToBeSaved (true);
+                    complete (juce::var (user->save()));   // force flush, don't rely on saveIfNeeded
+                })
+            .withNativeFunction ("loadPluginPreset",
+                [this, presetProps, applySnapshot] (const juce::Array<juce::var>& args, auto complete)
+                {
+                    const auto name = args.size() >= 1 ? args[0].toString().trim() : juce::String();
+                    juce::ApplicationProperties props;
+                    props.setStorageParameters (presetProps (".presets"));
+                    const auto data = props.getUserSettings()->getValue ("preset_" + name, "");
+                    if (data.isEmpty()) { complete (juce::var (false)); return; }
+                    applySnapshot (juce::JSON::parse (data));
+                    audioProcessor.commitUndoIfChanged();   // preset load is one undo step
+                    if (webView != nullptr)
+                        webView->emitEventIfBrowserIsVisible ("stateReloaded", juce::var());
+                    complete (juce::var (true));
+                })
+            .withNativeFunction ("deletePluginPreset",
+                [presetProps] (const juce::Array<juce::var>& args, auto complete)
+                {
+                    const auto name = args.size() >= 1 ? args[0].toString().trim() : juce::String();
+                    juce::ApplicationProperties props;
+                    props.setStorageParameters (presetProps (".presets"));
+                    auto* user = props.getUserSettings();
+                    user->removeValue ("preset_" + name);
+                    user->setNeedsToBeSaved (true);
+                    complete (juce::var (user->save()));
+                })
+            .withNativeFunction ("saveCurrentAsDefaults",
+                [presetProps, snapshotToVar] (const juce::Array<juce::var>&, auto complete)
+                {
+                    juce::ApplicationProperties props;
+                    props.setStorageParameters (presetProps (".defaults"));
+                    auto* user = props.getUserSettings();
+                    user->clear();   // defaults store is a single snapshot — replace wholesale
+                    user->setValue ("snapshot", juce::JSON::toString (snapshotToVar(), true));
+                    user->setNeedsToBeSaved (true);
+                    complete (juce::var (user->save()));
+                })
+            .withNativeFunction ("resetToDefaults",
+                [this, presetProps, applySnapshot] (const juce::Array<juce::var>&, auto complete)
+                {
+                    juce::ApplicationProperties props;
+                    props.setStorageParameters (presetProps (".defaults"));
+                    const auto data = props.getUserSettings()->getValue ("snapshot", "");
+                    if (data.isNotEmpty())
+                        applySnapshot (juce::JSON::parse (data));
+                    else
+                        for (auto* param : audioProcessor.apvts.processor.getParameters())
+                            if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (param))
+                                rp->setValueNotifyingHost (rp->getDefaultValue());
+                    audioProcessor.commitUndoIfChanged();
+                    if (webView != nullptr)
+                        webView->emitEventIfBrowserIsVisible ("stateReloaded", juce::var());
+                    complete (juce::var (true));
+                });
+    }
+
 #if ENTROPAN_MOONBASE
     // ── licensing bridge: web settings panel ↔ Moonbase ──
     options = options

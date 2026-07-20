@@ -111,6 +111,63 @@
     padding: 3px 14px; cursor: pointer;
   }
   .preset-btn:hover { color: var(--text-secondary); border-color: var(--border-bright); }
+  .preset-btn.has-preset { color: var(--accent); border-color: var(--accent-glow); }
+  /* ── preset dropdown (Chaosverb pattern: custom popover, built by JS) ── */
+  .preset-menu {
+    display: none; position: absolute; top: calc(100% + 4px); left: 50%;
+    transform: translateX(-50%); min-width: 172px; max-height: 300px; overflow-y: auto;
+    background: var(--bg-elevated); border: 1px solid var(--border-bright);
+    border-radius: 8px; padding: 4px; z-index: 60;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.55);
+  }
+  .preset-menu.visible { display: block; }
+  .preset-row {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 9px; letter-spacing: 1px; color: var(--text-secondary);
+    padding: 5px 8px; border-radius: 5px; cursor: pointer; user-select: none;
+  }
+  .preset-row:hover { background: var(--accent-tint); color: var(--text-primary); }
+  .preset-row.is-current { color: var(--accent); }
+  .preset-row .preset-x {
+    margin-left: auto; width: 14px; height: 14px; line-height: 12px; text-align: center;
+    font-size: 11px; color: var(--text-faint); background: transparent;
+    border: none; border-radius: 50%; cursor: pointer; padding: 0;
+  }
+  .preset-row .preset-x:hover { color: #d98a8a; background: rgba(217,138,138,0.12); }
+  .preset-action-icon { width: 11px; text-align: center; color: var(--accent); }
+  .preset-divider { height: 1px; background: var(--border-divider); margin: 4px 2px; }
+  .preset-section-label {
+    font-size: 8px; letter-spacing: 2px; color: var(--text-faint);
+    text-transform: uppercase; padding: 3px 8px 2px;
+  }
+  /* save dialog — window.prompt() is blocked in WKWebView, so a real overlay */
+  .preset-save-overlay {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,0.55); align-items: center; justify-content: center;
+  }
+  .preset-save-overlay.visible { display: flex; }
+  .preset-save-card {
+    width: 250px; background: var(--bg-elevated);
+    border: 1px solid var(--border-bright); border-radius: 10px; padding: 14px;
+  }
+  .preset-save-title { font-size: 10px; letter-spacing: 2px; color: var(--text-primary); margin-bottom: 10px; }
+  .preset-save-card input {
+    width: 100%; box-sizing: border-box; font-family: inherit; font-size: 11px;
+    color: var(--text-primary); background: var(--bg-card);
+    border: 1px solid var(--border-bright); border-radius: 6px; padding: 6px 8px; outline: none;
+  }
+  .preset-save-card input:focus { border-color: var(--accent); }
+  .preset-save-msg { font-size: 9px; line-height: 1.4; color: var(--text-dim); margin-top: 8px; min-height: 12px; }
+  .preset-save-msg.warn { color: #d9b98a; }
+  .preset-save-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 10px; }
+  .preset-save-actions button {
+    font-family: inherit; font-size: 9px; letter-spacing: 1px; cursor: pointer;
+    color: var(--text-secondary); background: transparent;
+    border: 1px solid var(--border-subtle); border-radius: 6px; padding: 4px 10px;
+  }
+  .preset-save-actions button:hover { color: var(--text-primary); border-color: var(--border-bright); }
+  .preset-save-actions button.primary { color: var(--accent); border-color: var(--accent-glow); }
+  .preset-save-actions button.danger  { color: #d98a8a; border-color: #5a3a3a; }
   .header-right { display: flex; align-items: center; gap: 11px; min-width: 210px; justify-content: flex-end; }
   .settings-btn.hdr { align-self: center; }
   .knob-wrap.knob-hdr { display: flex; flex-direction: row; align-items: center; gap: 8px; width: auto; cursor: ns-resize; }
@@ -533,7 +590,8 @@
         <button class="undo-btn" id="redoBtn" title="Redo" disabled>↷</button>
       </div>
       <div class="preset-bar">
-        <button class="preset-btn" id="presetBtn">— select preset — ▾</button>
+        <button class="preset-btn" id="presetBtn"><span id="presetCurrent">— select preset —</span> ▾</button>
+        <div class="preset-menu" id="presetMenu"></div>
       </div>
     </div>
     <div class="header-right">
@@ -689,6 +747,14 @@
       <span class="settings-row-value" id="fpsInfo">— fps</span>
     </div>
   </div>
+  <div class="preset-save-overlay" id="presetSaveOverlay">
+    <div class="preset-save-card">
+      <div class="preset-save-title" id="presetSaveTitle">SAVE PRESET</div>
+      <input type="text" id="presetSaveInput" placeholder="preset name" autocomplete="off" spellcheck="false" />
+      <div class="preset-save-msg" id="presetSaveMsg"></div>
+      <div class="preset-save-actions" id="presetSaveActions"></div>
+    </div>
+  </div>
   <div class="resize-grip" id="resizeGrip" title="Drag to resize"></div>
 </div>
 
@@ -697,7 +763,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B65";
+const ENTROPAN_BUILD = "B66";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -2781,6 +2847,201 @@ const setEditorSizeNative = native("setEditorSize");
     if (EMBEDDED) setEditorSizeNative(Math.round(w), h).catch(() => {});
   });
   window.addEventListener("mouseup", () => drag = null);
+})();
+
+/* ════════════════════════════════════════════════════════════════════
+   PLUGIN PRESETS (Chaosverb pattern)
+   Custom popover menu: Save Preset (⌘-click = Reset to Default),
+   Save as Default, then the saved list with per-row delete. Naming goes
+   through an overlay modal — window.prompt() is blocked in WKWebView.
+   Storage is native (PropertiesFile); browser preview stubs to localStorage
+   so the flow is testable outside the plugin.
+   ════════════════════════════════════════════════════════════════════ */
+(() => {
+  const listFn   = EMBEDDED ? native("listPluginPresets")
+                            : async () => JSON.parse(localStorage.getItem("presetNames") || "[]");
+  const saveFn   = EMBEDDED ? native("savePluginPreset")
+                            : async n => { const a = new Set(JSON.parse(localStorage.getItem("presetNames") || "[]")); a.add(n); localStorage.setItem("presetNames", JSON.stringify([...a])); return true; };
+  const loadFn   = EMBEDDED ? native("loadPluginPreset")   : async () => true;
+  const delFn    = EMBEDDED ? native("deletePluginPreset")
+                            : async n => { const a = JSON.parse(localStorage.getItem("presetNames") || "[]").filter(x => x !== n); localStorage.setItem("presetNames", JSON.stringify(a)); return true; };
+  const saveDefFn  = EMBEDDED ? native("saveCurrentAsDefaults") : async () => true;
+  const resetDefFn = EMBEDDED ? native("resetToDefaults")       : async () => true;
+
+  const btn = document.getElementById("presetBtn");
+  const currentEl = document.getElementById("presetCurrent");
+  const menu = document.getElementById("presetMenu");
+  const overlay = document.getElementById("presetSaveOverlay");
+  const saveTitle = document.getElementById("presetSaveTitle");
+  const saveInput = document.getElementById("presetSaveInput");
+  const saveMsg = document.getElementById("presetSaveMsg");
+  const saveActions = document.getElementById("presetSaveActions");
+
+  let currentPreset = null;
+  let names = [];
+
+  const setCurrent = name => {
+    currentPreset = name;
+    currentEl.textContent = name || "— select preset —";
+    btn.classList.toggle("has-preset", !!name);
+  };
+
+  const closeMenu = () => menu.classList.remove("visible");
+
+  const uniqueName = base => {
+    const stripped = base.replace(/\s*\(\d+\)\s*$/, "");
+    let n = 2;
+    while (names.some(p => p.toLowerCase() === `${stripped} (${n})`.toLowerCase())) n++;
+    return `${stripped} (${n})`;
+  };
+
+  const closeOverlay = () => { overlay.classList.remove("visible"); saveMsg.textContent = ""; saveMsg.classList.remove("warn"); };
+
+  const commitSave = async name => {
+    await saveFn(name);
+    setCurrent(name);
+    closeOverlay();
+    await rebuildMenu();
+  };
+
+  // buttons: [{label, cls, fn}] — every dialog variant goes through here
+  const dialog = (title, msg, warn, withInput, buttons) => {
+    saveTitle.textContent = title;
+    saveMsg.textContent = msg;
+    saveMsg.classList.toggle("warn", !!warn);
+    saveInput.style.display = withInput ? "block" : "none";
+    saveActions.textContent = "";
+    for (const b of buttons) {
+      const el = document.createElement("button");
+      el.textContent = b.label;
+      if (b.cls) el.className = b.cls;
+      el.onclick = b.fn;
+      saveActions.appendChild(el);
+    }
+    overlay.classList.add("visible");
+    if (withInput) { saveInput.focus(); saveInput.select(); }
+  };
+
+  const askName = () => dialog("SAVE PRESET", "", false, true, [
+    { label: "Cancel", fn: closeOverlay },
+    { label: "Save", cls: "primary", fn: trySaveFromInput },
+  ]);
+
+  function trySaveFromInput() {
+    const name = saveInput.value.trim();
+    if (!name) { saveMsg.textContent = "Name can't be empty."; saveMsg.classList.add("warn"); return; }
+    const clash = names.find(p => p.toLowerCase() === name.toLowerCase());
+    if (clash) {
+      dialog("SAVE PRESET", `"${clash}" already exists.`, true, true, [
+        { label: "Cancel", fn: closeOverlay },
+        { label: "Unique", fn: () => commitSave(uniqueName(name)) },
+        { label: "Overwrite", cls: "danger", fn: () => commitSave(clash) },
+      ]);
+      return;
+    }
+    commitSave(name);
+  }
+
+  const startSaveFlow = () => {
+    closeMenu();
+    saveInput.value = currentPreset || "";
+    if (currentPreset) {
+      // a preset is loaded: offer overwrite vs new before asking for a name
+      dialog("SAVE PRESET", `"${currentPreset}" is loaded. Save changes to it, or save as new?`, false, false, [
+        { label: "Cancel", fn: closeOverlay },
+        { label: "Save as New", fn: () => { saveInput.value = ""; askName(); } },
+        { label: "Overwrite", cls: "primary", fn: () => commitSave(currentPreset) },
+      ]);
+    } else {
+      askName();
+    }
+  };
+
+  saveInput.addEventListener("keydown", e => {
+    if (e.key === "Enter") trySaveFromInput();
+    else if (e.key === "Escape") closeOverlay();
+    e.stopPropagation();   // don't trigger app-level shortcuts while typing
+  });
+  overlay.addEventListener("mousedown", e => { if (e.target === overlay) closeOverlay(); });
+
+  const row = (label, icon, fn) => {
+    const r = document.createElement("div");
+    r.className = "preset-row";
+    const ic = document.createElement("span"); ic.className = "preset-action-icon"; ic.textContent = icon;
+    const lb = document.createElement("span"); lb.textContent = label;
+    r.appendChild(ic); r.appendChild(lb);
+    r.addEventListener("click", fn);
+    return r;
+  };
+
+  async function rebuildMenu() {
+    try { names = (await listFn()) || []; } catch { names = []; }
+    names = names.map(String).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    menu.textContent = "";
+
+    const saveRow = row("Save Preset", "+", e => {
+      if (e.metaKey || e.ctrlKey) {   // hidden Chaosverb gesture: reset to defaults
+        resetDefFn().then(() => {
+          saveRow.querySelector("span:last-child").textContent = "Reset ✓";
+          setTimeout(rebuildMenu, 900);
+        });
+        return;
+      }
+      startSaveFlow();
+    });
+    saveRow.dataset.tip = "Save current sound · ⌘-click: reset to default";
+    menu.appendChild(saveRow);
+
+    const defRow = row("Save as Default", "★", () => {
+      saveDefFn().then(() => {
+        defRow.querySelector("span:last-child").textContent = "Saved ✓";
+        setTimeout(rebuildMenu, 1100);
+      });
+    });
+    defRow.dataset.tip = "New instances start from this state";
+    menu.appendChild(defRow);
+
+    if (names.length) {
+      const div = document.createElement("div"); div.className = "preset-divider"; menu.appendChild(div);
+      const lbl = document.createElement("div"); lbl.className = "preset-section-label"; lbl.textContent = "Presets"; menu.appendChild(lbl);
+      for (const name of names) {
+        const r = document.createElement("div");
+        r.className = "preset-row" + (name === currentPreset ? " is-current" : "");
+        const nm = document.createElement("span"); nm.textContent = name; r.appendChild(nm);
+        const x = document.createElement("button"); x.className = "preset-x"; x.textContent = "×";
+        x.dataset.tip = `Delete "${name}"`;
+        r.appendChild(x);
+        nm.addEventListener("click", async () => {
+          await loadFn(name);
+          setCurrent(name);
+          closeMenu();
+          await rebuildMenu();
+        });
+        x.addEventListener("click", async e => {
+          e.stopPropagation();
+          await delFn(name);
+          if (currentPreset === name) setCurrent(null);
+          await rebuildMenu();
+        });
+        menu.appendChild(r);
+      }
+    }
+  }
+
+  btn.addEventListener("click", async e => {
+    e.stopPropagation();
+    const opening = !menu.classList.contains("visible");
+    if (opening) await rebuildMenu();
+    menu.classList.toggle("visible", opening);
+  });
+  document.addEventListener("mousedown", e => {
+    if (menu.classList.contains("visible")
+        && !menu.contains(e.target)
+        && !(e.target.closest && e.target.closest("#presetBtn")))
+      closeMenu();
+  });
+
+  rebuildMenu();
 })();
 
 /* debug/testing handle — browser-only (never exposed inside the plugin) */
