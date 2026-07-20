@@ -226,24 +226,23 @@
     font-family: inherit; font-size: 9px; width: 15px; height: 15px; line-height: 1; padding: 0;
     background: transparent; color: #d98a8a; border: 1px solid #5a3a3a; border-radius: 50%; cursor: pointer;
   }
-  /* floating mod-amount editor: appears where a route is dropped */
-  .mod-editor {
-    position: fixed; z-index: 95; display: none; width: 96px;
-    padding: 7px 9px 9px 9px; border-radius: 10px;
-    background: var(--bg-card); border: 1px solid var(--border-bright);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
-  }
+  /* floating mod-amount editor: just the amount circle, dropped where the
+     route landed (route name lives in its tooltip; × rides the rim) */
+  .mod-editor { position: fixed; z-index: 95; display: none; width: 42px; height: 42px; }
   .mod-editor.open { display: block; }
-  .mod-editor .me-name { font-size: 7.5px; letter-spacing: 0.5px; margin-bottom: 5px; padding-right: 14px; }
   .mod-editor .me-circle {
-    width: 46px; height: 46px; margin: 0 auto; border-radius: 50%;
-    border: 1px solid var(--border-bright); background: var(--bg-elevated);
+    width: 42px; height: 42px; border-radius: 50%;
+    border: 1.5px solid var(--border-bright); background: var(--bg-card);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55);
     display: flex; align-items: center; justify-content: center;
-    font-size: 9.5px; font-variant-numeric: tabular-nums;
+    font-size: 9px; font-variant-numeric: tabular-nums;
     cursor: ns-resize; user-select: none;
   }
-  .mod-editor .me-hint { font-size: 6.5px; color: var(--text-dim); text-align: center; margin-top: 4px; letter-spacing: 0.5px; }
-  .mod-editor .me-x { position: absolute; top: 4px; right: 4px; }
+  .mod-editor .me-x {
+    position: absolute; top: -5px; right: -5px;
+    width: 13px; height: 13px; font-size: 8px;
+    background: var(--bg-card);
+  }
   .sec-out  { flex: 0 0 260px; }
   .sec-out .section-label { color: var(--section-output); opacity: 0.7; }
 
@@ -683,7 +682,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B54";
+const ENTROPAN_BUILD = "B55";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1057,25 +1056,22 @@ function drawModRings(canvas, dest) {
    over an existing connection). Drag the circle ↑↓ to set depth, × removes. */
 let meRoute = null;
 const modEditor = document.createElement("div"); modEditor.className = "mod-editor";
-const meName = document.createElement("div"); meName.className = "me-name";
 const meCircle = document.createElement("div"); meCircle.className = "me-circle";
-const meHint = document.createElement("div"); meHint.className = "me-hint"; meHint.textContent = "drag ↑↓ · − inverts";
 const meX = document.createElement("button"); meX.className = "route-x me-x"; meX.textContent = "×";
-meX.title = "Remove this modulation route";
-modEditor.appendChild(meName); modEditor.appendChild(meCircle);
-modEditor.appendChild(meHint); modEditor.appendChild(meX);
+meX.dataset.tip = "Remove this modulation route";
+modEditor.appendChild(meCircle); modEditor.appendChild(meX);
 document.body.appendChild(modEditor);
 const meFmt = () => { if (meRoute) meCircle.textContent = (meRoute.depth > 0 ? "+" : "") + Math.round(meRoute.depth) + "%"; };
 function openModEditor(route, x, y) {
   meRoute = route;
-  meName.textContent = "B" + (route.src + 1) + " → " + destName(route.dst);
-  meName.style.color = BAND_COLORS[route.src];
+  meCircle.dataset.tip = "B" + (route.src + 1) + " → " + destName(route.dst) + " · drag ↑↓ · − inverts";
   meCircle.style.borderColor = BAND_COLORS[route.src];
+  meCircle.style.color = BAND_COLORS[route.src];
   meFmt();
   modEditor.classList.add("open");
   const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
-  modEditor.style.left = clamp(x - 48, 4, vw - 104) + "px";
-  modEditor.style.top  = clamp(y + 14, 4, vh - 104) + "px";
+  modEditor.style.left = clamp(x - 21, 4, vw - 50) + "px";   // centred on the drop point
+  modEditor.style.top  = clamp(y + 10, 4, vh - 50) + "px";
 }
 meCircle.addEventListener("mousedown", e => {
   if (!meRoute) return;
