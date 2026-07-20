@@ -670,7 +670,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B56";
+const ENTROPAN_BUILD = "B57";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1064,6 +1064,32 @@ function meDraw() {
   modEditor.dataset.tip = "B" + (meRoute.src + 1) + " → " + destName(meRoute.dst) + " · "
     + (meRoute.depth > 0 ? "+" : "") + Math.round(meRoute.depth) + "% · drag ↑↓ · right-click removes";
 }
+/* Normalized (0..1) position of a destination — mirrors each widget's own
+   mapping, but for the ROUTE's band (which may not be the selected one). */
+function destNorm(dst) {
+  if (dst >= 60) {
+    if (dst === 63) return clamp((P.output.get() + 24) / 36, 0, 1);
+    return clamp([P.amount, P.wow, P.flutter][dst - 60].get() / 100, 0, 1);
+  }
+  const pb = P.bands[Math.floor(dst / 10)];
+  switch (dst % 10) {
+    case 0: return clamp(fx(pb.freq.get()), 0, 1);
+    case 1: return clamp(octToNorm(pb.width.get()), 0, 1);
+    case 2: return clamp(pb.lift.get() / 100, 0, 1);
+    case 3: return clamp(pb.depth.get() / 100, 0, 1);
+    case 4: return clamp((pb.gain.get() + 6) / 12, 0, 1);
+    case 5: return clamp(RATE_MAP.to(pb.rate.get()), 0, 1);
+    case 6: return clamp(pb.inertia.get() / 100, 0, 1);
+    case 7: return clamp(pb.phase.get() / 360, 0, 1);
+    case 8: return clamp((pb.bias.get() + 100) / 200, 0, 1);
+    case 9: return clamp(pb.stepsmooth.get() / 100, 0, 1);
+  }
+  return 0.5;
+}
+// modulation may only travel to the rails from where the knob currently sits:
+// +depth ≤ (1 − pos)·100, −depth ≥ −pos·100 → knob + mod never exceeds 100%
+const destHeadroom = dst => { const n = destNorm(dst); return { min: -n * 100, max: (1 - n) * 100 }; };
+
 function openModEditor(route, x, y) {
   meRoute = route;
   modEditor.style.borderColor = BAND_COLORS[route.src] + "88";
@@ -1076,7 +1102,10 @@ function openModEditor(route, x, y) {
 modEditor.addEventListener("mousedown", e => {
   if (!meRoute) return;
   const sy = e.clientY, d0 = meRoute.depth, rt = meRoute;
-  const mv = ev => { rt.depth = clamp(d0 + (sy - ev.clientY), -100, 100); meDraw(); refreshPanels(); };
+  const lim = destHeadroom(rt.dst);   // can't dial past the knob's remaining travel
+  // schedulePanels (rAF-coalesced), NOT refreshPanels — a full 10-knob glow
+  // rebuild per mousemove made the whole UI crawl while dragging.
+  const mv = ev => { rt.depth = clamp(d0 + (sy - ev.clientY), lim.min, lim.max); meDraw(); schedulePanels(); };
   const done = () => { window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", done); pushRoutes(); };
   window.addEventListener("mousemove", mv); window.addEventListener("mouseup", done);
   e.preventDefault(); e.stopPropagation();
@@ -1422,7 +1451,8 @@ window.addEventListener("mouseup", e => {
       // re-drop on an existing connection edits it instead of duplicating
       let rt = modRoutes.find(r => r.src === routeDrag.src && r.dst === dst);
       if (!rt && modRoutes.length < 8) {
-        rt = { src: routeDrag.src, dst, depth: 50 };
+        const lim = destHeadroom(dst);            // default +50, capped by remaining travel
+        rt = { src: routeDrag.src, dst, depth: clamp(50, lim.min, lim.max) };
         modRoutes.push(rt);
       }
       pushRoutes();
