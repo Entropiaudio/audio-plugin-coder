@@ -670,7 +670,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B59";
+const ENTROPAN_BUILD = "B60";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1004,6 +1004,9 @@ if (EMBEDDED) {
 const setRoutesNative = native("setRoutes"), getRoutesNative = native("getRoutes");
 let modRoutes = [];   // [{src 0-5, dst (band·10+slot | 60+g), depth −100..100}]
 const modSrcVals = [0, 0, 0, 0, 0, 0];   // live raw modulators (−1..1) — telemetry, or the sim in a browser
+// A route inherits its SOURCE band's polarity: BI swings ± around the knob,
+// UNI pushes one-way from it. (Raw value stays raw; the transform lives here.)
+const routeSrcVal = r => P.bands[r.src].uni.get() ? (modSrcVals[r.src] + 1) / 2 : modSrcVals[r.src];
 const DEST_SLOT_NAMES = ["FREQ", "Q", "LIFT", "DEPTH", "GAIN", "RATE", "SMOOTH", "PHASE", "BIAS", "STEP SM"];
 const DEST_GLOBAL_NAMES = ["AMOUNT", "WOW", "FLUTTER", "LEVEL"];
 const destName = d => d >= 60 ? DEST_GLOBAL_NAMES[d - 60]
@@ -1035,14 +1038,19 @@ function drawModRings(canvas, dest) {
   const ctx = canvas.getContext("2d");
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.lineWidth = 1.2; ctx.lineCap = "round";
+  const ang = v => degToRad(ARC_START + 270 * clamp(v, 0, 1));
   rs.forEach((r, k) => {
     const rad = Math.min(33, ARC_RADIUS + 4 + k * 3);
-    const fin = clamp(base + modSrcVals[r.src] * r.depth / 100, 0, 1);
-    ctx.beginPath();   // faint full track so the live head reads against it
-    ctx.arc(KNOB_SIZE / 2, KNOB_SIZE / 2, rad, degToRad(ARC_START), degToRad(ARC_START + 270));
+    const d = r.depth / 100;
+    // reachable span: BI = base ± |d| (both ways), UNI = base → base + d (one way)
+    const lo = P.bands[r.src].uni.get() ? Math.min(base, base + d) : base - Math.abs(d);
+    const hi = P.bands[r.src].uni.get() ? Math.max(base, base + d) : base + Math.abs(d);
+    const fin = clamp(base + routeSrcVal(r) * d, 0, 1);
+    ctx.beginPath();   // faint reachable span so the live head reads against it
+    ctx.arc(KNOB_SIZE / 2, KNOB_SIZE / 2, rad, ang(lo), ang(hi));
     ctx.strokeStyle = BAND_COLORS[r.src] + "2a"; ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(KNOB_SIZE / 2, KNOB_SIZE / 2, rad, degToRad(ARC_START), degToRad(ARC_START + 270 * fin));
+    ctx.beginPath();   // live head = the FINAL modulated value
+    ctx.arc(KNOB_SIZE / 2, KNOB_SIZE / 2, rad, ang(base), ang(fin), fin < base);
     ctx.strokeStyle = BAND_COLORS[r.src] + "cc"; ctx.stroke();
   });
 }
@@ -1068,7 +1076,9 @@ function meDraw() {
   ctx.arc(C, C, 5, -Math.PI / 2, -Math.PI / 2 + (meRoute.depth < 0 ? -sweep : sweep), meRoute.depth < 0);
   ctx.strokeStyle = BAND_COLORS[meRoute.src]; ctx.stroke();
   modEditor.dataset.tip = "B" + (meRoute.src + 1) + " → " + destName(meRoute.dst) + " · "
-    + (meRoute.depth > 0 ? "+" : "") + Math.round(meRoute.depth) + "% · drag ↑↓ · right-click removes";
+    + (meRoute.depth > 0 ? "+" : "") + Math.round(meRoute.depth) + "%"
+    + (P.bands[meRoute.src].uni.get() ? " · UNI (one-way)" : " · BI (±)")
+    + " · drag ↑↓ · right-click removes";
 }
 /* Normalized (0..1) position of a destination — mirrors each widget's own
    mapping, but for the ROUTE's band (which may not be the selected one). */
@@ -1092,9 +1102,16 @@ function destNorm(dst) {
   }
   return 0.5;
 }
-// modulation may only travel to the rails from where the knob currently sits:
-// +depth ≤ (1 − pos)·100, −depth ≥ −pos·100 → knob + mod never exceeds 100%
-const destHeadroom = dst => { const n = destNorm(dst); return { min: -n * 100, max: (1 - n) * 100 }; };
+// modulation may only travel to the rails from where the knob currently sits.
+// UNI is one-way: +depth ≤ (1 − pos)·100, −depth ≥ −pos·100.
+// BI swings both ways, so it must fit the SMALLER side: |depth| ≤ min(pos, 1−pos)·100
+// (at a knob extreme that's 0 — the hint to switch that band to UNI).
+const destHeadroom = (dst, src) => {
+  const n = destNorm(dst);
+  if (P.bands[src].uni.get()) return { min: -n * 100, max: (1 - n) * 100 };
+  const m = Math.min(n, 1 - n) * 100;
+  return { min: -m, max: m };
+};
 
 function openModEditor(route, x, y) {
   meRoute = route;
@@ -1108,7 +1125,7 @@ function openModEditor(route, x, y) {
 modEditor.addEventListener("mousedown", e => {
   if (!meRoute) return;
   const sy = e.clientY, d0 = meRoute.depth, rt = meRoute;
-  const lim = destHeadroom(rt.dst);   // can't dial past the knob's remaining travel
+  const lim = destHeadroom(rt.dst, rt.src);   // can't dial past the knob's remaining travel
   // meDraw only (2 tiny arcs) — the main loop already repaints routed knobs, so
   // any panel refresh here just stacked a full 10-knob glow rebuild per frame.
   const mv = ev => { rt.depth = clamp(d0 + (sy - ev.clientY), lim.min, lim.max); meDraw(); };
@@ -1461,7 +1478,7 @@ window.addEventListener("mouseup", e => {
       // re-drop on an existing connection edits it instead of duplicating
       let rt = modRoutes.find(r => r.src === routeDrag.src && r.dst === dst);
       if (!rt && modRoutes.length < 8) {
-        const lim = destHeadroom(dst);            // default +50, capped by remaining travel
+        const lim = destHeadroom(dst, routeDrag.src);   // default +50, capped by remaining travel
         rt = { src: routeDrag.src, dst, depth: clamp(50, lim.min, lim.max) };
         modRoutes.push(rt);
       }
@@ -1515,7 +1532,18 @@ document.getElementById("bypassBtn").onclick = e => {
   P.bypass.set(!P.bypass.get());
   refreshPanels();
 };
-document.getElementById("polToggle").onclick = () => { PB().uni.set(!PB().uni.get()); refreshPanels(); };
+document.getElementById("polToggle").onclick = () => {
+  PB().uni.set(!PB().uni.get());
+  // routes from this band change polarity → re-fit their depth to the new headroom
+  let touched = false;
+  modRoutes.forEach(r => {
+    if (r.src !== ui.selected) return;
+    const l = destHeadroom(r.dst, r.src), d = clamp(r.depth, l.min, l.max);
+    if (d !== r.depth) { r.depth = d; touched = true; }
+  });
+  if (touched) pushRoutes();
+  refreshPanels();
+};
 document.getElementById("routingToggle").onclick = () => { P.routing.set(P.routing.get() ? 0 : 1); refreshPanels(); };
 document.getElementById("overrideToggle").onclick = () => {
   const i = ui.selected, pb = PB();

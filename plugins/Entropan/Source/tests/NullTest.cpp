@@ -771,6 +771,41 @@ int main()
         std::printf ("    base = %+.2f dB, routed = %+.2f dB\n", base, modded);
     }
 
+    // ── T25: route polarity follows the source band's BI/UNI toggle ──
+    //   UNI → one-way from the knob (level never dips BELOW its unmodulated 0 dB)
+    //   BI  → swings both ways (level must dip below as the modulator goes negative)
+    {
+        auto runPolarity = [] (float uni, double& lo, double& hi)
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (kSampleRate, kBlock);
+            setParam (p, "b1_on", 1.0f);
+            setParam (p, "b1_freq", 1000.0f); setParam (p, "b1_width", 2.0f);
+            setParam (p, "b1_lift", 0.0f);          // allpass-flat: only the routed LEVEL moves
+            setParam (p, "b1_uni", uni);
+            setParam (p, "b1_ratemode", 1.0f); setParam (p, "b1_rate", 2.0f);
+            setParam (p, "b1_inertia", 0.0f);
+            p.setRoutesJson ("{\"routes\":[{\"src\":0,\"dst\":63,\"depth\":100}]}");   // → global OUTPUT
+            juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+            double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate;
+            lo = 1.0e9; hi = -1.0e9;
+            for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk) {
+                for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+                p.processBlock (buf, midi);
+                if (blk < kWarmBlocks) continue;
+                double e = 1.0e-12;
+                for (int s = 0; s < kBlock; ++s) e += juce::square ((double) buf.getSample (0, s));
+                const double d = dB (e / (0.5 * kBlock));    // vs the dry sine's own energy
+                lo = juce::jmin (lo, d); hi = juce::jmax (hi, d);
+            }
+        };
+        double uLo = 0, uHi = 0, bLo = 0, bHi = 0;
+        runPolarity (1.0f, uLo, uHi);   // UNI
+        runPolarity (0.0f, bLo, bHi);   // BI
+        ok &= check ("T25 UNI one-way / BI bipolar (level floor)", uLo > -0.5 && uHi > 6.0 && bLo < -6.0);
+        std::printf ("    UNI %.2f … %+.2f dB   BI %.2f … %+.2f dB\n", uLo, uHi, bLo, bHi);
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }

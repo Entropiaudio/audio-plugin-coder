@@ -408,7 +408,9 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     // ── mod matrix: offset destinations in the NORMALIZED domain (block rate).
     // Source = each band's post-slew modulator (last block's value: mods tick
-    // per sample below). Applied post-read → host automation/UI untouched.
+    // per sample below), through the SOURCE BAND'S POLARITY: BI swings the
+    // destination ±depth around the knob, UNI pushes one-way from it (sign of
+    // depth = direction). Applied post-read → host automation/UI untouched.
     {
         const auto& rd = routesBuf[(size_t) routesActive.load (std::memory_order_acquire)];
         float acc[kNumDests];
@@ -419,7 +421,11 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             if (rt.dst < 0 || rt.dst >= kNumDests || modDests[(size_t) rt.dst].param == nullptr)
                 continue;
             if (! touched[rt.dst]) { acc[rt.dst] = 0.0f; touched[rt.dst] = true; }
-            acc[rt.dst] += mods[(size_t) juce::jlimit (0, kNumBands - 1, rt.src)].value * rt.depth * 0.01f;
+            const int src = juce::jlimit (0, kNumBands - 1, rt.src);
+            const bool srcUni = bandParams[(size_t) src].uni->load() > 0.5f;
+            const float s = srcUni ? (mods[(size_t) src].value + 1.0f) * 0.5f    // 0..1, one-way
+                                   : mods[(size_t) src].value;                   // −1..1, both ways
+            acc[rt.dst] += s * rt.depth * 0.01f;
         }
         for (int d = 0; d < kNumDests; ++d)
         {
