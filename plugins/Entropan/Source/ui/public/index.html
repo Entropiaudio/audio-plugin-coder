@@ -291,6 +291,9 @@
   .mode-chips.locked .mode-chip { opacity: 0.45; filter: saturate(0.2); }
   .section-label.lockable {
     cursor: pointer; user-select: none;
+    /* hit area = the word only, not the whole card-width row (parent is a flex
+       column, so align-self is what actually stops the stretch) */
+    display: inline-block; align-self: flex-start; width: fit-content;
     transition: filter 0.15s ease, text-shadow 0.15s ease;
   }
   .section-label.lockable:hover { filter: brightness(1.6); }
@@ -677,7 +680,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B61";
+const ENTROPAN_BUILD = "B62";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
