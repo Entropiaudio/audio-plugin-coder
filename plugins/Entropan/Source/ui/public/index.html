@@ -213,11 +213,6 @@
     width: 10px; height: 10px; border-radius: 50%;
     margin: -5px 0 0 -5px; box-shadow: 0 0 8px 2px rgba(255,255,255,0.25);
   }
-  /* while dragging the MOD dot every valid destination breathes a light glow */
-  .routing-drag [data-mslot], .routing-drag [data-mabs] {
-    box-shadow: 0 0 9px 2px rgba(212, 165, 116, 0.22);
-    border-radius: 8px;
-  }
   .hslider .mod-dot {
     display: none; position: absolute; top: 1px; right: -2px;
     width: 5px; height: 5px; border-radius: 50%; pointer-events: none;
@@ -226,23 +221,16 @@
     font-family: inherit; font-size: 9px; width: 15px; height: 15px; line-height: 1; padding: 0;
     background: transparent; color: #d98a8a; border: 1px solid #5a3a3a; border-radius: 50%; cursor: pointer;
   }
-  /* floating mod-amount editor: just the amount circle, dropped where the
-     route landed (route name lives in its tooltip; × rides the rim) */
-  .mod-editor { position: fixed; z-index: 95; display: none; width: 42px; height: 42px; }
-  .mod-editor.open { display: block; }
-  .mod-editor .me-circle {
-    width: 42px; height: 42px; border-radius: 50%;
-    border: 1.5px solid var(--border-bright); background: var(--bg-card);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 9px; font-variant-numeric: tabular-nums;
+  /* floating mod-amount dial: link-icon-sized (16px). The arc IS the value —
+     drag ↑↓ sets depth, right-click removes; exact % lives in the tooltip. */
+  .mod-editor {
+    position: fixed; z-index: 95; display: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--bg-card); border: 1px solid var(--border-subtle);
     cursor: ns-resize; user-select: none;
   }
-  .mod-editor .me-x {
-    position: absolute; top: -5px; right: -5px;
-    width: 13px; height: 13px; font-size: 8px;
-    background: var(--bg-card);
-  }
+  .mod-editor.open { display: block; }
+  .mod-editor canvas { position: absolute; inset: 0; width: 14px; height: 14px; pointer-events: none; }
   .sec-out  { flex: 0 0 260px; }
   .sec-out .section-label { color: var(--section-output); opacity: 0.7; }
 
@@ -682,7 +670,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B55";
+const ENTROPAN_BUILD = "B56";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1056,32 +1044,45 @@ function drawModRings(canvas, dest) {
    over an existing connection). Drag the circle ↑↓ to set depth, × removes. */
 let meRoute = null;
 const modEditor = document.createElement("div"); modEditor.className = "mod-editor";
-const meCircle = document.createElement("div"); meCircle.className = "me-circle";
-const meX = document.createElement("button"); meX.className = "route-x me-x"; meX.textContent = "×";
-meX.dataset.tip = "Remove this modulation route";
-modEditor.appendChild(meCircle); modEditor.appendChild(meX);
+const meCanvas = document.createElement("canvas");
+modEditor.appendChild(meCanvas);
 document.body.appendChild(modEditor);
-const meFmt = () => { if (meRoute) meCircle.textContent = (meRoute.depth > 0 ? "+" : "") + Math.round(meRoute.depth) + "%"; };
+function meDraw() {
+  if (!meRoute) return;
+  const S = 14, C = S / 2;
+  if (meCanvas.width !== S * DPR) { meCanvas.width = S * DPR; meCanvas.height = S * DPR; }
+  const ctx = meCanvas.getContext("2d");
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, S, S);
+  ctx.lineWidth = 2; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.arc(C, C, 5, 0, Math.PI * 2);          // track
+  ctx.strokeStyle = "#26221F"; ctx.stroke();
+  const sweep = Math.abs(meRoute.depth) / 100 * Math.PI * 1.7;  // the arc IS the value
+  ctx.beginPath();
+  ctx.arc(C, C, 5, -Math.PI / 2, -Math.PI / 2 + (meRoute.depth < 0 ? -sweep : sweep), meRoute.depth < 0);
+  ctx.strokeStyle = BAND_COLORS[meRoute.src]; ctx.stroke();
+  modEditor.dataset.tip = "B" + (meRoute.src + 1) + " → " + destName(meRoute.dst) + " · "
+    + (meRoute.depth > 0 ? "+" : "") + Math.round(meRoute.depth) + "% · drag ↑↓ · right-click removes";
+}
 function openModEditor(route, x, y) {
   meRoute = route;
-  meCircle.dataset.tip = "B" + (route.src + 1) + " → " + destName(route.dst) + " · drag ↑↓ · − inverts";
-  meCircle.style.borderColor = BAND_COLORS[route.src];
-  meCircle.style.color = BAND_COLORS[route.src];
-  meFmt();
+  modEditor.style.borderColor = BAND_COLORS[route.src] + "88";
+  meDraw();
   modEditor.classList.add("open");
   const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
-  modEditor.style.left = clamp(x - 21, 4, vw - 50) + "px";   // centred on the drop point
-  modEditor.style.top  = clamp(y + 10, 4, vh - 50) + "px";
+  modEditor.style.left = clamp(x - 8, 4, vw - 22) + "px";   // centred on the drop point
+  modEditor.style.top  = clamp(y + 8, 4, vh - 22) + "px";
 }
-meCircle.addEventListener("mousedown", e => {
+modEditor.addEventListener("mousedown", e => {
   if (!meRoute) return;
   const sy = e.clientY, d0 = meRoute.depth, rt = meRoute;
-  const mv = ev => { rt.depth = clamp(d0 + (sy - ev.clientY), -100, 100); meFmt(); refreshPanels(); };
+  const mv = ev => { rt.depth = clamp(d0 + (sy - ev.clientY), -100, 100); meDraw(); refreshPanels(); };
   const done = () => { window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", done); pushRoutes(); };
   window.addEventListener("mousemove", mv); window.addEventListener("mouseup", done);
   e.preventDefault(); e.stopPropagation();
 });
-meX.addEventListener("click", () => {
+modEditor.addEventListener("contextmenu", e => {   // right-click removes the route
+  e.preventDefault();
   modRoutes = modRoutes.filter(r => r !== meRoute);
   meRoute = null;
   modEditor.classList.remove("open");
