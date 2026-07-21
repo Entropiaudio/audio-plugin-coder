@@ -20,8 +20,8 @@ namespace Moonbase { namespace JUCEClient { struct ActivationUI; } }
  *   3. Parameter attachments (destroyed first)
  *
  * 121 parameters bound via relay/attachment vectors:
- *   - 75 float/int  → WebSliderRelay
- *   - 20 choice     → WebComboBoxRelay
+ *   - 69 float/int  → WebSliderRelay
+ *   - 26 choice     → WebComboBoxRelay
  *   - 26 bool       → WebToggleButtonRelay
  */
 class EntropanAudioProcessorEditor : public juce::AudioProcessorEditor,
@@ -65,7 +65,9 @@ private:
     // both fine for a display path. Matches the processor fifo (1 << 14).
     static constexpr int kFftOrder = 14, kFftSize = 1 << kFftOrder, kSpectrumBins = 256;
     juce::dsp::FFT fft { kFftOrder };
-    juce::dsp::WindowingFunction<float> window { kFftSize, juce::dsp::WindowingFunction<float>::hann };
+    // Blackman-Harris: sidelobes −92 dB — below the display floor. Hann's −31 dB
+    // sidelobes rendered as a wide LF skirt around low-frequency tones.
+    juce::dsp::WindowingFunction<float> window { kFftSize, juce::dsp::WindowingFunction<float>::blackmanHarris };
     std::vector<float> fifoDrain, fftAccum, fftWork;
     int accumFill = 0;
     int analyzerDropsSeen = 0;   // last analyzerDropped value — change ⇒ flush + re-accumulate

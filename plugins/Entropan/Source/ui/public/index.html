@@ -635,7 +635,7 @@
   <div class="bottom">
     <div class="section-col sec-band">
       <div class="section-label" id="bandSecLabel">Band 1</div>
-      <button class="mode-toggle routing-toggle" id="slopeToggle" data-tip="Slope morph — drag ↑↓. 100%: surgical band (only the bell pans) … 0%: the whole signal joins the pan. Double-click: 100%" style="cursor: ns-resize;">SLP 100%</button>
+      <button class="mode-toggle routing-toggle" id="slopeToggle" data-tip="Crossover slope — click to cycle. 12 dB/oct: soft wide grab · 24: balanced · 48: surgical, edge content pans almost fully">24 dB</button>
       <div class="knob-row">
         <div class="knob-wrap" id="knob_freq"></div>
         <div class="knob-wrap" id="knob_bwidth"></div>
@@ -765,7 +765,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B80";
+const ENTROPAN_BUILD = "B81";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -819,7 +819,7 @@ function bandIds(i) { const p = `b${i + 1}_`; return {
   bias:    { id: p + "bias",    kind: "slider", def: 0 },
   override:{ id: p + "override",kind: "toggle", def: false },
   stepsmooth:{ id: p + "stepsmooth", kind: "slider", def: 0 },
-  slope:   { id: p + "slope",   kind: "slider", def: 100 }
+  slope:   { id: p + "slope",   kind: "combo",  def: 1 }
 }; }
 const GLOBALS = {
   seed:   { id: "seed",   kind: "slider", def: 1 },
@@ -1287,6 +1287,8 @@ function refreshDispBands() {
     d.lift = moddedNorm(base + SLOT.LIFT) * 100;
     d.gainMod = modRoutes.some(r => r.dst === base + SLOT.GAIN);
     d.gainDb = moddedNorm(base + SLOT.GAIN) * 12 - 6;
+    // bell skirt exponent from the SLOPE choice: 12 soft … 48 near-rectangular
+    d.bellP = [1.3, 2.0, 3.6][P.bands[i].slope.get()] || 2.0;
     // any bell-geometry route: the aura's cache key would churn every frame
     d.geoMod = modRoutes.some(r => r.dst >= base && r.dst <= base + SLOT.LIFT);
   }
@@ -1789,19 +1791,8 @@ document.getElementById("polToggle").onclick = () => {
   refreshPanels();
 };
 document.getElementById("routingToggle").onclick = () => { P.routing.set(P.routing.get() ? 0 : 1); refreshPanels(); };
-// SLOPE morph: drag ↑↓ on the pill — 100% surgical band … 0% whole signal pans
-{
-  const st = document.getElementById("slopeToggle");
-  let drag = null;
-  st.addEventListener("mousedown", e => { drag = { y: e.clientY, v: PB().slope.get() }; e.preventDefault(); });
-  window.addEventListener("mousemove", e => {
-    if (!drag) return;
-    PB().slope.set(clamp(drag.v + (drag.y - e.clientY) * 0.7, 0, 100));
-    refreshPanels();
-  });
-  window.addEventListener("mouseup", () => drag = null);
-  st.addEventListener("dblclick", () => { PB().slope.set(100); refreshPanels(); });
-}
+// crossover slope: cycles 12 → 24 → 48 dB/oct for the selected band
+document.getElementById("slopeToggle").onclick = () => { PB().slope.set((PB().slope.get() + 1) % 3); refreshPanels(); };
 document.getElementById("overrideToggle").onclick = () => {
   const i = ui.selected, pb = PB();
   pb.override.set(!pb.override.get());
@@ -1947,7 +1938,7 @@ function refreshPanels() {
   rt.textContent = P.routing.get() ? "PARALLEL" : "SERIAL";
   tintToggle(rt, P.routing.get() ? COL_PURPLE : COL_ORANGE);   // Serial orange → Parallel purple
   const st = document.getElementById("slopeToggle");
-  st.textContent = "SLP " + Math.round(pb.slope.get()) + "%";
+  st.textContent = ["12 dB", "24 dB", "48 dB"][pb.slope.get()] || "24 dB";
   tintToggle(st, c);   // selected band's colour — it is a per-band setting
   const byp = document.getElementById("bypassBtn");
   byp.classList.toggle("active", P.bypass.get());
@@ -2233,11 +2224,13 @@ function tickAnalyzer(t) {
 
 function bellY(i, x) {
   // reads the per-frame DISPLAY cache (base + modulation), refreshed at the
-  // top of drawSpectrum — a modulated freq/width/lift moves the bell live
+  // top of drawSpectrum — a modulated freq/width/lift moves the bell live.
+  // The skirt exponent follows SLOPE: 12 dB/oct draws soft wide flanks,
+  // 48 near-rectangular (bellP 1.3 / 2.0 / 3.6; 2.0 = the old gaussian).
   const d = dispBand[i];
   const sigma = (d.oct / 2) / Math.log2(FMAX / FMIN) * 2.2;
-  const dd = (x - d.freqN) / sigma;
-  return Math.exp(-dd * dd) * (d.lift / 100);
+  const dd = Math.abs(x - d.freqN) / sigma;
+  return Math.exp(-Math.pow(dd, d.bellP || 2)) * (d.lift / 100);
 }
 
 /* per-band aura cache: the blur filter is expensive — re-render only when the
