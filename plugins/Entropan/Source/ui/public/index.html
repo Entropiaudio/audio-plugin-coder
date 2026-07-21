@@ -788,7 +788,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B87";
+const ENTROPAN_BUILD = "B88";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -2414,7 +2414,9 @@ function drawSpectrum(t) {
       const amt = Math.abs(gainV) / 6;
       const blur = (5 + amt * 22) * DPR;
       const cache = auraCache[bi];
-      const key = [W, H, gainV.toFixed(2), freqV.toFixed(1), widthV.toFixed(3), liftV.toFixed(1)].join("|");
+      // bellP (slope morph) shapes the traced bell — without it in the key a
+      // slope change kept stamping the stale aura bitmap (user report)
+      const key = [W, H, gainV.toFixed(2), freqV.toFixed(1), widthV.toFixed(3), liftV.toFixed(1), dd.bellP.toFixed(2)].join("|");
       if (cache.key !== key) {
         cache.key = key;
         cache.canvas.width = W; cache.canvas.height = H;
