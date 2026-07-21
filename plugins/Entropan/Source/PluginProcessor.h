@@ -315,7 +315,8 @@ private:
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Lagrange3rd> wfDelay { 4096 };
     double wowPhase = 0.0, flutPhase = 0.0;
     juce::SmoothedValue<float> wfEngage;
-    bool wfWasActive = false;   // block-rate: skip the whole W&F stage while fully disengaged
+    // tap-depth smoothing: block-rate depth jumps clicked while turning the knobs
+    juce::SmoothedValue<float> wowDepthSm, flutDepthSm;
 
     // MIDI rate mode: last note frequency (Hz); 0 = no note yet (frozen).
     float midiFreq = 0.0f;

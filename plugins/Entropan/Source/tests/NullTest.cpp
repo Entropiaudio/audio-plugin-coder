@@ -1242,6 +1242,44 @@ int main()
         ok &= check ("T34 narrow bell hard-pans its centre", allReach);
     }
 
+    // ── T35: sweeping WOW/FLUTTER during audio must not click — the delay-tap
+    //         depth must move smoothly, not jump per block ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        setParam (p, "b1_on", 0.0f);            // W&F is global — bands not needed
+        auto* wow = p.apvts.getParameter ("wow");
+        auto* flt = p.apvts.getParameter ("flutter");
+        juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+        double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate;
+        float prev = 0.0f; double maxStep = 0.0; bool have = false; int maxBlk = -1, maxS = -1;
+        const int sweepBlocks = 400;
+        for (int blk = 0; blk < kWarmBlocks + sweepBlocks; ++blk)
+        {
+            if (blk >= kWarmBlocks)
+            {
+                const double t = (double) (blk - kWarmBlocks) / (double) sweepBlocks;
+                const double tri = t < 0.5 ? t * 2.0 : 2.0 - t * 2.0;   // 0→1→0
+                wow->setValueNotifyingHost ((float) tri);
+                flt->setValueNotifyingHost ((float) (1.0 - tri));
+            }
+            for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+            p.processBlock (buf, midi);
+            if (blk < kWarmBlocks) { prev = buf.getSample (0, kBlock - 1); have = true; continue; }
+            for (int s = 0; s < kBlock; ++s)
+            {
+                const float v = buf.getSample (0, s);
+                if (have && std::abs (v - prev) > maxStep) { maxStep = std::abs (v - prev); maxBlk = blk; maxS = s; }
+                prev = v; have = true;
+            }
+        }
+        // clean 1 kHz sine step ≈ 0.131; the wobble modulates pitch slightly —
+        // allow headroom. A per-block tap jump is an impulse, far above this.
+        std::printf ("    argmax: block %d sample %d (sweep t=%.3f)\n", maxBlk, maxS, (double) (maxBlk - kWarmBlocks) / 400.0);
+        ok &= check ("T35 wow/flutter sweep is click-free", maxStep < 0.25);
+        std::printf ("    max sample step during W&F sweep: %.3f (clean sine ≈ 0.131)\n", maxStep);
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }

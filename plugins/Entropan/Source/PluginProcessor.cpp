@@ -300,6 +300,8 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     wfDelay.prepare (spec);
     wfDelay.reset();
     wfEngage.reset (sampleRate, 0.020);
+    wowDepthSm.reset (sampleRate, 0.080);
+    flutDepthSm.reset (sampleRate, 0.080);
     wowPhase = flutPhase = 0.0;
     envScLp = envState = globalEnv = 0.0f;
 
@@ -647,15 +649,18 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const double wowInc  = 0.4  / currentSampleRate;   // ~0.4 Hz wow (slow tape drift)
     const double flutInc = 6.3  / currentSampleRate;   // ~6.3 Hz flutter
     const float  baseDelay   = 0.010f * (float) currentSampleRate;  // ~10 ms centre
-    const float  wowDepthS   = wowAmt  * 0.006f * (float) currentSampleRate; // up to 6 ms
-    const float  flutDepthS  = flutAmt * 0.0012f * (float) currentSampleRate; // up to 1.2 ms
+    // tap depths are SMOOTHED per sample — a block-rate depth change jumps the
+    // delay read position (up to ms) and clicks while the knobs move (T35)
+    wowDepthSm.setTargetValue  (wowAmt  * 0.006f  * (float) currentSampleRate);   // up to 6 ms
+    flutDepthSm.setTargetValue (flutAmt * 0.0012f * (float) currentSampleRate);   // up to 1.2 ms
 
-    // Fully disengaged (the default) → skip the whole W&F stage per sample.
-    // On re-engage the line is cleared; the crossfade masks the refill.
+    // The delay line is FED unconditionally (see the per-sample tap below) so
+    // it is always warm — the old skip-and-reset-on-engage scheme blended the
+    // engage crossfade into a half-empty line: the tap sits ~17 ms deep while
+    // the fade runs 20 ms, so the first engaged blocks mixed in silence and
+    // thumped (T35 argmax landed exactly on the engage block). Only the TAP
+    // and the mix are gated now; pushing two samples is negligible.
     const bool wfActive = wfOn || wfEngage.getCurrentValue() > 1.0e-4f;
-    if (wfActive && ! wfWasActive)
-        wfDelay.reset();
-    wfWasActive = wfActive;
 
     // ── per-sample cascade ──
     auto* left  = buffer.getWritePointer (0);
@@ -861,16 +866,17 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             scopeWrite.store (w + 1, std::memory_order_release);
         }
 
-        // global wow & flutter (wet-only modulated delay, engage-crossfaded)
+        // global wow & flutter (wet-only modulated delay, engage-crossfaded).
+        // The line is fed EVERY sample so engaging never reads an empty buffer.
+        wfDelay.pushSample (0, xl);
+        wfDelay.pushSample (1, xr);
         if (wfActive)
         {
             const float eng = wfEngage.getNextValue();
             wowPhase  += wowInc;  if (wowPhase  >= 1.0) wowPhase  -= 1.0;
             flutPhase += flutInc; if (flutPhase >= 1.0) flutPhase -= 1.0;
-            const float wowMod  = std::sin ((float) wowPhase  * juce::MathConstants<float>::twoPi) * wowDepthS;
-            const float flutMod = std::sin ((float) flutPhase * juce::MathConstants<float>::twoPi) * flutDepthS;
-            wfDelay.pushSample (0, xl);
-            wfDelay.pushSample (1, xr);
+            const float wowMod  = std::sin ((float) wowPhase  * juce::MathConstants<float>::twoPi) * wowDepthSm.getNextValue();
+            const float flutMod = std::sin ((float) flutPhase * juce::MathConstants<float>::twoPi) * flutDepthSm.getNextValue();
             // slight L/R divergence for width
             wfDelay.setDelay (juce::jlimit (1.0f, 4000.0f, baseDelay + wowMod + flutMod));
             const float dl = wfDelay.popSample (0);
@@ -878,6 +884,13 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const float dr = wfDelay.popSample (1);
             xl += (dl - xl) * eng;
             xr += (dr - xr) * eng;
+        }
+        else
+        {
+            // keep read/write pointers in lockstep while idle — DelayLine's
+            // tap desyncs if samples are pushed without matching pops
+            wfDelay.popSample (0, baseDelay, true);
+            wfDelay.popSample (1, baseDelay, true);
         }
 
         const float og = outGainSm.getNextValue();
