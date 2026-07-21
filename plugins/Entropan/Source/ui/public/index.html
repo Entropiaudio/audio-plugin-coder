@@ -395,9 +395,14 @@
     margin: 0;
   }
 
+  /* slope pill reads as a mini KNOB: dial arc + value, ns-resize drag */
+  .routing-toggle#slopeToggle { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+  #slopeDial { width: 11px; height: 11px; flex: 0 0 11px; pointer-events: none; }
+
+  /* bottom-centre of the band card, mirroring OUTPUT's bypass */
   .band-bypass-btn {
-    position: absolute; top: 6px; right: 84px; z-index: 5;
-    width: 38px; padding: 2px 0; font-size: 8px; letter-spacing: 1px;
+    position: absolute; bottom: 7px; left: 50%; transform: translateX(-50%); z-index: 5;
+    width: 56px; padding: 2px 0; font-size: 8px; letter-spacing: 1px;
     text-align: center; white-space: nowrap;
   }
   .band-bypass-btn.active { color: var(--state-warning); border-color: var(--state-warning);
@@ -643,8 +648,8 @@
   <div class="bottom">
     <div class="section-col sec-band">
       <div class="section-label" id="bandSecLabel">Band 1</div>
-      <button class="mode-toggle band-bypass-btn" id="bandBypassBtn" data-tip="Bypass this band — its bell stays placed but stops processing">BYP</button>
-      <button class="mode-toggle routing-toggle" id="slopeToggle" data-tip="Crossover slope — drag ↑↓, continuous 12…48 dB/oct. Soft wide grab … surgical edges. Double-click: 24" style="cursor: ns-resize;">24 dB</button>
+      <button class="mode-toggle band-bypass-btn" id="bandBypassBtn" data-tip="Bypass this band — its bell stays placed but stops processing">BYPASS</button>
+      <button class="mode-toggle routing-toggle" id="slopeToggle" data-tip="Crossover slope — drag ↑↓, continuous 12…48 dB/oct. Soft wide grab … surgical edges. Double-click: 24" style="cursor: ns-resize;"><canvas id="slopeDial"></canvas><span id="slopeDbText">24 dB</span></button>
       <div class="knob-row">
         <div class="knob-wrap" id="knob_freq"></div>
         <div class="knob-wrap" id="knob_bwidth"></div>
@@ -774,7 +779,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B84";
+const ENTROPAN_BUILD = "B85";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1804,6 +1809,20 @@ document.getElementById("routingToggle").onclick = () => { P.routing.set(P.routi
 // the param write + pill label + a coalesced panel refresh (schedulePanels) —
 // a full refreshPanels per mousemove is the known stutter trap (B57/B80).
 const slopeDb = v => Math.round(12 * Math.pow(4, clamp(v, 0, 100) / 100));
+// the slope pill's mini knob: 270° arc = morph position, band-coloured
+function drawSlopeDial(v, col) {
+  const cv = document.getElementById("slopeDial"), S = 11, C = S / 2;
+  if (cv.width !== S * DPR) { cv.width = S * DPR; cv.height = S * DPR; }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, S, S);
+  ctx.lineWidth = 1.6; ctx.lineCap = "round";
+  const a0 = Math.PI * 0.75, span = Math.PI * 1.5;
+  ctx.beginPath(); ctx.arc(C, C, 4, a0, a0 + span);
+  ctx.strokeStyle = "#26221F"; ctx.stroke();
+  ctx.beginPath(); ctx.arc(C, C, 4, a0, a0 + span * clamp(v, 0, 100) / 100);
+  ctx.strokeStyle = col || "#3ab8d4"; ctx.stroke();
+}
 // band bypass: flips the selected band's ON param (the bell ghosts, audio
 // passes clean through this band; the 30 ms enable crossfade makes it pop-free)
 document.getElementById("bandBypassBtn").onclick = () => { PB().on.set(!PB().on.get()); refreshPanels(); };
@@ -1815,7 +1834,8 @@ document.getElementById("bandBypassBtn").onclick = () => { PB().on.set(!PB().on.
     if (!drag) return;
     const v = clamp(drag.v + (drag.y - e.clientY) * 0.5, 0, 100);
     PB().slope.set(v);
-    st.textContent = slopeDb(v) + " dB";
+    document.getElementById("slopeDbText").textContent = slopeDb(v) + " dB";
+    drawSlopeDial(v, bandColor());
     schedulePanels();
   });
   window.addEventListener("mouseup", () => drag = null);
@@ -1971,7 +1991,8 @@ function refreshPanels() {
   if (bandBypassed) { bb.style.color = bb.style.borderColor = ""; bb.style.boxShadow = ""; }   // .active CSS wins
   else tintToggle(bb, c);   // live band wears its colour
   const st = document.getElementById("slopeToggle");
-  st.textContent = slopeDb(pb.slope.get()) + " dB";
+  document.getElementById("slopeDbText").textContent = slopeDb(pb.slope.get()) + " dB";
+  drawSlopeDial(pb.slope.get(), c);
   tintToggle(st, c);   // selected band's colour — it is a per-band setting
   const byp = document.getElementById("bypassBtn");
   byp.classList.toggle("active", P.bypass.get());
