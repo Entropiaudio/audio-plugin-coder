@@ -777,7 +777,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B72";
+const ENTROPAN_BUILD = "B73";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1490,8 +1490,16 @@ function makeHSlider(id, label, opts) {
                                      : `linear-gradient(90deg, ${s.color}55, ${s.color})`;
       val.textContent = opts.fmt();
       el.classList.toggle("locked", locked);
-      refreshModHandle(modHandle, el);   // mod-matrix marker + dial re-open
-      paintModMark(track, widgetDest(el));   // live modulated-value marker
+      // Env-swapped faders (RATE→ATK, SMOOTH→REL, PHASE→SC-F) display env
+      // params while their mod-destination stays rate/smooth/phase — drawing
+      // route UI against a fader showing a DIFFERENT parameter would lie.
+      // Routes to those slots are inert in Env mode anyway (Env ignores them).
+      const envHidden = el.dataset.envswap && isEnv();
+      if (envHidden) { modHandle.style.display = "none"; if (track._modMark) track._modMark.style.display = "none"; }
+      else {
+        refreshModHandle(modHandle, el);   // mod-matrix marker + dial re-open
+        paintModMark(track, widgetDest(el));   // live modulated-value marker
+      }
     }
   };
   let drag = false;
@@ -1653,6 +1661,9 @@ const hsStepSmooth = makeHSlider("hs_stepsmooth", "SMOOTH", {
 knobFreq.el.dataset.mslot = SLOT.FREQ;   knobWidth.el.dataset.mslot = SLOT.WIDTH;
 knobLift.el.dataset.mslot = SLOT.LIFT;   knobDepth.el.dataset.mslot = SLOT.DEPTH;
 knobBias.el.dataset.mslot = SLOT.BIAS;
+// these three are display-multiplexed in Env mode (ATK/REL/SC-F) — route UI
+// hides on them there, see the envswap guard in makeHSlider.refresh
+hsRate.el.dataset.envswap = "1"; hsInertia.el.dataset.envswap = "1"; hsPhase.el.dataset.envswap = "1";
 hsRate.el.dataset.mslot = SLOT.RATE;     hsInertia.el.dataset.mslot = SLOT.SMOOTH;
 hsPhase.el.dataset.mslot = SLOT.PHASE;   hsStepSpeed.el.dataset.mslot = SLOT.RATE;
 hsStepSmooth.el.dataset.mslot = SLOT.STEPSMOOTH;
@@ -2822,10 +2833,11 @@ function loop(ts) {
         const d = widgetDest(k.el);
         if (d !== null && modRoutes.some(r => r.dst === d)) k.refresh();
       }
-      // faders: only the marker moves — cheap style write, no canvas
+      // faders: only the marker moves — cheap style write, no canvas.
+      // Env-swapped faders skip while displaying env params (see makeHSlider).
       for (const s of ROUTED_FADER_POOL) {
         const d = widgetDest(s.el);
-        if (d !== null && modRoutes.some(r => r.dst === d))
+        if (d !== null && !(s.el.dataset.envswap && isEnv()) && modRoutes.some(r => r.dst === d))
           paintModMark(s.el.querySelector(".hs-track"), d);
       }
     }
