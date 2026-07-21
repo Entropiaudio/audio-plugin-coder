@@ -68,6 +68,7 @@ private:
     juce::dsp::WindowingFunction<float> window { kFftSize, juce::dsp::WindowingFunction<float>::hann };
     std::vector<float> fifoDrain, fftAccum, fftWork;
     int accumFill = 0;
+    int analyzerDropsSeen = 0;   // last analyzerDropped value — change ⇒ flush + re-accumulate
     juce::uint32 scopeReadPos = 0;
     // Log-bin resample geometry — constant per sample rate, rebuilt lazily
     // (was ~770 pow/sqrt calls per 60 Hz frame).

@@ -914,6 +914,8 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         for (int k = 0; k < size2; ++k, ++s2)
             analyzerStore[(size_t) (start2 + k)] = 0.5f * (left[s2] + right[s2]);
         analyzerFifo.finishedWrite (size1 + size2);
+        if (size1 + size2 < numSamples)   // overflow: a gap now exists in the stream
+            analyzerDropped.fetch_add (1, std::memory_order_relaxed);
     }
 
 #if ENTROPAN_MOONBASE

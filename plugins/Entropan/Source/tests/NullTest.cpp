@@ -80,6 +80,77 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;   // message manager for APVTS
     bool ok = true;
 
+    // ── diagnostic harness (ENTROPAN_DIAG=fft): replicate the editor's exact
+    //    analyzer pipeline on a pure sine and print the display columns ──
+    if (std::getenv ("ENTROPAN_DIAG") != nullptr
+        && juce::String (std::getenv ("ENTROPAN_DIAG")) == "fft")
+    {
+        constexpr int kOrd = 14, kN = 1 << kOrd, kBins = 256;
+        for (double sr : { 48000.0, 44100.0 })
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (sr, kBlock);
+            setParam (p, "b1_on", 1.0f);
+            setParam (p, "b1_freq", 237.0f); setParam (p, "b1_width", 1.41f);
+            setParam (p, "b1_lift", 0.0f);   setParam (p, "b1_depth", 100.0f);
+            setParam (p, "b1_ratemode", 1.0f); setParam (p, "b1_rate", 0.5f);
+            juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+            juce::dsp::FFT fft (kOrd);
+            juce::dsp::WindowingFunction<float> win ((size_t) kN, juce::dsp::WindowingFunction<float>::hann);
+            std::vector<float> drain ((size_t) kN), accum ((size_t) kN, 0.0f), work ((size_t) kN * 2, 0.0f);
+            int fill = 0;
+            double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*237.0/sr;
+            // editor cadence: process ~1 block then drain (60 Hz ≈ 800 samples ≈ 1.5 blocks)
+            std::vector<float> cols ((size_t) kBins, -120.0f);
+            for (int blk = 0; blk < 300; ++blk)
+            {
+                for (int s = 0; s < kBlock; ++s) {
+                    if (std::getenv ("ENTROPAN_SPLICE") != nullptr && ((blk * kBlock + s) % (int) (sr / 2)) == 0)
+                        phase = 0.0;   // loop-point discontinuity every 0.5 s
+                    const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+                p.processBlock (buf, midi);
+                const int got = p.popAnalyzer (drain.data(), kN);
+                if (got > 0)
+                {
+                    if (got >= kN) std::memcpy (accum.data(), drain.data() + (got - kN), sizeof (float) * kN);
+                    else { const int keep = kN - got;
+                           std::memmove (accum.data(), accum.data() + got, sizeof (float) * (size_t) keep);
+                           std::memcpy (accum.data() + keep, drain.data(), sizeof (float) * (size_t) got);
+                    }
+                    fill = juce::jmin (kN, fill + got);
+                }
+                if (blk < 299 || fill < kN) continue;
+                std::memcpy (work.data(), accum.data(), sizeof (float) * kN);
+                win.multiplyWithWindowingTable (work.data(), kN);
+                fft.performFrequencyOnlyForwardTransform (work.data());
+                const double binHz = sr / (double) kN;
+                for (int b = 0; b < kBins; ++b)
+                {
+                    const double f0 = 20.0 * std::pow (1000.0, (double) b / kBins);
+                    const double f1 = 20.0 * std::pow (1000.0, (double) (b + 1) / kBins);
+                    const double fc = std::sqrt (f0 * f1);
+                    const int b0 = juce::jlimit (1, kN/2 - 2, (int) (fc / binHz));
+                    const float fr = (float) juce::jlimit (0.0, 1.0, fc / binHz - b0);
+                    const int i0 = juce::jlimit (1, kN/2 - 1, (int) (f0 / binHz));
+                    const int i1 = juce::jlimit (i0 + 1, kN/2, (int) std::ceil (f1 / binHz));
+                    float mag;
+                    if (i1 - i0 >= 2) { mag = 0; for (int k = i0; k < i1; ++k) mag = juce::jmax (mag, work[(size_t) k]); }
+                    else mag = work[(size_t) b0] * (1.0f - fr) + work[(size_t) (b0 + 1)] * fr;
+                    cols[(size_t) b] = (float) juce::Decibels::gainToDecibels ((double) mag / (double) (kN / 4), -80.0);
+                }
+            }
+            // report: peak col + every col above -55 dB with its frequency
+            int pk = 0; for (int b = 1; b < kBins; ++b) if (cols[(size_t) b] > cols[(size_t) pk]) pk = b;
+            std::printf ("sr %.0f  peak col %d (%.0f Hz, %.1f dB)  cols > -55 dB:\n", sr,
+                         pk, 20.0 * std::pow (1000.0, (pk + 0.5) / (double) kBins), cols[(size_t) pk]);
+            for (int b = 0; b < kBins; ++b)
+                if (cols[(size_t) b] > -55.0f)
+                    std::printf ("  col %3d  %6.0f Hz  %6.1f dB\n", b,
+                                 20.0 * std::pow (1000.0, (b + 0.5) / (double) kBins), cols[(size_t) b]);
+        }
+        return 0;
+    }
+
     // ── diagnostic harness (ENTROPAN_DIAG=1): pan reach + volume-vs-pan sweep ──
     // Renders a mono sine through one band and reports, per scenario, the
     // balance extremes and the output power binned by |balance| — the two

@@ -535,6 +535,18 @@ void EntropanAudioProcessorEditor::timerCallback()
     }
 
     // ── spectrum: drain FIFO into a sliding FFT frame ──
+    // If the tap overflowed since last frame, the stream has a gap — flush the
+    // fifo's pre-gap backlog and restart accumulation from post-gap audio, so a
+    // spliced window (which renders as broadband LF garbage) is never analyzed.
+    {
+        const int drops = audioProcessor.analyzerDropped.load (std::memory_order_relaxed);
+        if (drops != analyzerDropsSeen)
+        {
+            analyzerDropsSeen = drops;
+            while (audioProcessor.popAnalyzer (fifoDrain.data(), kFftSize) > 0) {}
+            accumFill = 0;
+        }
+    }
     const int got = audioProcessor.popAnalyzer (fifoDrain.data(), kFftSize);
     if (got > 0)
     {

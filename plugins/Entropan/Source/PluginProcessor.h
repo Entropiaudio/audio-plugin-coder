@@ -290,6 +290,9 @@ public:
 
     // Analyzer tap: mono (L+R)/2 of the processed output, drained by the editor.
     int popAnalyzer (float* dest, int maxNum);
+    // counts analyzer-tap overruns; the editor flushes + re-accumulates when it
+    // moves, so a spliced (gap-containing) window is never FFT'd
+    std::atomic<int> analyzerDropped { 0 };
 
     // Mod scope ring: every band sampled every 64 audio samples (~750 Hz).
     static constexpr int kScopeStride = 64, kScopeRingSize = 2048;
@@ -312,7 +315,10 @@ private:
     std::array<float, kNumDests> modVal {};   // per-block post-modulation values (natural units)
     int scopePhase = 0;
 
-    juce::AbstractFifo analyzerFifo { 1 << 14 };
+    // 4× the editor's 16384-pt FFT window: ~1.4 s of UI-thread stall tolerance
+    // before the tap must drop. At exactly 1× (B77 briefly), any stall > 341 ms
+    // overflowed, spliced the analysis window, and drew LF garbage.
+    juce::AbstractFifo analyzerFifo { 1 << 16 };
     std::vector<float> analyzerStore;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EntropanAudioProcessor)
