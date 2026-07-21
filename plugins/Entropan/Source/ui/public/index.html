@@ -635,7 +635,7 @@
   <div class="bottom">
     <div class="section-col sec-band">
       <div class="section-label" id="bandSecLabel">Band 1</div>
-      <button class="mode-toggle routing-toggle" id="slopeToggle" data-tip="Crossover slope — click to cycle. 12 dB/oct: soft wide grab · 24: balanced · 48: surgical, edge content pans almost fully">24 dB</button>
+      <button class="mode-toggle routing-toggle" id="slopeToggle" data-tip="Crossover slope — drag ↑↓, continuous 12…48 dB/oct. Soft wide grab … surgical edges. Double-click: 24" style="cursor: ns-resize;">24 dB</button>
       <div class="knob-row">
         <div class="knob-wrap" id="knob_freq"></div>
         <div class="knob-wrap" id="knob_bwidth"></div>
@@ -765,7 +765,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B81";
+const ENTROPAN_BUILD = "B82";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -819,7 +819,7 @@ function bandIds(i) { const p = `b${i + 1}_`; return {
   bias:    { id: p + "bias",    kind: "slider", def: 0 },
   override:{ id: p + "override",kind: "toggle", def: false },
   stepsmooth:{ id: p + "stepsmooth", kind: "slider", def: 0 },
-  slope:   { id: p + "slope",   kind: "combo",  def: 1 }
+  slope:   { id: p + "slope",   kind: "slider", def: 50 }
 }; }
 const GLOBALS = {
   seed:   { id: "seed",   kind: "slider", def: 1 },
@@ -1287,8 +1287,8 @@ function refreshDispBands() {
     d.lift = moddedNorm(base + SLOT.LIFT) * 100;
     d.gainMod = modRoutes.some(r => r.dst === base + SLOT.GAIN);
     d.gainDb = moddedNorm(base + SLOT.GAIN) * 12 - 6;
-    // bell skirt exponent from the SLOPE choice: 12 soft … 48 near-rectangular
-    d.bellP = [1.3, 2.0, 3.6][P.bands[i].slope.get()] || 2.0;
+    // bell skirt exponent follows the continuous SLOPE morph (log 1.3…3.6)
+    d.bellP = 1.3 * Math.pow(3.6 / 1.3, clamp(P.bands[i].slope.get(), 0, 100) / 100);
     // any bell-geometry route: the aura's cache key would churn every frame
     d.geoMod = modRoutes.some(r => r.dst >= base && r.dst <= base + SLOT.LIFT);
   }
@@ -1791,8 +1791,24 @@ document.getElementById("polToggle").onclick = () => {
   refreshPanels();
 };
 document.getElementById("routingToggle").onclick = () => { P.routing.set(P.routing.get() ? 0 : 1); refreshPanels(); };
-// crossover slope: cycles 12 → 24 → 48 dB/oct for the selected band
-document.getElementById("slopeToggle").onclick = () => { PB().slope.set((PB().slope.get() + 1) % 3); refreshPanels(); };
+// SLOPE morph: drag ↑↓ — continuous 12…48 dB/oct (log). Per-move work is ONLY
+// the param write + pill label + a coalesced panel refresh (schedulePanels) —
+// a full refreshPanels per mousemove is the known stutter trap (B57/B80).
+const slopeDb = v => Math.round(12 * Math.pow(4, clamp(v, 0, 100) / 100));
+{
+  const st = document.getElementById("slopeToggle");
+  let drag = null;
+  st.addEventListener("mousedown", e => { drag = { y: e.clientY, v: PB().slope.get() }; e.preventDefault(); });
+  window.addEventListener("mousemove", e => {
+    if (!drag) return;
+    const v = clamp(drag.v + (drag.y - e.clientY) * 0.5, 0, 100);
+    PB().slope.set(v);
+    st.textContent = slopeDb(v) + " dB";
+    schedulePanels();
+  });
+  window.addEventListener("mouseup", () => drag = null);
+  st.addEventListener("dblclick", () => { PB().slope.set(50); refreshPanels(); });
+}
 document.getElementById("overrideToggle").onclick = () => {
   const i = ui.selected, pb = PB();
   pb.override.set(!pb.override.get());
@@ -1938,7 +1954,7 @@ function refreshPanels() {
   rt.textContent = P.routing.get() ? "PARALLEL" : "SERIAL";
   tintToggle(rt, P.routing.get() ? COL_PURPLE : COL_ORANGE);   // Serial orange → Parallel purple
   const st = document.getElementById("slopeToggle");
-  st.textContent = ["12 dB", "24 dB", "48 dB"][pb.slope.get()] || "24 dB";
+  st.textContent = slopeDb(pb.slope.get()) + " dB";
   tintToggle(st, c);   // selected band's colour — it is a per-band setting
   const byp = document.getElementById("bypassBtn");
   byp.classList.toggle("active", P.bypass.get());

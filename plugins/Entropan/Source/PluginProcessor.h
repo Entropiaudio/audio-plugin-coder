@@ -219,10 +219,27 @@ private:
     //   input → splitLo → {low, rest};  rest → splitHi → {band, high}
     //   low → apLow (LP+HP sum = allpass at f_hi) → residual = lowAP + high
     //   band → lift split → pan/gain → out = residual + unlifted + panned
+    // CONTINUOUS slope morph (12→48 dB/oct), click-free by construction.
+    // Three persistent stages (LR2 / LR4 / LR8) run behind one knob; adjacent
+    // orders crossfade. Blending different-order reconstructions naively nulls
+    // at the crossover (their allpasses sit up to 180° apart), so every stage
+    // is first rotated to a COMMON phase reference — the LR8 lattice:
+    //     in48 = x;   in24 = AP2(x);   in12 = AP1(AP2(x))
+    // (AP applied at both crossover frequencies, implemented by feeding the
+    // lower-order stage a pre-rotated INPUT — LTI commutes). At the 24-detent
+    // both zones produce byte-identical output (stage24 on in24), so sweeping
+    // through it cannot click; stages entering a blend do so at weight ≈ 0.
+    // Mid-blend idle ripple is the small shape difference between same-order
+    // allpasses (measured < 0.5 dB); detents are exact.
     struct BandDSP
     {
-        LRSplitter splitLo, splitHi, apLow;
-        int slopeApplied = -1;   // last-applied slope index (change ⇒ reconfigure + reset)
+        LRSplitter s12Lo, s12Hi, s12Ap;   // 12 dB/oct stage
+        LRSplitter s24Lo, s24Hi, s24Ap;   // 24
+        LRSplitter s48Lo, s48Hi, s48Ap;   // 48
+        LRSplitter rot4a, rot4b;          // AP2 @ fLo / fHi → in24 (always runs)
+        LRSplitter rot2a, rot2b;          // AP1 @ fLo / fHi → in12 (zone A only)
+        juce::SmoothedValue<float> slope01;   // 0..1 (param /100), 30 ms
+        int zoneApplied = -1;             // 0 = blend 12↔24, 1 = blend 24↔48
 
         juce::SmoothedValue<float> lift;      // 0..1
         juce::SmoothedValue<float> gainLin;   // linear, from ±6 dB
@@ -236,10 +253,11 @@ private:
         void prepare (const juce::dsp::ProcessSpec& spec)
         {
             const double sr = spec.sampleRate;
-            splitLo.prepare (sr);
-            splitHi.prepare (sr);
-            apLow.prepare (sr);
-            slopeApplied = -1;   // reapply slope + cutoffs after rate change
+            for (auto* f : { &s12Lo, &s12Hi, &s12Ap, &rot2a, &rot2b }) { f->setSlope (0); f->prepare (sr); }
+            for (auto* f : { &s24Lo, &s24Hi, &s24Ap, &rot4a, &rot4b }) { f->setSlope (1); f->prepare (sr); }
+            for (auto* f : { &s48Lo, &s48Hi, &s48Ap })                 { f->setSlope (2); f->prepare (sr); }
+            zoneApplied = -1;
+            slope01.reset (sr, 0.030);
             lift.reset    (sr, 0.005);
             gainLin.reset (sr, 0.005);
             enable.reset  (sr, 0.030);
@@ -250,7 +268,18 @@ private:
 
         void resetState()
         {
-            splitLo.reset(); splitHi.reset(); apLow.reset();
+            for (auto* f : { &s12Lo, &s12Hi, &s12Ap, &s24Lo, &s24Hi, &s24Ap,
+                             &s48Lo, &s48Hi, &s48Ap, &rot2a, &rot2b, &rot4a, &rot4b })
+                f->reset();
+        }
+
+        void pushCutoffs (float fLo, float fHi)
+        {
+            for (auto* f : { &s12Lo, &s24Lo, &s48Lo })          f->setCutoffFrequency (fLo);
+            for (auto* f : { &s12Hi, &s24Hi, &s48Hi,
+                             &s12Ap, &s24Ap, &s48Ap })          f->setCutoffFrequency (fHi);
+            rot2a.setCutoffFrequency (fLo); rot4a.setCutoffFrequency (fLo);
+            rot2b.setCutoffFrequency (fHi); rot4b.setCutoffFrequency (fHi);
         }
     };
 
@@ -396,10 +425,7 @@ private:
     std::array<float, kNumDests> modVal {};   // per-block post-modulation values (natural units)
     int scopePhase = 0;
 
-    // 4× the editor's 16384-pt FFT window: ~1.4 s of UI-thread stall tolerance
-    // before the tap must drop. At exactly 1× (B77 briefly), any stall > 341 ms
-    // overflowed, spliced the analysis window, and drew LF garbage.
-    juce::AbstractFifo analyzerFifo { 1 << 16 };
+                juce::AbstractFifo analyzerFifo { 1 << 17 };
     std::vector<float> analyzerStore;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EntropanAudioProcessor)

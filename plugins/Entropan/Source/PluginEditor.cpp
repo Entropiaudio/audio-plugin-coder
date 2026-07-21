@@ -23,10 +23,10 @@ juce::StringArray EntropanAudioProcessorEditor::sliderParamIds()
     for (int i = 1; i <= EntropanAudioProcessor::kNumBands; ++i)
     {
         const juce::String p = "b" + juce::String (i) + "_";
-        for (auto* s : { "freq", "width", "lift", "depth", "gain", "rate", "inertia", "phase", "bias", "stepsmooth" })
+        for (auto* s : { "freq", "width", "lift", "depth", "gain", "rate", "inertia", "phase", "bias", "stepsmooth", "slope" })
             ids.add (p + s);
     }
-    return ids;   // 9 + 6×10 = 69
+    return ids;   // 9 + 6×11 = 75
 }
 
 juce::StringArray EntropanAudioProcessorEditor::comboParamIds()
@@ -35,10 +35,10 @@ juce::StringArray EntropanAudioProcessorEditor::comboParamIds()
     for (int i = 1; i <= EntropanAudioProcessor::kNumBands; ++i)
     {
         const juce::String p = "b" + juce::String (i) + "_";
-        for (auto* s : { "mode", "ratemode", "div", "slope" })
+        for (auto* s : { "mode", "ratemode", "div" })
             ids.add (p + s);
     }
-    return ids;   // 2 + 6×4 = 26
+    return ids;   // 2 + 6×3 = 20
 }
 
 juce::StringArray EntropanAudioProcessorEditor::toggleParamIds()
@@ -439,9 +439,11 @@ EntropanAudioProcessorEditor::EntropanAudioProcessorEditor (EntropanAudioProcess
     setConstrainer (&constrainer);
     setSize (savedW, savedH);
 
-    fifoDrain.resize (kFftSize);
-    fftAccum.resize (kFftSize, 0.0f);
-    fftWork.resize ((size_t) kFftSize * 2, 0.0f);
+    fifoDrain.resize (EntropanAnalyzer::kBigSize);
+    fftAccum.resize (EntropanAnalyzer::kBigSize, 0.0f);          // sliding 65536: big FFT reads all, small the tail
+    workSmall.resize ((size_t) EntropanAnalyzer::kSmallSize * 2, 0.0f);
+    workBig.resize ((size_t) EntropanAnalyzer::kBigSize * 2, 0.0f);
+    bigMags.resize ((size_t) EntropanAnalyzer::kBigSize, 0.0f);
     startTimerHz (60);   // smooth analyzer/scope motion
 }
 
@@ -543,77 +545,62 @@ void EntropanAudioProcessorEditor::timerCallback()
         if (drops != analyzerDropsSeen)
         {
             analyzerDropsSeen = drops;
-            while (audioProcessor.popAnalyzer (fifoDrain.data(), kFftSize) > 0) {}
-            accumFill = 0;
+            while (audioProcessor.popAnalyzer (fifoDrain.data(), (int) fifoDrain.size()) > 0) {}
+            accumFill = 0; bigValid = false;
         }
     }
-    const int got = audioProcessor.popAnalyzer (fifoDrain.data(), kFftSize);
+    using namespace EntropanAnalyzer;
+    const int got = audioProcessor.popAnalyzer (fifoDrain.data(), (int) fifoDrain.size());
     if (got > 0)
     {
-        if (got >= kFftSize)
+        if (got >= kBigSize)
         {
-            std::memcpy (fftAccum.data(), fifoDrain.data() + (got - kFftSize), sizeof (float) * kFftSize);
-            accumFill = kFftSize;
+            std::memcpy (fftAccum.data(), fifoDrain.data() + (got - kBigSize), sizeof (float) * kBigSize);
+            accumFill = kBigSize;
         }
         else
         {
-            const int keep = kFftSize - got;
+            const int keep = kBigSize - got;
             std::memmove (fftAccum.data(), fftAccum.data() + got, sizeof (float) * (size_t) keep);
             std::memcpy (fftAccum.data() + keep, fifoDrain.data(), sizeof (float) * (size_t) got);
-            accumFill = juce::jmin (kFftSize, accumFill + got);
+            accumFill = juce::jmin (kBigSize, accumFill + got);
         }
     }
 
     // Only rebuild + emit when samples actually arrived — after audio stops,
-    // re-FFT-ing the same 4096 points 60×/s produced identical frames forever.
-    if (accumFill >= kFftSize && got > 0)
+    // re-FFT-ing the same window 60×/s produced identical frames forever.
+    if (accumFill >= kSmallSize && got > 0)
     {
-        std::memcpy (fftWork.data(), fftAccum.data(), sizeof (float) * kFftSize);
-        window.multiplyWithWindowingTable (fftWork.data(), kFftSize);
-        fft.performFrequencyOnlyForwardTransform (fftWork.data());
+        // small FFT: the newest 16384 samples (fast half of the display)
+        std::memcpy (workSmall.data(), fftAccum.data() + (kBigSize - kSmallSize), sizeof (float) * kSmallSize);
+        winSmall.multiplyWithWindowingTable (workSmall.data(), kSmallSize);
+        fftSmall.performFrequencyOnlyForwardTransform (workSmall.data());
 
-        // log-resample 20 Hz … 20 kHz into kSpectrumBins dB values.
-        // Bin geometry is constant per sample rate — build once, reuse per frame.
+        // big FFT: every 2nd emit once 65536 contiguous samples exist —
+        // the low columns update at ~30 Hz, plenty for slow-moving lows
+        if (accumFill >= kBigSize && (bigCounter++ & 1) == 0)
+        {
+            std::memcpy (workBig.data(), fftAccum.data(), sizeof (float) * kBigSize);
+            winBig.multiplyWithWindowingTable (workBig.data(), kBigSize);
+            fftBig.performFrequencyOnlyForwardTransform (workBig.data());
+            std::memcpy (bigMags.data(), workBig.data(), sizeof (float) * kBigSize);
+            bigValid = true;
+        }
+
         const double sr = audioProcessor.getSampleRate() > 0 ? audioProcessor.getSampleRate() : 48000.0;
-        if (binGeomSr != sr)
+        if (colGeomSr != sr)
         {
-            binGeomSr = sr;
-            const double binHz = sr / (double) kFftSize;
-            binGeom.resize ((size_t) kSpectrumBins);
-            for (int b = 0; b < kSpectrumBins; ++b)
-            {
-                const double f0 = 20.0 * std::pow (1000.0, (double) b / kSpectrumBins);
-                const double f1 = 20.0 * std::pow (1000.0, (double) (b + 1) / kSpectrumBins);
-                const double fc = std::sqrt (f0 * f1);                 // log centre
-                const double b0d = fc / binHz;
-                auto& g = binGeom[(size_t) b];
-                g.b0 = juce::jlimit (1, kFftSize / 2 - 2, (int) b0d);
-                g.fr = (float) juce::jlimit (0.0, 1.0, b0d - g.b0);
-                // Below one FFT bin per log-band (the lows): linearly interpolate
-                // the magnitude at the fractional bin → smooth, no staircase.
-                // Above that (the highs, many bins per band): peak → keep spikes.
-                g.i0 = juce::jlimit (1, kFftSize / 2 - 1, (int) (f0 / binHz));
-                g.i1 = juce::jlimit (g.i0 + 1, kFftSize / 2, (int) std::ceil (f1 / binHz));
-            }
+            colGeomSr = sr;
+            colGeom.resize ((size_t) kBins);
+            buildGeometry (sr, colGeom.data());
         }
+        float cols[kBins];
+        computeColumns (colGeom.data(), workSmall.data(), bigValid ? bigMags.data() : nullptr, cols);
+
         juce::Array<juce::var> mags;
-        mags.ensureStorageAllocated (kSpectrumBins);
-        for (int b = 0; b < kSpectrumBins; ++b)
-        {
-            const auto& g = binGeom[(size_t) b];
-            float mag;
-            if (g.i1 - g.i0 >= 2)
-            {
-                mag = 0.0f;
-                for (int k = g.i0; k < g.i1; ++k) mag = juce::jmax (mag, fftWork[(size_t) k]);
-            }
-            else
-            {
-                mag = fftWork[(size_t) g.b0] * (1.0f - g.fr) + fftWork[(size_t) (g.b0 + 1)] * g.fr;
-            }
-            const double db = juce::Decibels::gainToDecibels ((double) mag / (double) (kFftSize / 4), -80.0);
-            mags.add (juce::jlimit (-60.0, 0.0, db));
-        }
+        mags.ensureStorageAllocated (kBins);
+        for (int b = 0; b < kBins; ++b)
+            mags.add ((double) cols[b]);
         auto* obj = new juce::DynamicObject();
         obj->setProperty ("mags", mags);
         webView->emitEventIfBrowserIsVisible ("spectrum", juce::var (obj));

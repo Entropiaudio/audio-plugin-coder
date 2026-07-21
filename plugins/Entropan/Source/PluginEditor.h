@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "PluginProcessor.h"
+#include "AnalyzerResample.h"
 
 #if ENTROPAN_MOONBASE   // gate default lives in PluginProcessor.h (included above)
 // Moonbase Activate screen — forward declaration only; the full module header is
@@ -20,8 +21,8 @@ namespace Moonbase { namespace JUCEClient { struct ActivationUI; } }
  *   3. Parameter attachments (destroyed first)
  *
  * 121 parameters bound via relay/attachment vectors:
- *   - 69 float/int  → WebSliderRelay
- *   - 26 choice     → WebComboBoxRelay
+ *   - 75 float/int  → WebSliderRelay
+ *   - 20 choice     → WebComboBoxRelay
  *   - 26 bool       → WebToggleButtonRelay
  */
 class EntropanAudioProcessorEditor : public juce::AudioProcessorEditor,
@@ -59,24 +60,22 @@ private:
 
     // ── UI telemetry (60 Hz): spectrum frames + per-band mod values ──
     void timerCallback() override;
-    // 16384-pt: 2.9 Hz bins at 48 k. At 4096 a pure 237 Hz sine rendered 0.66
-    // octave wide at −50 dB on the log display (user report vs Pro-Q); at 16384
-    // it is 0.16 oct — a needle. Cost: ~341 ms analysis window + a 4× FFT,
-    // both fine for a display path. Matches the processor fifo (1 << 14).
-    static constexpr int kFftOrder = 14, kFftSize = 1 << kFftOrder, kSpectrumBins = 256;
-    juce::dsp::FFT fft { kFftOrder };
-    // Blackman-Harris: sidelobes −92 dB — below the display floor. Hann's −31 dB
-    // sidelobes rendered as a wide LF skirt around low-frequency tones.
-    juce::dsp::WindowingFunction<float> window { kFftSize, juce::dsp::WindowingFunction<float>::blackmanHarris };
-    std::vector<float> fifoDrain, fftAccum, fftWork;
-    int accumFill = 0;
+    // Multi-resolution analyzer (shared math: AnalyzerResample.h, also compiled
+    // by the test gate). 16384-pt for ≥500 Hz (fast, ~341 ms window); 65536-pt
+    // for the lows (~1.4 s window, 0.73 Hz bins — low tones render as needles).
+    // Both Blackman-Harris. The big FFT runs every 2nd emit (lows move slowly).
+    juce::dsp::FFT fftSmall { EntropanAnalyzer::kSmallOrder };
+    juce::dsp::FFT fftBig   { EntropanAnalyzer::kBigOrder };
+    juce::dsp::WindowingFunction<float> winSmall { EntropanAnalyzer::kSmallSize, juce::dsp::WindowingFunction<float>::blackmanHarris };
+    juce::dsp::WindowingFunction<float> winBig   { EntropanAnalyzer::kBigSize,   juce::dsp::WindowingFunction<float>::blackmanHarris };
+    std::vector<float> fifoDrain, fftAccum, workSmall, workBig, bigMags;
+    int  accumFill = 0;
+    int  bigCounter = 0;         // big FFT every 2nd emit
+    bool bigValid = false;       // false until 65536 contiguous samples exist
     int analyzerDropsSeen = 0;   // last analyzerDropped value — change ⇒ flush + re-accumulate
     juce::uint32 scopeReadPos = 0;
-    // Log-bin resample geometry — constant per sample rate, rebuilt lazily
-    // (was ~770 pow/sqrt calls per 60 Hz frame).
-    struct BinGeom { int b0, i0, i1; float fr; };
-    std::vector<BinGeom> binGeom;
-    double binGeomSr = 0.0;
+    std::vector<EntropanAnalyzer::ColGeom> colGeom;
+    double colGeomSr = 0.0;
 
     juce::ComponentBoundsConstrainer constrainer;
     EntropanAudioProcessor& audioProcessor;

@@ -10,6 +10,7 @@
 */
 
 #include "../PluginProcessor.h"
+#include "../AnalyzerResample.h"
 #include <cstdio>
 
 namespace
@@ -1102,10 +1103,10 @@ int main()
         std::printf ("    balance swing: before %.2f, frozen %.4f, after %.2f\n", swimBefore, swimFrozen, swimAfter);
     }
 
-    // ── T30: every slope reconstructs null-clean — lift-0 allpass-flat and
-    //         centre-pan unity must hold at 12 and 48 dB/oct like they do at 24 ──
+    // ── T30: the slope MORPH reconstructs null-clean everywhere — detents
+    //         exact, mid-blend positions within the small allpass-shape ripple ──
     {
-        for (float slope : { 0.0f, 2.0f })
+        for (float slope : { 0.0f, 25.0f, 50.0f, 75.0f, 100.0f })
         {
             EntropanAudioProcessor p;
             p.prepareToPlay (kSampleRate, kBlock);
@@ -1124,13 +1125,87 @@ int main()
             const auto r1 = run (q, maxDiff);
             const double c0L = dB (r1.outL / r1.inL), c0R = dB (r1.outR / r1.inR);
 
-            const bool pass = std::abs (f0L) < 0.05 && std::abs (f0R) < 0.05
-                           && std::abs (c0L) < 0.05 && std::abs (c0R) < 0.05;
+            // detents (0/50/100) must be exact; mid-blends tolerate the measured
+            // same-order allpass shape difference (< 0.5 dB)
+            const bool detent = slope == 0.0f || slope == 50.0f || slope == 100.0f;
+            const double tol = detent ? 0.05 : 0.5;
+            const bool pass = std::abs (f0L) < tol && std::abs (f0R) < tol
+                           && std::abs (c0L) < tol && std::abs (c0R) < tol;
             char name[64];
-            std::snprintf (name, sizeof (name), "T30 slope %d null-clean", slope == 0.0f ? 12 : 48);
+            std::snprintf (name, sizeof (name), "T30 slope %3.0f%% null-clean", slope);
             ok &= check (name, pass);
             std::printf ("    lift0 %+0.4f/%+0.4f dB   centre %+0.4f/%+0.4f dB\n", f0L, f0R, c0L, c0R);
         }
+    }
+
+    // ── T32: the analyzer renders LOW tones as needles — ≤ 8 of 256 columns
+    //         (≈0.3 oct) above −50 dB for 40 / 80 / 237 Hz, via the SHARED
+    //         resample math the editor compiles (AnalyzerResample.h) ──
+    {
+        using namespace EntropanAnalyzer;
+        const double sr = 48000.0;
+        std::vector<ColGeom> geom ((size_t) kBins);
+        buildGeometry (sr, geom.data());
+        juce::dsp::FFT fftS (kSmallOrder), fftB (kBigOrder);
+        juce::dsp::WindowingFunction<float> winS ((size_t) kSmallSize, juce::dsp::WindowingFunction<float>::blackmanHarris);
+        juce::dsp::WindowingFunction<float> winB ((size_t) kBigSize,  juce::dsp::WindowingFunction<float>::blackmanHarris);
+        bool allNarrow = true;
+        for (double hz : { 40.0, 80.0, 237.0 })
+        {
+            std::vector<float> big ((size_t) kBigSize * 2, 0.0f), small ((size_t) kSmallSize * 2, 0.0f);
+            for (int n = 0; n < kBigSize; ++n)
+                big[(size_t) n] = (float) std::sin (2.0 * juce::MathConstants<double>::pi * hz * n / sr);
+            std::memcpy (small.data(), big.data() + (kBigSize - kSmallSize), sizeof (float) * kSmallSize);
+            winS.multiplyWithWindowingTable (small.data(), kSmallSize);
+            winB.multiplyWithWindowingTable (big.data(), kBigSize);
+            fftS.performFrequencyOnlyForwardTransform (small.data());
+            fftB.performFrequencyOnlyForwardTransform (big.data());
+            float cols[kBins];
+            computeColumns (geom.data(), small.data(), big.data(), cols);
+            float pk = -120; for (int b = 0; b < kBins; ++b) pk = juce::jmax (pk, cols[b]);
+            int wide = 0; for (int b = 0; b < kBins; ++b) if (cols[b] > pk - 50.0f) ++wide;
+            std::printf ("    %4.0f Hz: %d columns above peak-50 dB\n", hz, wide);
+            allNarrow = allNarrow && wide <= 8;
+        }
+        ok &= check ("T32 analyzer LF needles (multires)", allNarrow);
+    }
+
+    // ── T33: sweeping SLOPE during audio must not click — static-centre band,
+    //         host sweeps the slope param 0→1 normalized; the output's max
+    //         sample-to-sample step must stay near the clean sine's own ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        setParam (p, "b1_on", 1.0f);
+        setParam (p, "b1_freq", 1000.0f); setParam (p, "b1_width", 2.0f);
+        setParam (p, "b1_lift", 100.0f);  setParam (p, "b1_depth", 0.0f);   // static centre: output = allpassed sine
+        auto* slopeParam = p.apvts.getParameter ("b1_slope");
+        juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+        double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate;
+        float prev = 0.0f; double maxStep = 0.0; bool have = false;
+        const int sweepBlocks = 400;   // ~4.3 s, slope swept end to end and back
+        for (int blk = 0; blk < kWarmBlocks + sweepBlocks; ++blk)
+        {
+            if (blk >= kWarmBlocks)
+            {
+                const double t = (double) (blk - kWarmBlocks) / (double) sweepBlocks;
+                const double tri = t < 0.5 ? t * 2.0 : 2.0 - t * 2.0;   // 0→1→0
+                slopeParam->setValueNotifyingHost ((float) tri);
+            }
+            for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+            p.processBlock (buf, midi);
+            if (blk < kWarmBlocks) { prev = buf.getSample (0, kBlock - 1); have = true; continue; }
+            for (int s = 0; s < kBlock; ++s)
+            {
+                const float v = buf.getSample (0, s);
+                if (have) maxStep = juce::jmax (maxStep, (double) std::abs (v - prev));
+                prev = v; have = true;
+            }
+        }
+        // clean 1 kHz sine max step = 2π·1000/48000 ≈ 0.131; allow smoothing
+        // headroom. A filter-reset click is an impulse — far above this bound.
+        ok &= check ("T33 slope sweep is click-free", maxStep < 0.20);
+        std::printf ("    max sample step during sweep: %.3f (clean sine ≈ 0.131)\n", maxStep);
     }
 
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
