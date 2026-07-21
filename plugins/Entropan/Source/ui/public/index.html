@@ -758,10 +758,6 @@
             style="color:#d98a8a; font-size:9px; line-height:1.35; display:block;
                    white-space:normal; word-break:break-word;"></span>
     </div>
-    <div class="settings-row">
-      <span class="settings-row-label" id="buildInfo">—</span>
-      <span class="settings-row-value" id="fpsInfo">— fps</span>
-    </div>
   </div>
   <div class="preset-save-overlay" id="presetSaveOverlay">
     <div class="preset-save-card">
@@ -779,7 +775,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B74";
+const ENTROPAN_BUILD = "B75";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -2812,18 +2808,11 @@ function tickMods(dt) {
    MAIN LOOP
    ════════════════════════════════════════════════════════════════════ */
 let lastFrame = 0, loopCalls = 0, loopErr = null, ringFrame = false;
-let fpsCount = 0, fpsLastTs = 0;
 function loop(ts) {
   loopCalls++;
   requestAnimationFrame(loop);
   if (ts - lastFrame < 15) return;      // ~60 fps cap — matches 60 Hz mod telemetry (smooth fast pans)
   lastFrame = ts;
-  fpsCount++;
-  if (ts - fpsLastTs > 1000) {
-    const el = document.getElementById("fpsInfo");
-    if (el) el.textContent = fpsCount + " fps";
-    fpsCount = 0; fpsLastTs = ts;
-  }
   const now = performance.now(), dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now; simClock += dt;
   applyBandDrag();
@@ -2890,7 +2879,6 @@ window.addEventListener("load", kickLoop);
 
 /* ── SETTINGS (Chaosverb set: tooltips, window size presets, brightness) ── */
 const settingsPopover = document.getElementById("settingsPopover");
-document.getElementById("buildInfo").textContent = "V0.1.0 · " + ENTROPAN_BUILD + (EMBEDDED ? " · plugin" : " · browser");
 /* ── licensing panel (Moonbase) ──────────────────────────────────────────────
    Status is pulled fresh each time the popover opens rather than polled: it
    only changes on activation/deactivation, both of which the user drives. */
