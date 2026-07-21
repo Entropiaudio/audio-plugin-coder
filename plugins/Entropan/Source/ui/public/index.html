@@ -366,6 +366,10 @@
   }
   /* Nothing to edit (no band placed) → section reads as "off", like a bypassed band */
   .section-col.section-off { opacity: 0.3; filter: saturate(0.12); pointer-events: none; }
+  /* band BYPASSED: dimmed but still coloured (lock = grey desat — different) */
+  .sec-band.bypassed .knob-row, .sec-band.bypassed .link-btn, .sec-band.bypassed .routing-toggle {
+    opacity: 0.42; filter: brightness(0.8);
+  }
   /* DEPTH↔BIAS link toggle — chain icon below the knob row, under the
      DEPTH/BIAS boundary (knob columns sit at 10/30/50/70/90% → boundary 80%) */
   .link-btn {
@@ -395,16 +399,21 @@
     margin: 0;
   }
 
+  /* ── bottom action row: both BYPASS buttons and the link share height 17,
+     bottom 7 — one visual line across the cards ── */
+  .bypass-btn {
+    height: 17px; box-sizing: border-box; margin-top: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0 12px;
+  }
+  .link-btn { height: 17px; width: 17px; box-sizing: border-box; }
+
   /* slope pill reads as a mini KNOB: dial arc + value, ns-resize drag */
   .routing-toggle#slopeToggle { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
   #slopeDial { width: 11px; height: 11px; flex: 0 0 11px; pointer-events: none; }
 
-  /* bottom-centre of the band card, mirroring OUTPUT's bypass */
-  .band-bypass-btn {
-    position: absolute; bottom: 7px; left: 50%; transform: translateX(-50%); z-index: 5;
-    width: 56px; padding: 2px 0; font-size: 8px; letter-spacing: 1px;
-    text-align: center; white-space: nowrap;
-  }
+  /* bottom-centre of the band card — placement only, look inherited from .bypass-btn */
+  .band-bypass-btn { position: absolute; bottom: 7px; left: 50%; transform: translateX(-50%); z-index: 5; }
   .band-bypass-btn.active { color: var(--state-warning); border-color: var(--state-warning);
     box-shadow: 0 0 7px color-mix(in srgb, var(--state-warning) 35%, transparent); }
 
@@ -648,7 +657,7 @@
   <div class="bottom">
     <div class="section-col sec-band">
       <div class="section-label" id="bandSecLabel">Band 1</div>
-      <button class="mode-toggle band-bypass-btn" id="bandBypassBtn" data-tip="Bypass this band — its bell stays placed but stops processing">BYPASS</button>
+      <button class="toggle-btn bypass-btn band-bypass-btn" id="bandBypassBtn" data-tip="Bypass this band — its bell stays placed but stops processing">BYPASS</button>
       <button class="mode-toggle routing-toggle" id="slopeToggle" data-tip="Crossover slope — drag ↑↓, continuous 12…48 dB/oct. Soft wide grab … surgical edges. Double-click: 24" style="cursor: ns-resize;"><canvas id="slopeDial"></canvas><span id="slopeDbText">24 dB</span></button>
       <div class="knob-row">
         <div class="knob-wrap" id="knob_freq"></div>
@@ -779,7 +788,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B85";
+const ENTROPAN_BUILD = "B86";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1988,8 +1997,8 @@ function refreshPanels() {
   const bb = document.getElementById("bandBypassBtn");
   const bandBypassed = b.configured && !pb.on.get();
   bb.classList.toggle("active", bandBypassed);
-  if (bandBypassed) { bb.style.color = bb.style.borderColor = ""; bb.style.boxShadow = ""; }   // .active CSS wins
-  else tintToggle(bb, c);   // live band wears its colour
+  bb.style.color = bb.style.borderColor = ""; bb.style.boxShadow = "";   // same neutral look as the global bypass
+  document.querySelector(".sec-band").classList.toggle("bypassed", bandBypassed);
   const st = document.getElementById("slopeToggle");
   document.getElementById("slopeDbText").textContent = slopeDb(pb.slope.get()) + " dB";
   drawSlopeDial(pb.slope.get(), c);
