@@ -219,10 +219,17 @@ private:
     //   input → splitLo → {low, rest};  rest → splitHi → {band, high}
     //   low → apLow (LP+HP sum = allpass at f_hi) → residual = lowAP + high
     //   band → lift split → pan/gain → out = residual + unlifted + panned
+    // SLOPE morph: the splitters are fixed LR8 (sharpest edges); the continuous
+    // slope control spills residual into the panned path instead of changing
+    // filter order. spill β: panned source S = band + β·residual, kept residual
+    // = (1−β)·residual — the idle sum is band + residual for EVERY β, so the
+    // null-clean guarantee is exact at every morph position, and β is plain
+    // gain math: smoothable, click-free, automatable. β=0 → surgical band;
+    // β=1 → the whole signal pans (full-range autopan).
     struct BandDSP
     {
         LRSplitter splitLo, splitHi, apLow;
-        int slopeApplied = -1;   // last-applied slope index (change ⇒ reconfigure + reset)
+        juce::SmoothedValue<float> spill;     // β 0..1, from the SLOPE param
 
         juce::SmoothedValue<float> lift;      // 0..1
         juce::SmoothedValue<float> gainLin;   // linear, from ±6 dB
@@ -236,10 +243,11 @@ private:
         void prepare (const juce::dsp::ProcessSpec& spec)
         {
             const double sr = spec.sampleRate;
+            splitLo.setSlope (2); splitHi.setSlope (2); apLow.setSlope (2);   // fixed LR8
             splitLo.prepare (sr);
             splitHi.prepare (sr);
             apLow.prepare (sr);
-            slopeApplied = -1;   // reapply slope + cutoffs after rate change
+            spill.reset (sr, 0.020);
             lift.reset    (sr, 0.005);
             gainLin.reset (sr, 0.005);
             enable.reset  (sr, 0.030);

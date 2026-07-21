@@ -24,7 +24,6 @@ namespace
     const juce::StringArray kDivChoices     { "1/16", "1/8", "1/4", "1/2", "1 Bar", "2 Bar", "4 Bar" };
     const juce::StringArray kSpeedChoices   { "/4", "/2", "x1", "x2", "x3", "x4" };
     const juce::StringArray kRoutingChoices { "Serial", "Parallel" };
-    const juce::StringArray kSlopeChoices   { "12 dB/oct", "24 dB/oct", "48 dB/oct" };
 
     constexpr float kBandFreqDefaults[] = { 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f };
 
@@ -261,8 +260,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::crea
         params.push_back (std::make_unique<juce::AudioParameterFloat> (
             juce::ParameterID { p + "stepsmooth", 1 }, label + "Step Smooth", pct(), 0.0f,
             juce::AudioParameterFloatAttributes().withLabel ("%")));
-        params.push_back (std::make_unique<juce::AudioParameterChoice> (
-            juce::ParameterID { p + "slope", 1 }, label + "Slope", kSlopeChoices, 1));   // 24 dB/oct
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { p + "slope", 1 }, label + "Slope", pct(), 100.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("%")));   // 100 = surgical band, 0 = whole signal pans
     }
 
     return { params.begin(), params.end() };
@@ -519,16 +519,12 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const float width = mv[1];
         const float fLoT = juce::jlimit (20.0f, 20000.0f, freq * std::pow (2.0f, -width * 0.5f));
         const float fHiT = juce::jlimit (fLoT * 1.02f, 20500.0f, freq * std::pow (2.0f,  width * 0.5f));
-        // slope change: reconfigure all three splitters + reset their state
-        // (a hard filter swap; the momentary discontinuity is accepted — slope
-        // is a setup choice, not a modulation target)
-        const int slopeIdx = juce::jlimit (0, 2, (int) pp.slope->load());
-        if (slopeIdx != b.slopeApplied)
+        // SLOPE morph → spill β: 100 % = surgical LR8 band (β 0), 0 % = the
+        // whole signal joins the panned path (β 1). Squared taper so the top
+        // half of the knob stays band-focused. Pure smoothed gain — click-free.
         {
-            b.slopeApplied = slopeIdx;
-            b.splitLo.setSlope (slopeIdx); b.splitHi.setSlope (slopeIdx); b.apLow.setSlope (slopeIdx);
-            b.splitLo.reset(); b.splitHi.reset(); b.apLow.reset();
-            b.fLoApplied = b.fHiApplied = -1.0f;   // force cutoff re-push at the new order
+            const float s = juce::jlimit (0.0f, 1.0f, pp.slope->load() * 0.01f);
+            b.spill.setTargetValue ((1.0f - s) * (1.0f - s));
         }
 
         if (! b.cutoffsInit) { b.fLoCur = fLoT; b.fHiCur = fHiT; b.cutoffsInit = true; }
@@ -843,8 +839,14 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const float gL = std::cos (theta) * juce::MathConstants<float>::sqrt2 * gainV;
             const float gR = std::sin (theta) * juce::MathConstants<float>::sqrt2 * gainV;
 
-            const float outL = (lowApL + highL) + bandL * (1.0f - liftV) + bandL * liftV * gL;
-            const float outR = (lowApR + highR) + bandR * (1.0f - liftV) + bandR * liftV * gR;
+            // SLOPE morph (spill β): β of the residual joins the panned path,
+            // (1−β) stays put. Idle sum is band+residual for every β → the
+            // null-clean guarantee is exact at every morph position.
+            const float sp   = b.spill.getNextValue();
+            const float resL = lowApL + highL, resR = lowApR + highR;
+            const float srcL = bandL + sp * resL, srcR = bandR + sp * resR;
+            const float outL = resL * (1.0f - sp) + srcL * (1.0f - liftV) + srcL * liftV * gL;
+            const float outR = resR * (1.0f - sp) + srcR * (1.0f - liftV) + srcR * liftV * gR;
 
             // Parallel side: add only the pan/gain DISPLACEMENT (processed −
             // allpass-flat reconstruction = bandᵢ·lift·(g−1)) — overlapping

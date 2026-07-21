@@ -1102,10 +1102,10 @@ int main()
         std::printf ("    balance swing: before %.2f, frozen %.4f, after %.2f\n", swimBefore, swimFrozen, swimAfter);
     }
 
-    // ── T30: every slope reconstructs null-clean — lift-0 allpass-flat and
-    //         centre-pan unity must hold at 12 and 48 dB/oct like they do at 24 ──
+    // ── T30: every SLOPE-morph position reconstructs null-clean — lift-0
+    //         allpass-flat and centre-pan unity, at surgical, mid, and full-spill ──
     {
-        for (float slope : { 0.0f, 2.0f })
+        for (float slope : { 0.0f, 50.0f, 100.0f })
         {
             EntropanAudioProcessor p;
             p.prepareToPlay (kSampleRate, kBlock);
@@ -1127,10 +1127,45 @@ int main()
             const bool pass = std::abs (f0L) < 0.05 && std::abs (f0R) < 0.05
                            && std::abs (c0L) < 0.05 && std::abs (c0R) < 0.05;
             char name[64];
-            std::snprintf (name, sizeof (name), "T30 slope %d null-clean", slope == 0.0f ? 12 : 48);
+            std::snprintf (name, sizeof (name), "T30 slope-morph %d%% null-clean", (int) slope);
             ok &= check (name, pass);
             std::printf ("    lift0 %+0.4f/%+0.4f dB   centre %+0.4f/%+0.4f dB\n", f0L, f0R, c0L, c0R);
         }
+    }
+
+    // ── T31: SLOPE morph semantics — an OUT-of-band sine pans fully at 0 %
+    //         (whole signal joins the path) and barely moves at 100 % ──
+    {
+        auto runReach = [] (float slope, double& swing)
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (kSampleRate, kBlock);
+            setParam (p, "b1_on", 1.0f);
+            setParam (p, "b1_freq", 237.0f); setParam (p, "b1_width", 1.0f);   // narrow, low band
+            setParam (p, "b1_lift", 100.0f); setParam (p, "b1_depth", 100.0f);
+            setParam (p, "b1_slope", slope);
+            setParam (p, "b1_ratemode", 1.0f); setParam (p, "b1_rate", 2.0f);
+            setParam (p, "b1_inertia", 0.0f);
+            juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+            double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*5000.0/kSampleRate;   // far above the band
+            double mn = 1e9, mx = -1e9;
+            for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk) {
+                for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+                p.processBlock (buf, midi);
+                if (blk < kWarmBlocks) continue;
+                double el = 1e-12, er = 1e-12;
+                for (int s = 0; s < kBlock; ++s) { el += juce::square ((double) buf.getSample (0, s));
+                                                   er += juce::square ((double) buf.getSample (1, s)); }
+                const double bal = (el - er) / (el + er);
+                mn = juce::jmin (mn, bal); mx = juce::jmax (mx, bal);
+            }
+            swing = mx - mn;
+        };
+        double sharp = 0, full = 0;
+        runReach (100.0f, sharp);   // surgical: 5 kHz is outside a 237 Hz band → stays put
+        runReach (0.0f,   full);    // full spill: everything pans
+        ok &= check ("T31 slope morph: 0% pans everything", full > 1.8 && sharp < 0.15);
+        std::printf ("    out-of-band swing: slope100 %.3f, slope0 %.3f\n", sharp, full);
     }
 
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");

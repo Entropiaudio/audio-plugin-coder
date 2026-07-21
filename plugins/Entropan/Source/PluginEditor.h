@@ -20,8 +20,8 @@ namespace Moonbase { namespace JUCEClient { struct ActivationUI; } }
  *   3. Parameter attachments (destroyed first)
  *
  * 121 parameters bound via relay/attachment vectors:
- *   - 69 float/int  → WebSliderRelay
- *   - 26 choice     → WebComboBoxRelay
+ *   - 75 float/int  → WebSliderRelay
+ *   - 20 choice     → WebComboBoxRelay
  *   - 26 bool       → WebToggleButtonRelay
  */
 class EntropanAudioProcessorEditor : public juce::AudioProcessorEditor,

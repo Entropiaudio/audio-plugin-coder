@@ -635,7 +635,7 @@
   <div class="bottom">
     <div class="section-col sec-band">
       <div class="section-label" id="bandSecLabel">Band 1</div>
-      <button class="mode-toggle routing-toggle" id="slopeToggle" data-tip="Crossover slope — how sharply the band separates from the rest. 12: soft wide grab · 24: balanced · 48: surgical, edge content pans almost fully">24 dB</button>
+      <button class="mode-toggle routing-toggle" id="slopeToggle" data-tip="Slope morph — drag ↑↓. 100%: surgical band (only the bell pans) … 0%: the whole signal joins the pan. Double-click: 100%" style="cursor: ns-resize;">SLP 100%</button>
       <div class="knob-row">
         <div class="knob-wrap" id="knob_freq"></div>
         <div class="knob-wrap" id="knob_bwidth"></div>
@@ -765,7 +765,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B79";
+const ENTROPAN_BUILD = "B80";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -819,7 +819,7 @@ function bandIds(i) { const p = `b${i + 1}_`; return {
   bias:    { id: p + "bias",    kind: "slider", def: 0 },
   override:{ id: p + "override",kind: "toggle", def: false },
   stepsmooth:{ id: p + "stepsmooth", kind: "slider", def: 0 },
-  slope:   { id: p + "slope",   kind: "combo",  def: 1 }
+  slope:   { id: p + "slope",   kind: "slider", def: 100 }
 }; }
 const GLOBALS = {
   seed:   { id: "seed",   kind: "slider", def: 1 },
@@ -1789,8 +1789,19 @@ document.getElementById("polToggle").onclick = () => {
   refreshPanels();
 };
 document.getElementById("routingToggle").onclick = () => { P.routing.set(P.routing.get() ? 0 : 1); refreshPanels(); };
-// crossover slope: cycles 12 → 24 → 48 dB/oct for the selected band
-document.getElementById("slopeToggle").onclick = () => { PB().slope.set((PB().slope.get() + 1) % 3); refreshPanels(); };
+// SLOPE morph: drag ↑↓ on the pill — 100% surgical band … 0% whole signal pans
+{
+  const st = document.getElementById("slopeToggle");
+  let drag = null;
+  st.addEventListener("mousedown", e => { drag = { y: e.clientY, v: PB().slope.get() }; e.preventDefault(); });
+  window.addEventListener("mousemove", e => {
+    if (!drag) return;
+    PB().slope.set(clamp(drag.v + (drag.y - e.clientY) * 0.7, 0, 100));
+    refreshPanels();
+  });
+  window.addEventListener("mouseup", () => drag = null);
+  st.addEventListener("dblclick", () => { PB().slope.set(100); refreshPanels(); });
+}
 document.getElementById("overrideToggle").onclick = () => {
   const i = ui.selected, pb = PB();
   pb.override.set(!pb.override.get());
@@ -1936,7 +1947,7 @@ function refreshPanels() {
   rt.textContent = P.routing.get() ? "PARALLEL" : "SERIAL";
   tintToggle(rt, P.routing.get() ? COL_PURPLE : COL_ORANGE);   // Serial orange → Parallel purple
   const st = document.getElementById("slopeToggle");
-  st.textContent = ["12 dB", "24 dB", "48 dB"][pb.slope.get()] || "24 dB";
+  st.textContent = "SLP " + Math.round(pb.slope.get()) + "%";
   tintToggle(st, c);   // selected band's colour — it is a per-band setting
   const byp = document.getElementById("bypassBtn");
   byp.classList.toggle("active", P.bypass.get());

@@ -23,10 +23,10 @@ juce::StringArray EntropanAudioProcessorEditor::sliderParamIds()
     for (int i = 1; i <= EntropanAudioProcessor::kNumBands; ++i)
     {
         const juce::String p = "b" + juce::String (i) + "_";
-        for (auto* s : { "freq", "width", "lift", "depth", "gain", "rate", "inertia", "phase", "bias", "stepsmooth" })
+        for (auto* s : { "freq", "width", "lift", "depth", "gain", "rate", "inertia", "phase", "bias", "stepsmooth", "slope" })
             ids.add (p + s);
     }
-    return ids;   // 9 + 6×10 = 69
+    return ids;   // 9 + 6×11 = 75
 }
 
 juce::StringArray EntropanAudioProcessorEditor::comboParamIds()
@@ -35,10 +35,10 @@ juce::StringArray EntropanAudioProcessorEditor::comboParamIds()
     for (int i = 1; i <= EntropanAudioProcessor::kNumBands; ++i)
     {
         const juce::String p = "b" + juce::String (i) + "_";
-        for (auto* s : { "mode", "ratemode", "div", "slope" })
+        for (auto* s : { "mode", "ratemode", "div" })
             ids.add (p + s);
     }
-    return ids;   // 2 + 6×4 = 26
+    return ids;   // 2 + 6×3 = 20
 }
 
 juce::StringArray EntropanAudioProcessorEditor::toggleParamIds()
