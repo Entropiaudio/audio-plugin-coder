@@ -517,30 +517,25 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // range with a guaranteed f_lo < f_hi ordering.
         const float freq  = mv[0];
         const float width = mv[1];
-        const float fLoT = juce::jlimit (20.0f, 20000.0f, freq * std::pow (2.0f, -width * 0.5f));
-        const float fHiT = juce::jlimit (fLoT * 1.02f, 20500.0f, freq * std::pow (2.0f,  width * 0.5f));
         // SLOPE morph: smoothed 0..1; zone picked at block rate (0 = 12↔24,
-        // 1 = 24↔48). A stage entering the blend enters at weight ≈ 0 → its
-        // cold state fades in silently; stage24 runs in BOTH zones on the same
-        // rotated input, so crossing the 24-detent cannot discontinue.
+        // 1 = 24↔48). All three bell cascades stay warm all the time — a
+        // cascade entering the blend cold would step the output.
         b.slope01.setTargetValue (juce::jlimit (0.0f, 1.0f, pp.slope->load() * 0.01f));
-        // zone only selects WHICH pair blends — all three stages stay warm all
-        // the time (a stage entering the blend cold stepped the output; running
-        // dormant stages continuously removes every discontinuity source)
         b.zoneApplied = b.slope01.getCurrentValue() < 0.5f ? 0 : 1;
 
-        if (! b.cutoffsInit) { b.fLoCur = fLoT; b.fHiCur = fHiT; b.cutoffsInit = true; }
+        const float fcT = juce::jlimit (20.0f, 20000.0f, freq);
+        const float wT  = juce::jlimit (0.05f, 6.0f, width);
+        if (! b.cutoffsInit) { b.fcCur = fcT; b.wCur = wT; b.cutoffsInit = true; }
         // block-rate glide (~40 ms) — no zipper while dragging freq/Q
         const float ck = juce::jmin (1.0f, (float) numSamples / (0.040f * (float) currentSampleRate));
-        b.fLoCur += (fLoT - b.fLoCur) * ck;
-        b.fHiCur += (fHiT - b.fHiCur) * ck;
-        // push coefficients only while actually gliding (setCutoffFrequency
-        // no-ops per filter when the frequency is unchanged)
-        if (std::abs (b.fLoCur - b.fLoApplied) > 0.01f || std::abs (b.fHiCur - b.fHiApplied) > 0.01f)
+        b.fcCur += (fcT - b.fcCur) * ck;
+        b.wCur  += (wT  - b.wCur)  * ck;
+        // push coefficients only while actually gliding
+        if (std::abs (b.fcCur - b.fcApplied) > 0.01f || std::abs (b.wCur - b.wApplied) > 0.0005f)
         {
-            b.pushCutoffs (b.fLoCur, b.fHiCur);
-            b.fLoApplied = b.fLoCur;
-            b.fHiApplied = b.fHiCur;
+            b.pushBellParams (b.fcCur, b.wCur);
+            b.fcApplied = b.fcCur;
+            b.wApplied  = b.wCur;
         }
 
         b.lift.setTargetValue (mv[2] * 0.01f);
@@ -817,80 +812,34 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const float inL = xl + (xinL - xl) * rx;
             const float inR = xr + (xinR - xr) * rx;
 
-            // one 3-way split at one order → {flat reconstruction, band}
-            auto runStage = [] (LRSplitter& sLo, LRSplitter& sHi, LRSplitter& sAp,
-                                float iL, float iR,
-                                float& reconL, float& reconR, float& bL, float& bR)
-            {
-                float lowL = 0, restL = 0, lowR = 0, restR = 0;
-                sLo.processSample (0, iL, lowL, restL);
-                sLo.processSample (1, iR, lowR, restR);
-                float highL = 0, highR = 0;
-                sHi.processSample (0, restL, bL, highL);
-                sHi.processSample (1, restR, bR, highR);
-                // allpass-match the low branch at f_hi (LR property: LP+HP = AP)
-                float apA = 0, apB = 0;
-                sAp.processSample (0, lowL, apA, apB); const float lowApL = apA + apB;
-                sAp.processSample (1, lowR, apA, apB); const float lowApR = apA + apB;
-                reconL = lowApL + highL + bL;
-                reconR = lowApR + highR + bR;
-            };
-            auto allpass2 = [] (LRSplitter& a, LRSplitter& c, float& L, float& R)
-            {
-                float lo = 0, hi = 0;
-                a.processSample (0, L, lo, hi); L = lo + hi;
-                a.processSample (1, R, lo, hi); R = lo + hi;
-                c.processSample (0, L, lo, hi); L = lo + hi;
-                c.processSample (1, R, lo, hi); R = lo + hi;
-            };
-
-            // phase ladder: in24 = AP2(x) — runs in BOTH zones so the 24-detent
-            // is identical from either side; in12 = AP1(in24) (zone A only)
-            float in24L = inL, in24R = inR;
-            allpass2 (b.rot4a, b.rot4b, in24L, in24R);
-
-            // morph position: s 0..2, zone from the block-rate pick, t = frac
+            // subtractive displacement: band = unity-peak bell (full centre
+            // capture at ANY width); residual = in − band by construction.
+            // All three cascades run warm; zone picks the blend pair; every
+            // cascade is 0° phase at fc so the blend can never null.
             const float s2 = b.slope01.getNextValue() * 2.0f;
             const float t  = juce::jlimit (0.0f, 1.0f, s2 - (float) b.zoneApplied);
             const float wLo = 1.0f - t, wHi = t;
 
-            float reconL, reconR, bandL, bandR;                 // blended
-            {
-                // all three stages run every sample (warm) — the zone only
-                // decides which two feed the blend
-                float in12L = in24L, in12R = in24R;
-                allpass2 (b.rot2a, b.rot2b, in12L, in12R);
-                float r12L, r12R, b12L, b12R, r24L, r24R, b24L, b24R, r48L, r48R, b48L, b48R;
-                runStage (b.s12Lo, b.s12Hi, b.s12Ap, in12L, in12R, r12L, r12R, b12L, b12R);
-                runStage (b.s24Lo, b.s24Hi, b.s24Ap, in24L, in24R, r24L, r24R, b24L, b24R);
-                runStage (b.s48Lo, b.s48Hi, b.s48Ap, inL,   inR,   r48L, r48R, b48L, b48R);
-                if (b.zoneApplied == 0)
-                {
-                    reconL = wLo * r12L + wHi * r24L;  reconR = wLo * r12R + wHi * r24R;
-                    bandL  = wLo * b12L + wHi * b24L;  bandR  = wLo * b12R + wHi * b24R;
-                }
-                else
-                {
-                    reconL = wLo * r24L + wHi * r48L;  reconR = wLo * r24R + wHi * r48R;
-                    bandL  = wLo * b24L + wHi * b48L;  bandR  = wLo * b24R + wHi * b48R;
-                }
-            }
+            const float b2L = b.bell2.processSample (0, inL), b2R = b.bell2.processSample (1, inR);
+            const float b4L = b.bell4.processSample (0, inL), b4R = b.bell4.processSample (1, inR);
+            const float b8L = b.bell8.processSample (0, inL), b8R = b.bell8.processSample (1, inR);
+            const float bandL = b.zoneApplied == 0 ? wLo * b2L + wHi * b4L : wLo * b4L + wHi * b8L;
+            const float bandR = b.zoneApplied == 0 ? wLo * b2R + wHi * b4R : wLo * b4R + wHi * b8R;
 
             // lift split + equal-power pan (balance law, ×√2 so centre = unity)
             const float theta = (panV + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
             const float gL = std::cos (theta) * juce::MathConstants<float>::sqrt2 * gainV;
             const float gR = std::sin (theta) * juce::MathConstants<float>::sqrt2 * gainV;
 
-            // out = recon + band·lift·(g−1)  (algebraically the old formula)
-            const float outL = reconL + bandL * liftV * (gL - 1.0f);
-            const float outR = reconR + bandR * liftV * (gR - 1.0f);
+            // out = in + band·lift·(g−1): g = 1 (idle) ⇒ out ≡ in, bit-exact
+            const float outL = inL + bandL * liftV * (gL - 1.0f);
+            const float outR = inR + bandR * liftV * (gR - 1.0f);
 
-            // Parallel side: add only the pan/gain DISPLACEMENT (processed −
-            // allpass-flat reconstruction = band·lift·(g−1)) — overlapping
+            // Parallel side: add only the pan/gain DISPLACEMENT — overlapping
             // bands SUM their movement instead of the later one re-panning the
             // earlier. Serial side: chain replacement. Both weighted by rx.
-            accL += (outL - reconL) * e * rx;
-            accR += (outR - reconR) * e * rx;
+            accL += (outL - inL) * e * rx;
+            accR += (outR - inR) * e * rx;
             xl = xl + (outL - xl) * e * sxw;
             xr = xr + (outR - xr) * e * sxw;
         }

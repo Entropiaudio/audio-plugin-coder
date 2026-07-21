@@ -1208,6 +1208,40 @@ int main()
         std::printf ("    max sample step during sweep: %.3f (clean sine ≈ 0.131)\n", maxStep);
     }
 
+    // ── T34: a NARROW bell hard-pans its centre — the user's exact scenario
+    //         (sine at fc, bell tight around it, lift/depth/amount 100) must
+    //         reach ≥0.97 balance at every slope ──
+    {
+        bool allReach = true;
+        for (float slope : { 0.0f, 50.0f, 100.0f })
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (kSampleRate, kBlock);
+            setParam (p, "b1_on", 1.0f);
+            setParam (p, "b1_freq", 299.0f);
+            setParam (p, "b1_width", 0.2f);      // Q ≈ 7.2 — the screenshot patch
+            setParam (p, "b1_lift", 100.0f); setParam (p, "b1_depth", 100.0f);
+            setParam (p, "b1_slope", slope);
+            setParam (p, "b1_ratemode", 1.0f); setParam (p, "b1_rate", 0.5f);
+            setParam (p, "b1_inertia", 0.0f);
+            juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+            double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*299.0/kSampleRate;
+            double mx = 0;
+            for (int blk = 0; blk < kWarmBlocks + kTestBlocks; ++blk) {
+                for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+                p.processBlock (buf, midi);
+                if (blk < kWarmBlocks) continue;
+                double el = 1e-12, er = 1e-12;
+                for (int s = 0; s < kBlock; ++s) { el += juce::square ((double) buf.getSample (0, s));
+                                                   er += juce::square ((double) buf.getSample (1, s)); }
+                mx = juce::jmax (mx, std::abs ((el - er) / (el + er)));
+            }
+            std::printf ("    slope %3.0f%%: narrow-bell max |balance| %.3f\n", slope, mx);
+            allReach = allReach && mx >= 0.97;
+        }
+        ok &= check ("T34 narrow bell hard-pans its centre", allReach);
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }

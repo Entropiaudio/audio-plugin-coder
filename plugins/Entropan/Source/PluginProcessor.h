@@ -135,128 +135,89 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     //==============================================================================
-    // Selectable-order Linkwitz-Riley splitter: 12 / 24 / 48 dB per octave
-    // (LR2 / LR4 / LR8). The LR property LP+HP = allpass holds at every order —
-    // that is what keeps the band recombination null-clean. LR2's inherent
-    // polarity quirk (complementary sum needs −HP) is folded into the HP output
-    // here, so every consumer just sums the two branches like before.
-    struct LRSplitter
-    {
-        static constexpr int kMaxSections = 4;         // LR8 = 4 biquads per branch
-        struct BQ { float b0 = 0, b1 = 0, b2 = 0, a1 = 0, a2 = 0; };
-        int    numSections = 2;                        // LR4 default
-        bool   invertHp = false;                       // true only for LR2
-        double sampleRate = 48000.0;
-        float  qs[kMaxSections] {};
-        BQ     lpC[kMaxSections], hpC[kMaxSections];
-        float  lpS[2][kMaxSections][2] {}, hpS[2][kMaxSections][2] {};   // TDF2 state
-        float  lastCutoff = -1.0f;
-
-        void setSlope (int idx)                        // 0 = 12, 1 = 24, 2 = 48 dB/oct
-        {
-            static constexpr float kQ2[] = { 0.5f };                                    // LR2
-            static constexpr float kQ4[] = { 0.70710678f, 0.70710678f };                // LR4 = B2²
-            static constexpr float kQ8[] = { 0.54119610f, 1.30656296f,                  // LR8 = B4²
-                                             0.54119610f, 1.30656296f };
-            const float* q = idx == 0 ? kQ2 : idx == 2 ? kQ8 : kQ4;
-            numSections    = idx == 0 ? 1   : idx == 2 ? 4   : 2;
-            invertHp       = (idx == 0);
-            for (int s = 0; s < numSections; ++s) qs[s] = q[s];
-            lastCutoff = -1.0f;                        // force coefficient rebuild
-        }
-
-        void prepare (double sr) { sampleRate = sr; reset(); }
-        void reset()
-        {
-            std::memset (lpS, 0, sizeof (lpS));
-            std::memset (hpS, 0, sizeof (hpS));
-        }
-
-        void setCutoffFrequency (float f)
-        {
-            if (f == lastCutoff) return;
-            lastCutoff = f;
-            const double w0 = juce::MathConstants<double>::twoPi
-                                * juce::jlimit (10.0, sampleRate * 0.49, (double) f) / sampleRate;
-            const double cw = std::cos (w0), sw = std::sin (w0);
-            for (int s = 0; s < numSections; ++s)
-            {
-                const double alpha = sw / (2.0 * qs[s]);
-                const double a0 = 1.0 + alpha;
-                const float a1 = (float) (-2.0 * cw / a0);
-                const float a2 = (float) ((1.0 - alpha) / a0);
-                lpC[s] = { (float) ((1.0 - cw) * 0.5 / a0), (float) ((1.0 - cw) / a0),
-                           (float) ((1.0 - cw) * 0.5 / a0), a1, a2 };
-                hpC[s] = { (float) ((1.0 + cw) * 0.5 / a0), (float) (-(1.0 + cw) / a0),
-                           (float) ((1.0 + cw) * 0.5 / a0), a1, a2 };
-            }
-        }
-
-        // complementary pair: outLo + outHi always reconstructs to an allpass
-        void processSample (int ch, float x, float& outLo, float& outHi)
-        {
-            float lo = x, hi = x;
-            for (int s = 0; s < numSections; ++s)
-            {
-                { auto& c = lpC[s]; auto* st = lpS[ch][s];
-                  const float y = c.b0 * lo + st[0];
-                  st[0] = c.b1 * lo - c.a1 * y + st[1];
-                  st[1] = c.b2 * lo - c.a2 * y;
-                  lo = y; }
-                { auto& c = hpC[s]; auto* st = hpS[ch][s];
-                  const float y = c.b0 * hi + st[0];
-                  st[0] = c.b1 * hi - c.a1 * y + st[1];
-                  st[1] = c.b2 * hi - c.a2 * y;
-                  hi = y; }
-            }
-            outLo = lo;
-            outHi = invertHp ? -hi : hi;
-        }
-    };
-
     //==============================================================================
     // Per-band DSP stage: 3-way LR split with allpass-compensated low branch.
     //   input → splitLo → {low, rest};  rest → splitHi → {band, high}
     //   low → apLow (LP+HP sum = allpass at f_hi) → residual = lowAP + high
     //   band → lift split → pan/gain → out = residual + unlifted + panned
-    // CONTINUOUS slope morph (12→48 dB/oct), click-free by construction.
-    // Three persistent stages (LR2 / LR4 / LR8) run behind one knob; adjacent
-    // orders crossfade. Blending different-order reconstructions naively nulls
-    // at the crossover (their allpasses sit up to 180° apart), so every stage
-    // is first rotated to a COMMON phase reference — the LR8 lattice:
-    //     in48 = x;   in24 = AP2(x);   in12 = AP1(AP2(x))
-    // (AP applied at both crossover frequencies, implemented by feeding the
-    // lower-order stage a pre-rotated INPUT — LTI commutes). At the 24-detent
-    // both zones produce byte-identical output (stage24 on in24), so sweeping
-    // through it cannot click; stages entering a blend do so at weight ≈ 0.
-    // Mid-blend idle ripple is the small shape difference between same-order
-    // allpasses (measured < 0.5 dB); detents are exact.
+    // SUBTRACTIVE DISPLACEMENT topology (the dynamic-EQ construction).
+    // The band is a UNITY-PEAK resonant bell B(x); the "residual" is literally
+    // input − band, so:
+    //     out = in + B(in)·lift·(g − 1)
+    // Idle (g = 1) is a BIT-EXACT WIRE at every setting — stronger than the
+    // old crossover-split's allpass guarantee — and the bell's centre is
+    // captured at UNITY for ANY width. The previous LR crossover-split product
+    // (HP@fLo · LP@fHi) attenuated its own centre as the band narrowed
+    // (skirts overlap: a Q≈7 band lost ~4 dB of its own fc), which capped a
+    // narrow bell's pan at ±0.5 — the "never hard pans" report. Here a hard
+    // pan removes fc content COMPLETELY on the emptied side at any Q.
+    // SLOPE morph: three warm cascades (2 / 4 / 8 unity-peak sections ≈
+    // 12 / 24 / 48 dB per octave skirts); adjacent cascades crossfade. Every
+    // cascade is 0° phase at fc, so blends can never null, and the idle path
+    // does not involve the bells at all — null-exact at every morph position.
+    struct BellCascade
+    {
+        static constexpr int kMaxSections = 8;
+        struct BQ { float b0 = 0, a1 = 0, a2 = 0; };   // BP: b1 = 0, b2 = −b0
+        int    sections = 4;
+        double sampleRate = 48000.0;
+        BQ     c[kMaxSections];
+        float  st[2][kMaxSections][2] {};
+
+        void configure (int n)     { sections = juce::jlimit (1, kMaxSections, n); }
+        void prepare (double sr)   { sampleRate = sr; reset(); }
+        void reset()               { std::memset (st, 0, sizeof (st)); }
+
+        void setParams (float fc, float widthOct)
+        {
+            // composite −3 dB width = the band's width; each of n identical
+            // sections must be wider: BWsec = BWtot / sqrt(2^(1/n) − 1)
+            const double w  = juce::jlimit (0.05, 6.0, (double) widthOct);
+            const double qT = 1.0 / (std::pow (2.0, w * 0.5) - std::pow (2.0, -w * 0.5));
+            const double q  = juce::jmax (0.1, qT * std::sqrt (std::pow (2.0, 1.0 / sections) - 1.0));
+            const double w0 = juce::MathConstants<double>::twoPi
+                                * juce::jlimit (10.0, sampleRate * 0.49, (double) fc) / sampleRate;
+            const double alpha = std::sin (w0) / (2.0 * q);
+            const double a0 = 1.0 + alpha;
+            for (int s = 0; s < sections; ++s)
+                c[s] = { (float) (alpha / a0), (float) (-2.0 * std::cos (w0) / a0), (float) ((1.0 - alpha) / a0) };
+        }
+
+        float processSample (int ch, float x)
+        {
+            for (int s = 0; s < sections; ++s)
+            {
+                auto& k = c[s]; auto* z = st[ch][s];
+                const float y = k.b0 * x + z[0];
+                z[0] = -k.a1 * y + z[1];
+                z[1] = -k.b0 * x - k.a2 * y;
+                x = y;
+            }
+            return x;
+        }
+    };
+
     struct BandDSP
     {
-        LRSplitter s12Lo, s12Hi, s12Ap;   // 12 dB/oct stage
-        LRSplitter s24Lo, s24Hi, s24Ap;   // 24
-        LRSplitter s48Lo, s48Hi, s48Ap;   // 48
-        LRSplitter rot4a, rot4b;          // AP2 @ fLo / fHi → in24 (always runs)
-        LRSplitter rot2a, rot2b;          // AP1 @ fLo / fHi → in12 (zone A only)
+        BellCascade bell2, bell4, bell8;      // ≈12 / 24 / 48 dB/oct skirts
         juce::SmoothedValue<float> slope01;   // 0..1 (param /100), 30 ms
-        int zoneApplied = -1;             // 0 = blend 12↔24, 1 = blend 24↔48
+        int zoneApplied = 0;                  // 0 = blend 2↔4, 1 = blend 4↔8
 
         juce::SmoothedValue<float> lift;      // 0..1
         juce::SmoothedValue<float> gainLin;   // linear, from ±6 dB
         juce::SmoothedValue<float> enable;    // 0..1 engage crossfade (~30 ms)
         juce::SmoothedValue<float> depth;     // 0..1, per-sample (automation-safe)
         juce::SmoothedValue<float> bias;      // -1..1 static pan offset (resting position)
-        float fLoCur = 100.0f, fHiCur = 400.0f;   // block-rate cutoff glide state
-        float fLoApplied = -1.0f, fHiApplied = -1.0f;  // last cutoffs pushed into the filters
+        float fcCur = 1000.0f, wCur = 1.0f;            // block-rate fc / width glide state
+        float fcApplied = -1.0f, wApplied = -1.0f;     // last values pushed into the bells
         bool  cutoffsInit = false;
 
         void prepare (const juce::dsp::ProcessSpec& spec)
         {
             const double sr = spec.sampleRate;
-            for (auto* f : { &s12Lo, &s12Hi, &s12Ap, &rot2a, &rot2b }) { f->setSlope (0); f->prepare (sr); }
-            for (auto* f : { &s24Lo, &s24Hi, &s24Ap, &rot4a, &rot4b }) { f->setSlope (1); f->prepare (sr); }
-            for (auto* f : { &s48Lo, &s48Hi, &s48Ap })                 { f->setSlope (2); f->prepare (sr); }
-            zoneApplied = -1;
+            bell2.configure (2); bell4.configure (4); bell8.configure (8);
+            bell2.prepare (sr);  bell4.prepare (sr);  bell8.prepare (sr);
+            zoneApplied = 0;
             slope01.reset (sr, 0.030);
             lift.reset    (sr, 0.005);
             gainLin.reset (sr, 0.005);
@@ -266,20 +227,13 @@ private:
             cutoffsInit = false;
         }
 
-        void resetState()
-        {
-            for (auto* f : { &s12Lo, &s12Hi, &s12Ap, &s24Lo, &s24Hi, &s24Ap,
-                             &s48Lo, &s48Hi, &s48Ap, &rot2a, &rot2b, &rot4a, &rot4b })
-                f->reset();
-        }
+        void resetState() { bell2.reset(); bell4.reset(); bell8.reset(); }
 
-        void pushCutoffs (float fLo, float fHi)
+        void pushBellParams (float fc, float widthOct)
         {
-            for (auto* f : { &s12Lo, &s24Lo, &s48Lo })          f->setCutoffFrequency (fLo);
-            for (auto* f : { &s12Hi, &s24Hi, &s48Hi,
-                             &s12Ap, &s24Ap, &s48Ap })          f->setCutoffFrequency (fHi);
-            rot2a.setCutoffFrequency (fLo); rot4a.setCutoffFrequency (fLo);
-            rot2b.setCutoffFrequency (fHi); rot4b.setCutoffFrequency (fHi);
+            bell2.setParams (fc, widthOct);
+            bell4.setParams (fc, widthOct);
+            bell8.setParams (fc, widthOct);
         }
     };
 
