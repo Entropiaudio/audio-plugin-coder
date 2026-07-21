@@ -395,6 +395,14 @@
     margin: 0;
   }
 
+  .band-bypass-btn {
+    position: absolute; top: 6px; right: 84px; z-index: 5;
+    width: 38px; padding: 2px 0; font-size: 8px; letter-spacing: 1px;
+    text-align: center; white-space: nowrap;
+  }
+  .band-bypass-btn.active { color: var(--state-warning); border-color: var(--state-warning);
+    box-shadow: 0 0 7px color-mix(in srgb, var(--state-warning) 35%, transparent); }
+
   /* mode chips */
   .mode-chips { display: flex; gap: 3px; margin: 2px 0 8px 0; flex-wrap: wrap; }
   .mode-chip {
@@ -635,6 +643,7 @@
   <div class="bottom">
     <div class="section-col sec-band">
       <div class="section-label" id="bandSecLabel">Band 1</div>
+      <button class="mode-toggle band-bypass-btn" id="bandBypassBtn" data-tip="Bypass this band — its bell stays placed but stops processing">BYP</button>
       <button class="mode-toggle routing-toggle" id="slopeToggle" data-tip="Crossover slope — drag ↑↓, continuous 12…48 dB/oct. Soft wide grab … surgical edges. Double-click: 24" style="cursor: ns-resize;">24 dB</button>
       <div class="knob-row">
         <div class="knob-wrap" id="knob_freq"></div>
@@ -765,7 +774,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B83";
+const ENTROPAN_BUILD = "B84";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1795,6 +1804,9 @@ document.getElementById("routingToggle").onclick = () => { P.routing.set(P.routi
 // the param write + pill label + a coalesced panel refresh (schedulePanels) —
 // a full refreshPanels per mousemove is the known stutter trap (B57/B80).
 const slopeDb = v => Math.round(12 * Math.pow(4, clamp(v, 0, 100) / 100));
+// band bypass: flips the selected band's ON param (the bell ghosts, audio
+// passes clean through this band; the 30 ms enable crossfade makes it pop-free)
+document.getElementById("bandBypassBtn").onclick = () => { PB().on.set(!PB().on.get()); refreshPanels(); };
 {
   const st = document.getElementById("slopeToggle");
   let drag = null;
@@ -1953,6 +1965,11 @@ function refreshPanels() {
   const rt = document.getElementById("routingToggle");
   rt.textContent = P.routing.get() ? "PARALLEL" : "SERIAL";
   tintToggle(rt, P.routing.get() ? COL_PURPLE : COL_ORANGE);   // Serial orange → Parallel purple
+  const bb = document.getElementById("bandBypassBtn");
+  const bandBypassed = b.configured && !pb.on.get();
+  bb.classList.toggle("active", bandBypassed);
+  if (bandBypassed) { bb.style.color = bb.style.borderColor = ""; bb.style.boxShadow = ""; }   // .active CSS wins
+  else tintToggle(bb, c);   // live band wears its colour
   const st = document.getElementById("slopeToggle");
   st.textContent = slopeDb(pb.slope.get()) + " dB";
   tintToggle(st, c);   // selected band's colour — it is a per-band setting
