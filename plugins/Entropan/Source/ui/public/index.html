@@ -525,6 +525,8 @@
   .bypass-dim.on { opacity: 1; }
 
   /* ─── SETTINGS POPOVER (Chaosverb feature set) ─── */
+  .about-popover { left: 12px; right: auto; width: 210px; }
+  .header-left { cursor: pointer; }
   .settings-popover {
     position: absolute; top: 52px; right: 12px; z-index: 20;
     width: 190px; padding: 10px 12px;
@@ -607,7 +609,7 @@
 
   <!-- HEADER -->
   <div class="header">
-    <div class="header-left">
+    <div class="header-left" id="brandBlock" data-tip="About · license · contact">
       <div class="plugin-title">Entropan</div>
       <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0</div>
     </div>
@@ -731,6 +733,37 @@
     </div>
   </div>
 
+  <!-- ABOUT: opens from the Entropan name — build, license, contact -->
+  <div class="settings-popover about-popover" id="aboutPopover">
+    <h3>Entropan</h3>
+    <div class="settings-row">
+      <span class="settings-row-label">Version</span>
+      <span class="settings-row-value" id="aboutBuild">—</span>
+    </div>
+    <div class="settings-row" id="licenseRow" style="display:none;">
+      <span class="settings-row-label">License</span>
+      <div style="display:flex; align-items:center; gap:6px;">
+        <span class="settings-row-value" id="licenseState">—</span>
+        <button class="settings-mini-btn" id="licenseDeactivate"
+                style="width:auto; padding:0 6px; display:none;">Deactivate</button>
+      </div>
+    </div>
+    <div class="settings-row" id="licenseDetailRow" style="display:none;">
+      <span class="settings-row-label" id="licenseEmail"></span>
+      <span class="settings-row-value" id="licenseExpiry"></span>
+    </div>
+    <div id="licenseErrorRow" style="display:none; padding:2px 0 4px;">
+      <span class="settings-row-value" id="licenseError"
+            style="color:#d98a8a; font-size:9px; line-height:1.35; display:block;
+                   white-space:normal; word-break:break-word;"></span>
+    </div>
+    <div class="settings-row">
+      <span class="settings-row-label">Entropia Audio</span>
+      <button class="settings-mini-btn" id="contactLink"
+              style="width:auto; padding:0 8px;">Contact us</button>
+    </div>
+  </div>
+
   <div class="settings-popover" id="settingsPopover">
     <h3>Settings</h3>
     <div class="settings-row">
@@ -754,23 +787,6 @@
         <button class="settings-mini-btn" id="brightnessUp">+</button>
       </div>
     </div>
-    <div class="settings-row" id="licenseRow" style="display:none;">
-      <span class="settings-row-label">License</span>
-      <div style="display:flex; align-items:center; gap:6px;">
-        <span class="settings-row-value" id="licenseState">—</span>
-        <button class="settings-mini-btn" id="licenseDeactivate"
-                style="width:auto; padding:0 6px; display:none;">Deactivate</button>
-      </div>
-    </div>
-    <div class="settings-row" id="licenseDetailRow" style="display:none;">
-      <span class="settings-row-label" id="licenseEmail"></span>
-      <span class="settings-row-value" id="licenseExpiry"></span>
-    </div>
-    <div id="licenseErrorRow" style="display:none; padding:2px 0 4px;">
-      <span class="settings-row-value" id="licenseError"
-            style="color:#d98a8a; font-size:9px; line-height:1.35; display:block;
-                   white-space:normal; word-break:break-word;"></span>
-    </div>
   </div>
   <div class="preset-save-overlay" id="presetSaveOverlay">
     <div class="preset-save-card">
@@ -788,7 +804,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B88";
+const ENTROPAN_BUILD = "B89";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -3001,8 +3017,27 @@ licenseDeactivate.addEventListener("click", () => {
 
 document.getElementById("settingsBtn").addEventListener("click", e => {
   settingsPopover.classList.toggle("open");
-  if (settingsPopover.classList.contains("open")) refreshLicense();
   e.stopPropagation();
+});
+
+/* ── ABOUT popup: the Entropan name opens build + license + contact ── */
+const aboutPopover = document.getElementById("aboutPopover");
+document.getElementById("aboutBuild").textContent = "V0.1.0 · " + ENTROPAN_BUILD;
+document.getElementById("brandBlock").addEventListener("click", e => {
+  aboutPopover.classList.toggle("open");
+  if (aboutPopover.classList.contains("open")) refreshLicense();   // license lives here now
+  e.stopPropagation();
+});
+document.addEventListener("mousedown", e => {
+  if (aboutPopover.classList.contains("open")
+      && !aboutPopover.contains(e.target)
+      && !(e.target.closest && e.target.closest("#brandBlock")))
+    aboutPopover.classList.remove("open");
+});
+const openUrlNative = native("openExternalURL");
+document.getElementById("contactLink").addEventListener("click", () => {
+  if (EMBEDDED) openUrlNative("https://entropiaudio.com").catch(() => {});
+  else window.open("https://entropiaudio.com", "_blank");   // browser preview
 });
 document.addEventListener("mousedown", e => {
   // closest(), not target.id — the gear's <svg>/<path> is the actual target, so

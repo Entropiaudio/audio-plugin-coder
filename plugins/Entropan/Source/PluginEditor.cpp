@@ -168,6 +168,15 @@ EntropanAudioProcessorEditor::EntropanAudioProcessorEditor (EntropanAudioProcess
             [this] (const juce::Array<juce::var>&, auto complete)
             {
                 complete (audioProcessor.getRoutesJson());
+            })
+        .withNativeFunction ("openExternalURL",
+            [] (const juce::Array<juce::var>& args, auto complete)
+            {
+                // About panel links — https only, opened in the system browser
+                const auto url = args.size() > 0 ? args[0].toString() : juce::String();
+                if (url.startsWith ("https://"))
+                    juce::URL (url).launchInDefaultBrowser();
+                complete (true);
             });
 
     // ── plugin presets (Chaosverb pattern: PropertiesFile stores) ──
