@@ -230,6 +230,8 @@
     font-size: 7px; letter-spacing: 1px; color: var(--text-dim); text-transform: uppercase;
   }
   .qm-value { position: absolute; top: 0; right: 1px; font-size: 7.5px; color: var(--text-secondary); }
+  /* routed row: clear the handle dot so it never covers the value text */
+  .qm-row.routed .qm-value { padding-right: 10px; }
   .qm-track {
     position: absolute; left: 0; right: 0; bottom: 1px; height: 5px;
     background: var(--bg-shell); border-radius: 3px; overflow: hidden;
@@ -264,16 +266,9 @@
   .sec-band { flex: 0 0 300px; position: relative; }   /* anchor for the link button */
   .sec-mod  { flex: 1 1 auto; min-width: 0; position: relative; }
   /* ── mod matrix ── */
-  .mod-drag-dot {
-    position: absolute; top: 6px; right: 14px; z-index: 5;
-    font-size: 8px; letter-spacing: 1px; padding: 2px 8px;
-    border: 1px solid var(--border-subtle); border-radius: 9px;
-    color: var(--text-dim); cursor: grab; user-select: none;
-  }
-  .mod-drag-dot:active { cursor: grabbing; }
-  /* per-band modulation pause — sits left of the MOD pill */
+  /* per-band modulation pause — top-right of the modulator card */
   .mod-freeze-btn {
-    position: absolute; top: 5px; right: 74px; z-index: 5;
+    position: absolute; top: 5px; right: 14px; z-index: 5;
     font-size: 9px; line-height: 1; padding: 3px 7px;
     background: transparent; border: 1px solid var(--border-subtle);
     border-radius: 9px; color: var(--text-dim); cursor: pointer; user-select: none;
@@ -661,7 +656,6 @@
     <div class="section-col sec-mod">
       <div class="section-label" id="modSecLabel">Modulator</div>
       <button class="mod-freeze-btn" id="modFreezeBtn" data-tip="Pause this band's modulation — all waveforms hold their value">⏸</button>
-      <div class="mod-drag-dot" id="modDragDot" data-tip="Drag onto a knob or fader to modulate it with this band's modulator">◉ MOD</div>
       <div class="mode-chips" id="modeChips"></div>
       <div class="mod-body">
         <canvas id="scopeCanvas"></canvas>
@@ -775,7 +769,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B75";
+const ENTROPAN_BUILD = "B76";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1683,7 +1677,6 @@ const ROUTED_KNOB_POOL = [knobFreq, knobWidth, knobLift, knobDepth, knobBias,
 // routed faders repaint their modulated-value marker in the same loop cadence
 const ROUTED_FADER_POOL = [hsRate, hsInertia, hsPhase, hsStepSpeed, hsStepSmooth];
 
-const modDragDot = document.getElementById("modDragDot");
 let routeDrag = null, dragGhost = null;
 function startRouteDrag(src, stype, e) {
   routeDrag = { src, stype };
@@ -1693,8 +1686,6 @@ function startRouteDrag(src, stype, e) {
   dragGhost.style.left = e.clientX + "px"; dragGhost.style.top = e.clientY + "px";
   e.preventDefault();
 }
-// the MOD dot routes the band's currently selected waveform
-modDragDot.addEventListener("mousedown", e => startRouteDrag(ui.selected, PB().mode.get(), e));
 
 /* per-band modulation pause (freeze). DSP holds all six waveform values while
    set; the scope/rings/markers freeze with them via telemetry. */
@@ -1884,8 +1875,6 @@ function refreshPanels() {
   bandTitle.textContent = "Band " + (ui.selected + 1);
   bandTitle.style.color = c;
   modTitle.style.color = c;
-  const mdd = document.getElementById("modDragDot");
-  mdd.style.color = c; mdd.style.borderColor = c + "88";   // drag source wears the band colour
   const frozen = PB().freeze.get();
   modFreezeBtn.classList.toggle("frozen", frozen);
   modFreezeBtn.textContent = frozen ? "▶" : "⏸";
@@ -2566,8 +2555,10 @@ function qmRefreshRow(row, norm, text, color) {
   els.fill.style.width = (clamp(norm, 0, 1) * 100) + "%";
   els.fill.style.background = `linear-gradient(90deg, ${color}55, ${color})`;
   els.value.textContent = text;
+  const dst = widgetDest(row);
+  row.classList.toggle("routed", modRoutes.some(r => r.dst === dst));   // pads value clear of the dot
   refreshModHandle(row._modH || (row._modH = makeModHandle(row)), row);
-  paintModMark(els.track, widgetDest(row));   // live modulated value
+  paintModMark(els.track, dst);   // live modulated value
 }
 function updateQuickMenu() {
   const pb = PB(), wrap = spec.parentElement;
@@ -2907,9 +2898,12 @@ function refreshLicense() {
     // Deactivate only makes sense for a real activation — a trial has nothing
     // to release, and an unlicensed instance has nothing to release either.
     licenseDeactivate.style.display = (s.active && !s.isTrial) ? "block" : "none";
-    const hasDetail = !!(s.email || s.expirationMs > 0);
+    // Offline activations report a machine UUID as the user id — meaningless
+    // noise in a settings panel, so only real e-mail addresses are shown.
+    const email = s.email && s.email.includes("@") ? s.email : "";
+    const hasDetail = !!(email || s.expirationMs > 0);
     licenseDetailRow.style.display = hasDetail ? "flex" : "none";
-    licenseEmail.textContent = s.email || "";
+    licenseEmail.textContent = email;
     licenseExpiry.textContent = s.expirationMs > 0
       ? (s.isTrial ? "ends " : "renews ") + new Date(s.expirationMs).toLocaleDateString()
       : "";

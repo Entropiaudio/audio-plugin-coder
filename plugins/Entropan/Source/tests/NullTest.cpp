@@ -80,6 +80,64 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;   // message manager for APVTS
     bool ok = true;
 
+    // ── diagnostic harness (ENTROPAN_DIAG=1): pan reach + volume-vs-pan sweep ──
+    // Renders a mono sine through one band and reports, per scenario, the
+    // balance extremes and the output power binned by |balance| — the two
+    // numbers behind "doesn't reach hard L/R" and "volume changes at centre".
+    if (std::getenv ("ENTROPAN_DIAG") != nullptr)
+    {
+        struct Scen { const char* name; float sineHz, depth; const char* routes; float biasFree, gainRouteDepth; };
+        const Scen scens[] = {
+            { "S1 depth100 no-routes            ", 1000.0f, 100.0f, nullptr, 0.0f, 0.0f },
+            { "S2 depth34  no-routes            ", 1000.0f,  34.0f, nullptr, 0.0f, 0.0f },
+            { "S3 depth34  sine->BIAS 100       ", 1000.0f,  34.0f, "{\"routes\":[{\"src\":0,\"stype\":0,\"dst\":8,\"depth\":100}]}", 0.0f, 0.0f },
+            { "S4 depth34  sine->BIAS 100 +OVR  ", 1000.0f,  34.0f, "{\"routes\":[{\"src\":0,\"stype\":0,\"dst\":8,\"depth\":100}]}", 1.0f, 0.0f },
+            { "S5 depth0   sine->BIAS 100       ", 1000.0f,   0.0f, "{\"routes\":[{\"src\":0,\"stype\":0,\"dst\":8,\"depth\":100}]}", 0.0f, 0.0f },
+            { "S6 depth100 sine at band edge    ",  500.0f, 100.0f, nullptr, 0.0f, 0.0f },
+            { "S7 depth100 + sine->GAIN 100     ", 1000.0f, 100.0f, "{\"routes\":[{\"src\":0,\"stype\":0,\"dst\":4,\"depth\":100}]}", 0.0f, 0.0f },
+        };
+        for (const auto& sc : scens)
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (kSampleRate, kBlock);
+            setParam (p, "b1_on", 1.0f);
+            setParam (p, "b1_freq", 1000.0f); setParam (p, "b1_width", 2.0f);
+            setParam (p, "b1_lift", 100.0f);  setParam (p, "b1_depth", sc.depth);
+            setParam (p, "amount", 100.0f);
+            setParam (p, "b1_ratemode", 1.0f); setParam (p, "b1_rate", 0.5f);
+            setParam (p, "b1_inertia", 0.0f);
+            setParam (p, "b1_override", sc.biasFree);
+            if (sc.routes != nullptr) p.setRoutesJson (sc.routes);
+            juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+            double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*(double) sc.sineHz/kSampleRate;
+            double balMin = 1e9, balMax = -1e9;
+            double pwrCentre = 0, nCentre = 0, pwrSide = 0, nSide = 0, pwrAll = 0, nAll = 0;
+            constexpr int kWin = 96;   // ~2 ms windows
+            for (int blk = 0; blk < kWarmBlocks + 400; ++blk) {   // ~4.3 s = 2+ mod cycles
+                for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+                p.processBlock (buf, midi);
+                if (blk < kWarmBlocks) continue;
+                for (int w = 0; w + kWin <= kBlock; w += kWin) {
+                    double el = 1e-12, er = 1e-12;
+                    for (int s = w; s < w + kWin; ++s) { el += juce::square ((double) buf.getSample (0, s));
+                                                         er += juce::square ((double) buf.getSample (1, s)); }
+                    const double bal = (el - er) / (el + er);
+                    const double pwr = (el + er) / (double) kWin;   // vs mono sine pwr 0.5·2ch
+                    balMin = juce::jmin (balMin, bal); balMax = juce::jmax (balMax, bal);
+                    pwrAll += pwr; nAll++;
+                    if (std::abs (bal) < 0.15) { pwrCentre += pwr; nCentre++; }
+                    if (std::abs (bal) > 0.55) { pwrSide   += pwr; nSide++;   }
+                }
+            }
+            const double pc = nCentre ? dB (pwrCentre / nCentre) : -999;
+            const double ps = nSide   ? dB (pwrSide   / nSide)   : -999;
+            std::printf ("%s bal %+.3f..%+.3f  pwr centre %+.2f dB (n=%.0f)  side %+.2f dB (n=%.0f)  Δ %+.2f dB\n",
+                         sc.name, balMin, balMax, pc, nCentre, ps, nSide,
+                         (nCentre && nSide) ? pc - ps : 0.0);
+        }
+        return 0;
+    }
+
     // ── T1: all bands off → exact wire ──
     {
         EntropanAudioProcessor p;
