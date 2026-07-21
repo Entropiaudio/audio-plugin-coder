@@ -35,10 +35,10 @@ juce::StringArray EntropanAudioProcessorEditor::comboParamIds()
     for (int i = 1; i <= EntropanAudioProcessor::kNumBands; ++i)
     {
         const juce::String p = "b" + juce::String (i) + "_";
-        for (auto* s : { "mode", "ratemode", "div" })
+        for (auto* s : { "mode", "ratemode", "div", "slope" })
             ids.add (p + s);
     }
-    return ids;   // 2 + 6×3 = 20
+    return ids;   // 2 + 6×4 = 26
 }
 
 juce::StringArray EntropanAudioProcessorEditor::toggleParamIds()

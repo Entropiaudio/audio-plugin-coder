@@ -135,13 +135,94 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     //==============================================================================
-    // Per-band DSP stage: 3-way LR4 split with allpass-compensated low branch.
+    // Selectable-order Linkwitz-Riley splitter: 12 / 24 / 48 dB per octave
+    // (LR2 / LR4 / LR8). The LR property LP+HP = allpass holds at every order —
+    // that is what keeps the band recombination null-clean. LR2's inherent
+    // polarity quirk (complementary sum needs −HP) is folded into the HP output
+    // here, so every consumer just sums the two branches like before.
+    struct LRSplitter
+    {
+        static constexpr int kMaxSections = 4;         // LR8 = 4 biquads per branch
+        struct BQ { float b0 = 0, b1 = 0, b2 = 0, a1 = 0, a2 = 0; };
+        int    numSections = 2;                        // LR4 default
+        bool   invertHp = false;                       // true only for LR2
+        double sampleRate = 48000.0;
+        float  qs[kMaxSections] {};
+        BQ     lpC[kMaxSections], hpC[kMaxSections];
+        float  lpS[2][kMaxSections][2] {}, hpS[2][kMaxSections][2] {};   // TDF2 state
+        float  lastCutoff = -1.0f;
+
+        void setSlope (int idx)                        // 0 = 12, 1 = 24, 2 = 48 dB/oct
+        {
+            static constexpr float kQ2[] = { 0.5f };                                    // LR2
+            static constexpr float kQ4[] = { 0.70710678f, 0.70710678f };                // LR4 = B2²
+            static constexpr float kQ8[] = { 0.54119610f, 1.30656296f,                  // LR8 = B4²
+                                             0.54119610f, 1.30656296f };
+            const float* q = idx == 0 ? kQ2 : idx == 2 ? kQ8 : kQ4;
+            numSections    = idx == 0 ? 1   : idx == 2 ? 4   : 2;
+            invertHp       = (idx == 0);
+            for (int s = 0; s < numSections; ++s) qs[s] = q[s];
+            lastCutoff = -1.0f;                        // force coefficient rebuild
+        }
+
+        void prepare (double sr) { sampleRate = sr; reset(); }
+        void reset()
+        {
+            std::memset (lpS, 0, sizeof (lpS));
+            std::memset (hpS, 0, sizeof (hpS));
+        }
+
+        void setCutoffFrequency (float f)
+        {
+            if (f == lastCutoff) return;
+            lastCutoff = f;
+            const double w0 = juce::MathConstants<double>::twoPi
+                                * juce::jlimit (10.0, sampleRate * 0.49, (double) f) / sampleRate;
+            const double cw = std::cos (w0), sw = std::sin (w0);
+            for (int s = 0; s < numSections; ++s)
+            {
+                const double alpha = sw / (2.0 * qs[s]);
+                const double a0 = 1.0 + alpha;
+                const float a1 = (float) (-2.0 * cw / a0);
+                const float a2 = (float) ((1.0 - alpha) / a0);
+                lpC[s] = { (float) ((1.0 - cw) * 0.5 / a0), (float) ((1.0 - cw) / a0),
+                           (float) ((1.0 - cw) * 0.5 / a0), a1, a2 };
+                hpC[s] = { (float) ((1.0 + cw) * 0.5 / a0), (float) (-(1.0 + cw) / a0),
+                           (float) ((1.0 + cw) * 0.5 / a0), a1, a2 };
+            }
+        }
+
+        // complementary pair: outLo + outHi always reconstructs to an allpass
+        void processSample (int ch, float x, float& outLo, float& outHi)
+        {
+            float lo = x, hi = x;
+            for (int s = 0; s < numSections; ++s)
+            {
+                { auto& c = lpC[s]; auto* st = lpS[ch][s];
+                  const float y = c.b0 * lo + st[0];
+                  st[0] = c.b1 * lo - c.a1 * y + st[1];
+                  st[1] = c.b2 * lo - c.a2 * y;
+                  lo = y; }
+                { auto& c = hpC[s]; auto* st = hpS[ch][s];
+                  const float y = c.b0 * hi + st[0];
+                  st[0] = c.b1 * hi - c.a1 * y + st[1];
+                  st[1] = c.b2 * hi - c.a2 * y;
+                  hi = y; }
+            }
+            outLo = lo;
+            outHi = invertHp ? -hi : hi;
+        }
+    };
+
+    //==============================================================================
+    // Per-band DSP stage: 3-way LR split with allpass-compensated low branch.
     //   input → splitLo → {low, rest};  rest → splitHi → {band, high}
     //   low → apLow (LP+HP sum = allpass at f_hi) → residual = lowAP + high
     //   band → lift split → pan/gain → out = residual + unlifted + panned
     struct BandDSP
     {
-        juce::dsp::LinkwitzRileyFilter<float> splitLo, splitHi, apLow;
+        LRSplitter splitLo, splitHi, apLow;
+        int slopeApplied = -1;   // last-applied slope index (change ⇒ reconfigure + reset)
 
         juce::SmoothedValue<float> lift;      // 0..1
         juce::SmoothedValue<float> gainLin;   // linear, from ±6 dB
@@ -154,12 +235,11 @@ private:
 
         void prepare (const juce::dsp::ProcessSpec& spec)
         {
-            splitLo.prepare (spec);
-            splitHi.prepare (spec);
-            apLow.prepare (spec);
-            // (no setType needed — the two-output processSample always yields
-            //  the complementary LP/HP pair regardless of the filter type)
             const double sr = spec.sampleRate;
+            splitLo.prepare (sr);
+            splitHi.prepare (sr);
+            apLow.prepare (sr);
+            slopeApplied = -1;   // reapply slope + cutoffs after rate change
             lift.reset    (sr, 0.005);
             gainLin.reset (sr, 0.005);
             enable.reset  (sr, 0.030);
@@ -225,6 +305,7 @@ private:
         std::atomic<float>* bias;
         std::atomic<float>* biasFree;   // override: drop the bias headroom clamp (pan may hit the rail)
         std::atomic<float>* stepSmooth; // Steps mode: 0 = square, 100 = glide between steps
+        std::atomic<float>* slope;      // crossover slope choice: 0=12, 1=24, 2=48 dB/oct
     };
     std::array<BandParams, kNumBands> bandParams {};
     std::atomic<float>* pAmount = nullptr;

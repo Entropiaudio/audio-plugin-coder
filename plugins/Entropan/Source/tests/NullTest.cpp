@@ -1102,6 +1102,37 @@ int main()
         std::printf ("    balance swing: before %.2f, frozen %.4f, after %.2f\n", swimBefore, swimFrozen, swimAfter);
     }
 
+    // ── T30: every slope reconstructs null-clean — lift-0 allpass-flat and
+    //         centre-pan unity must hold at 12 and 48 dB/oct like they do at 24 ──
+    {
+        for (float slope : { 0.0f, 2.0f })
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (kSampleRate, kBlock);
+            setParam (p, "b1_on", 1.0f);
+            setParam (p, "b1_slope", slope);
+            setParam (p, "b1_lift", 0.0f);
+            double maxDiff = 0;
+            const auto r0 = run (p, maxDiff);
+            const double f0L = dB (r0.outL / r0.inL), f0R = dB (r0.outR / r0.inR);
+
+            EntropanAudioProcessor q;
+            q.prepareToPlay (kSampleRate, kBlock);
+            setParam (q, "b1_on", 1.0f);
+            setParam (q, "b1_slope", slope);
+            setParam (q, "b1_lift", 100.0f); setParam (q, "b1_depth", 0.0f);
+            const auto r1 = run (q, maxDiff);
+            const double c0L = dB (r1.outL / r1.inL), c0R = dB (r1.outR / r1.inR);
+
+            const bool pass = std::abs (f0L) < 0.05 && std::abs (f0R) < 0.05
+                           && std::abs (c0L) < 0.05 && std::abs (c0R) < 0.05;
+            char name[64];
+            std::snprintf (name, sizeof (name), "T30 slope %d null-clean", slope == 0.0f ? 12 : 48);
+            ok &= check (name, pass);
+            std::printf ("    lift0 %+0.4f/%+0.4f dB   centre %+0.4f/%+0.4f dB\n", f0L, f0R, c0L, c0R);
+        }
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }

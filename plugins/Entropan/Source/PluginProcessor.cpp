@@ -24,6 +24,7 @@ namespace
     const juce::StringArray kDivChoices     { "1/16", "1/8", "1/4", "1/2", "1 Bar", "2 Bar", "4 Bar" };
     const juce::StringArray kSpeedChoices   { "/4", "/2", "x1", "x2", "x3", "x4" };
     const juce::StringArray kRoutingChoices { "Serial", "Parallel" };
+    const juce::StringArray kSlopeChoices   { "12 dB/oct", "24 dB/oct", "48 dB/oct" };
 
     constexpr float kBandFreqDefaults[] = { 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f };
 
@@ -260,6 +261,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::crea
         params.push_back (std::make_unique<juce::AudioParameterFloat> (
             juce::ParameterID { p + "stepsmooth", 1 }, label + "Step Smooth", pct(), 0.0f,
             juce::AudioParameterFloatAttributes().withLabel ("%")));
+        params.push_back (std::make_unique<juce::AudioParameterChoice> (
+            juce::ParameterID { p + "slope", 1 }, label + "Slope", kSlopeChoices, 1));   // 24 dB/oct
     }
 
     return { params.begin(), params.end() };
@@ -334,7 +337,8 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
             apvts.getRawParameterValue (p + "freeze"),
             apvts.getRawParameterValue (p + "bias"),
             apvts.getRawParameterValue (p + "override"),
-            apvts.getRawParameterValue (p + "stepsmooth")
+            apvts.getRawParameterValue (p + "stepsmooth"),
+            apvts.getRawParameterValue (p + "slope")
         };
     }
 
@@ -515,6 +519,18 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const float width = mv[1];
         const float fLoT = juce::jlimit (20.0f, 20000.0f, freq * std::pow (2.0f, -width * 0.5f));
         const float fHiT = juce::jlimit (fLoT * 1.02f, 20500.0f, freq * std::pow (2.0f,  width * 0.5f));
+        // slope change: reconfigure all three splitters + reset their state
+        // (a hard filter swap; the momentary discontinuity is accepted — slope
+        // is a setup choice, not a modulation target)
+        const int slopeIdx = juce::jlimit (0, 2, (int) pp.slope->load());
+        if (slopeIdx != b.slopeApplied)
+        {
+            b.slopeApplied = slopeIdx;
+            b.splitLo.setSlope (slopeIdx); b.splitHi.setSlope (slopeIdx); b.apLow.setSlope (slopeIdx);
+            b.splitLo.reset(); b.splitHi.reset(); b.apLow.reset();
+            b.fLoApplied = b.fHiApplied = -1.0f;   // force cutoff re-push at the new order
+        }
+
         if (! b.cutoffsInit) { b.fLoCur = fLoT; b.fHiCur = fHiT; b.cutoffsInit = true; }
         // block-rate glide (~40 ms) — no zipper while dragging freq/Q
         const float ck = juce::jmin (1.0f, (float) numSamples / (0.040f * (float) currentSampleRate));
