@@ -300,14 +300,16 @@
   .qm-row  .mod-handle { top: 2px; right: 2px; }
   /* floating mod-amount dial: link-icon-sized (16px). The arc IS the value —
      drag ↑↓ sets depth, right-click removes; exact % lives in the tooltip. */
-  .mod-editor {
-    position: fixed; z-index: 95; display: none;
-    width: 16px; height: 16px; border-radius: 50%;
+  /* amount editor: a row of tiny dials, ONE PER ROUTE on the destination —
+     several modulators on one knob edit side by side, not click-to-cycle */
+  .mod-editor { position: fixed; z-index: 95; display: none; gap: 3px; }
+  .mod-editor.open { display: flex; }
+  .me-dial {
+    width: 16px; height: 16px; border-radius: 50%; position: relative;
     background: var(--bg-card); border: 1px solid var(--border-subtle);
     cursor: ns-resize; user-select: none;
   }
-  .mod-editor.open { display: block; }
-  .mod-editor canvas { position: absolute; inset: 0; width: 14px; height: 14px; pointer-events: none; }
+  .me-dial canvas { position: absolute; inset: 0; width: 14px; height: 14px; pointer-events: none; }
   .sec-out  { flex: 0 0 260px; }
   .sec-out .section-label { color: var(--section-output); opacity: 0.7; }
 
@@ -777,7 +779,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B73";
+const ENTROPAN_BUILD = "B74";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1186,30 +1188,59 @@ function drawModRings(canvas, dest) {
 }
 /* floating mod-amount editor — opens where a route is dropped (and on re-drop
    over an existing connection). Drag the circle ↑↓ to set depth; right-click removes. */
-let meRoute = null;
+let meDest = null;   // destination whose routes are on display
 const modEditor = document.createElement("div"); modEditor.className = "mod-editor";
-const meCanvas = document.createElement("canvas");
-modEditor.appendChild(meCanvas);
 document.body.appendChild(modEditor);
-function meDraw() {
-  if (!meRoute) return;
+function meDialDraw(dial) {
+  const rt = dial._route, cv = dial._cv;
   const S = 14, C = S / 2;
-  if (meCanvas.width !== S * DPR) { meCanvas.width = S * DPR; meCanvas.height = S * DPR; }
-  const ctx = meCanvas.getContext("2d");
+  if (cv.width !== S * DPR) { cv.width = S * DPR; cv.height = S * DPR; }
+  const ctx = cv.getContext("2d");
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.clearRect(0, 0, S, S);
   ctx.lineWidth = 2; ctx.lineCap = "round";
   ctx.beginPath(); ctx.arc(C, C, 5, 0, Math.PI * 2);          // track
   ctx.strokeStyle = "#26221F"; ctx.stroke();
-  const sweep = Math.abs(meRoute.depth) / 100 * Math.PI * 1.7;  // the arc IS the value
+  const sweep = Math.abs(rt.depth) / 100 * Math.PI * 1.7;     // the arc IS the value
   ctx.beginPath();
-  ctx.arc(C, C, 5, -Math.PI / 2, -Math.PI / 2 + (meRoute.depth < 0 ? -sweep : sweep), meRoute.depth < 0);
-  ctx.strokeStyle = BAND_COLORS[meRoute.src]; ctx.stroke();
-  modEditor.dataset.tip = "B" + (meRoute.src + 1) + " " + (MODES[routeWave(meRoute)] || "")
-    + " → " + destName(meRoute.dst) + " · "
-    + (meRoute.depth > 0 ? "+" : "") + Math.round(meRoute.depth) + "%"
-    + (P.bands[meRoute.src].uni.get() ? " · UNI (one-way)" : " · BI (±)")
+  ctx.arc(C, C, 5, -Math.PI / 2, -Math.PI / 2 + (rt.depth < 0 ? -sweep : sweep), rt.depth < 0);
+  ctx.strokeStyle = BAND_COLORS[rt.src]; ctx.stroke();
+  dial.dataset.tip = "B" + (rt.src + 1) + " " + (MODES[routeWave(rt)] || "")
+    + " → " + destName(rt.dst) + " · "
+    + (rt.depth > 0 ? "+" : "") + Math.round(rt.depth) + "%"
+    + (P.bands[rt.src].uni.get() ? " · UNI (one-way)" : " · BI (±)")
     + " · drag ↑↓ · right-click removes";
+}
+// rebuild the row: one dial per route on meDest (order = route order)
+function meRebuild() {
+  const rs = modRoutes.filter(r => r.dst === meDest);
+  if (!rs.length) { modEditor.classList.remove("open"); return; }
+  modEditor.textContent = "";
+  for (const rt of rs) {
+    const dial = div_("me-dial");
+    dial.style.borderColor = BAND_COLORS[rt.src] + "88";
+    const cv = document.createElement("canvas");
+    dial.appendChild(cv);
+    dial._route = rt; dial._cv = cv;
+    dial.addEventListener("mousedown", e => {
+      const sy = e.clientY, d0 = rt.depth;
+      const lim = destHeadroom(rt.dst, rt.src);   // can't dial past the knob's remaining travel
+      // meDialDraw only (2 tiny arcs) — the main loop already repaints routed
+      // knobs, so any panel refresh here would stack a full rebuild per frame.
+      const mv = ev => { rt.depth = clamp(d0 + (sy - ev.clientY), lim.min, lim.max); meDialDraw(dial); };
+      const done = () => { window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", done); pushRoutes(); };
+      window.addEventListener("mousemove", mv); window.addEventListener("mouseup", done);
+      e.preventDefault(); e.stopPropagation();
+    });
+    dial.addEventListener("contextmenu", e => {   // right-click removes THIS route
+      e.preventDefault();
+      modRoutes = modRoutes.filter(r => r !== rt);
+      pushRoutes();
+      meRebuild();   // remaining dials stay; last one gone closes the row
+    });
+    modEditor.appendChild(dial);
+    meDialDraw(dial);
+  }
 }
 /* Normalized (0..1) position of a destination — mirrors each widget's own
    mapping, but for the ROUTE's band (which may not be the selected one). */
@@ -1286,31 +1317,29 @@ function paintModMark(track, dst) {
 }
 
 function openModEditor(route, x, y) {
-  meRoute = route;
-  modEditor.style.borderColor = BAND_COLORS[route.src] + "88";
-  meDraw();
-  modEditor.classList.add("open");
+  meDest = route.dst;
+  meRebuild();
+  if (!modEditor.classList.contains("open")) modEditor.classList.add("open");
+  // centre the whole row on the anchor point, clamped to the viewport
   const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
-  modEditor.style.left = clamp(x - 8, 4, vw - 22) + "px";   // centred on the drop point
+  const w = modEditor.offsetWidth || 16;
+  modEditor.style.left = clamp(x - w / 2, 4, vw - w - 4) + "px";
   modEditor.style.top  = clamp(y + 8, 4, vh - 22) + "px";
 }
 /* Persistent handle on every routed destination — click it any time to bring
-   the amount dial back (the dial itself only auto-opens on drop). Cycles when
-   a destination carries several routes. */
+   the amount dials back (they only auto-open on drop). A destination with
+   several routes shows ALL of them side by side. */
 function makeModHandle(hostEl) {
   const h = div_("mod-handle");
   h.style.display = "none";
-  h.dataset.tip = "Click: edit this modulation amount";
+  h.dataset.tip = "Click: edit this destination's modulation amounts";
   h.addEventListener("mousedown", e => { e.stopPropagation(); e.preventDefault(); });  // never start the knob drag
   h.addEventListener("click", e => {
     e.stopPropagation();
     const rs = modRoutes.filter(r => r.dst === widgetDest(hostEl));
     if (!rs.length) return;
-    const open = modEditor.classList.contains("open");
-    const idx = rs.indexOf(meRoute);
-    const next = (open && idx >= 0) ? rs[(idx + 1) % rs.length] : rs[0];
     const r = h.getBoundingClientRect();
-    openModEditor(next, r.left + r.width / 2, r.bottom);
+    openModEditor(rs[0], r.left + r.width / 2, r.bottom);
   });
   hostEl.appendChild(h);
   return h;
@@ -1321,24 +1350,6 @@ function refreshModHandle(h, hostEl) {
   if (rs.length) h.style.color = h.style.background = BAND_COLORS[rs[0].src];
 }
 
-modEditor.addEventListener("mousedown", e => {
-  if (!meRoute) return;
-  const sy = e.clientY, d0 = meRoute.depth, rt = meRoute;
-  const lim = destHeadroom(rt.dst, rt.src);   // can't dial past the knob's remaining travel
-  // meDraw only (2 tiny arcs) — the main loop already repaints routed knobs, so
-  // any panel refresh here just stacked a full 10-knob glow rebuild per frame.
-  const mv = ev => { rt.depth = clamp(d0 + (sy - ev.clientY), lim.min, lim.max); meDraw(); };
-  const done = () => { window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", done); pushRoutes(); };
-  window.addEventListener("mousemove", mv); window.addEventListener("mouseup", done);
-  e.preventDefault(); e.stopPropagation();
-});
-modEditor.addEventListener("contextmenu", e => {   // right-click removes the route
-  e.preventDefault();
-  modRoutes = modRoutes.filter(r => r !== meRoute);
-  meRoute = null;
-  modEditor.classList.remove("open");
-  pushRoutes();
-});
 document.addEventListener("mousedown", e => {
   if (modEditor.classList.contains("open") && !modEditor.contains(e.target))
     modEditor.classList.remove("open");
