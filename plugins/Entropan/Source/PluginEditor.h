@@ -59,7 +59,11 @@ private:
 
     // ── UI telemetry (60 Hz): spectrum frames + per-band mod values ──
     void timerCallback() override;
-    static constexpr int kFftOrder = 12, kFftSize = 1 << kFftOrder, kSpectrumBins = 256;  // 4096-pt → finer low-freq bins
+    // 16384-pt: 2.9 Hz bins at 48 k. At 4096 a pure 237 Hz sine rendered 0.66
+    // octave wide at −50 dB on the log display (user report vs Pro-Q); at 16384
+    // it is 0.16 oct — a needle. Cost: ~341 ms analysis window + a 4× FFT,
+    // both fine for a display path. Matches the processor fifo (1 << 14).
+    static constexpr int kFftOrder = 14, kFftSize = 1 << kFftOrder, kSpectrumBins = 256;
     juce::dsp::FFT fft { kFftOrder };
     juce::dsp::WindowingFunction<float> window { kFftSize, juce::dsp::WindowingFunction<float>::hann };
     std::vector<float> fifoDrain, fftAccum, fftWork;
