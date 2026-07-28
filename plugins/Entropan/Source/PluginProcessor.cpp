@@ -498,6 +498,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         bool   freeze = false;     // pause: hold all six waveform values, stop the clock
         bool   biasFree = false;   // override: bias not headroom-clamped → pan may reach the rail
         juce::uint8 waves = 0;     // consumer mask: which waveforms tick this block
+        int    zone = 0;           // slope blend pair: 0 = bell2↔bell4, 1 = bell4↔bell8
         const StepsData* steps = nullptr;   // RT snapshot, resolved once per block
     };
     std::array<BandBlock, kNumBands> bb;
@@ -523,7 +524,12 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // 1 = 24↔48). All three bell cascades stay warm all the time — a
         // cascade entering the blend cold would step the output.
         b.slope01.setTargetValue (juce::jlimit (0.0f, 1.0f, pp.slope->load() * 0.01f));
-        b.zoneApplied = b.slope01.getCurrentValue() < 0.5f ? 0 : 1;
+        cfg.zone = b.slope01.getCurrentValue() < 0.5f ? 0 : 1;
+        // Hold the OUT-of-zone cascade at zero state so its next entry (weight
+        // ramps from 0) is a clean ring-up from silence, not a stale-state
+        // thump. bell4 is live in both zones and never reset here.
+        if (cfg.zone == 0) b.bell8.reset();
+        else               b.bell2.reset();
 
         const float fcT = juce::jlimit (20.0f, 20000.0f, freq);
         const float wT  = juce::jlimit (0.05f, 6.0f, width);
@@ -810,7 +816,6 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const float panV = juce::jlimit (-1.0f, 1.0f, biasC + mv * depthV * amountV);
             m.panOut = panV;
 
-            // 3-way split (processSample yields the complementary LP/HP pair).
             // Serial (rx→0): band N processes band N-1's output (running xl).
             // Parallel (rx→1): every band processes the same dry input (xinL).
             // Mid-crossfade the input lerps between them — no step, no pop.
@@ -819,17 +824,27 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
             // subtractive displacement: band = unity-peak bell (full centre
             // capture at ANY width); residual = in − band by construction.
-            // All three cascades run warm; zone picks the blend pair; every
-            // cascade is 0° phase at fc so the blend can never null.
+            // The zone (block-rate) picks the blend pair — bell4 is live in
+            // BOTH zones, the out-of-zone cascade enters at weight 0. Only the
+            // two in-zone cascades run; the dormant one is held reset (below)
+            // so its next entry is a clean zero-state ramp, not a stale ring.
+            const int   zone = cfg.zone;
             const float s2 = b.slope01.getNextValue() * 2.0f;
-            const float t  = juce::jlimit (0.0f, 1.0f, s2 - (float) b.zoneApplied);
+            const float t  = juce::jlimit (0.0f, 1.0f, s2 - (float) zone);
             const float wLo = 1.0f - t, wHi = t;
 
-            const float b2L = b.bell2.processSample (0, inL), b2R = b.bell2.processSample (1, inR);
             const float b4L = b.bell4.processSample (0, inL), b4R = b.bell4.processSample (1, inR);
-            const float b8L = b.bell8.processSample (0, inL), b8R = b.bell8.processSample (1, inR);
-            const float bandL = b.zoneApplied == 0 ? wLo * b2L + wHi * b4L : wLo * b4L + wHi * b8L;
-            const float bandR = b.zoneApplied == 0 ? wLo * b2R + wHi * b4R : wLo * b4R + wHi * b8R;
+            float bandL, bandR;
+            if (zone == 0)
+            {
+                const float b2L = b.bell2.processSample (0, inL), b2R = b.bell2.processSample (1, inR);
+                bandL = wLo * b2L + wHi * b4L;  bandR = wLo * b2R + wHi * b4R;
+            }
+            else
+            {
+                const float b8L = b.bell8.processSample (0, inL), b8R = b.bell8.processSample (1, inR);
+                bandL = wLo * b4L + wHi * b8L;  bandR = wLo * b4R + wHi * b8R;
+            }
 
             // lift split + equal-power pan (balance law, ×√2 so centre = unity)
             const float theta = (panV + 1.0f) * juce::MathConstants<float>::pi * 0.25f;

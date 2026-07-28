@@ -414,8 +414,8 @@
 
   /* bottom-centre of the band card — placement only, look inherited from .bypass-btn */
   .band-bypass-btn { position: absolute; bottom: 7px; left: 50%; transform: translateX(-50%); z-index: 5; }
-  .band-bypass-btn.active { color: var(--state-warning); border-color: var(--state-warning);
-    box-shadow: 0 0 7px color-mix(in srgb, var(--state-warning) 35%, transparent); }
+  /* .bypass-btn.active already sets colour+border (band button carries both classes) */
+  .band-bypass-btn.active { box-shadow: 0 0 7px color-mix(in srgb, var(--state-warning) 35%, transparent); }
 
   /* mode chips */
   .mode-chips { display: flex; gap: 3px; margin: 2px 0 8px 0; flex-wrap: wrap; }
@@ -804,7 +804,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B89";
+const ENTROPAN_BUILD = "B90";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -831,6 +831,9 @@ const FMIN = 20, FMAX = 20000;
 const RATE_MIN = 0.02, RATE_MAX = 1000;
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+// log morph of a 0..100 % knob across [lo, hi] — the SLOPE control's single
+// curve (dB/oct label and the bell-skirt exponent both read from this)
+const logMorph = (pct, lo, hi) => lo * Math.pow(hi / lo, clamp(pct, 0, 100) / 100);
 
 /* norm↔value maps. Embedded mode reads range+skew straight from the JUCE lib
    (st.properties), so only code OUTSIDE the P wrapper uses these. */
@@ -1327,7 +1330,7 @@ function refreshDispBands() {
     d.gainMod = modRoutes.some(r => r.dst === base + SLOT.GAIN);
     d.gainDb = moddedNorm(base + SLOT.GAIN) * 12 - 6;
     // bell skirt exponent follows the continuous SLOPE morph (log 1.3…3.6)
-    d.bellP = 1.3 * Math.pow(3.6 / 1.3, clamp(P.bands[i].slope.get(), 0, 100) / 100);
+    d.bellP = logMorph(P.bands[i].slope.get(), 1.3, 3.6);
     // any bell-geometry route: the aura's cache key would churn every frame
     d.geoMod = modRoutes.some(r => r.dst >= base && r.dst <= base + SLOT.LIFT);
   }
@@ -1833,7 +1836,7 @@ document.getElementById("routingToggle").onclick = () => { P.routing.set(P.routi
 // SLOPE morph: drag ↑↓ — continuous 12…48 dB/oct (log). Per-move work is ONLY
 // the param write + pill label + a coalesced panel refresh (schedulePanels) —
 // a full refreshPanels per mousemove is the known stutter trap (B57/B80).
-const slopeDb = v => Math.round(12 * Math.pow(4, clamp(v, 0, 100) / 100));
+const slopeDb = v => Math.round(logMorph(v, 12, 48));
 // the slope pill's mini knob: 270° arc = morph position, band-coloured
 function drawSlopeDial(v, col) {
   const cv = document.getElementById("slopeDial"), S = 11, C = S / 2;
@@ -1842,7 +1845,7 @@ function drawSlopeDial(v, col) {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.clearRect(0, 0, S, S);
   ctx.lineWidth = 1.6; ctx.lineCap = "round";
-  const a0 = Math.PI * 0.75, span = Math.PI * 1.5;
+  const a0 = degToRad(ARC_START), span = degToRad(270);   // shared knob geometry
   ctx.beginPath(); ctx.arc(C, C, 4, a0, a0 + span);
   ctx.strokeStyle = "#26221F"; ctx.stroke();
   ctx.beginPath(); ctx.arc(C, C, 4, a0, a0 + span * clamp(v, 0, 100) / 100);
@@ -3015,37 +3018,33 @@ licenseDeactivate.addEventListener("click", () => {
   });
 });
 
-document.getElementById("settingsBtn").addEventListener("click", e => {
-  settingsPopover.classList.toggle("open");
-  e.stopPropagation();
-});
+/* One header popover wiring: trigger toggles .open, an outside mousedown
+   closes it. The exclusion uses closest(triggerSel), NOT target.id — the
+   trigger wraps an <svg>/<path> (or child spans), so the actual event target
+   is a descendant; an id check would let the mousedown close it and the click
+   reopen it. onOpen fires each time it opens (e.g. refresh license state). */
+function wirePopover(popover, trigger, triggerSel, onOpen) {
+  trigger.addEventListener("click", e => {
+    popover.classList.toggle("open");
+    if (onOpen && popover.classList.contains("open")) onOpen();
+    e.stopPropagation();
+  });
+  document.addEventListener("mousedown", e => {
+    if (popover.classList.contains("open") && !popover.contains(e.target)
+        && !(e.target.closest && e.target.closest(triggerSel)))
+      popover.classList.remove("open");
+  });
+}
+wirePopover(settingsPopover, document.getElementById("settingsBtn"), "#settingsBtn");
 
 /* ── ABOUT popup: the Entropan name opens build + license + contact ── */
 const aboutPopover = document.getElementById("aboutPopover");
 document.getElementById("aboutBuild").textContent = "V0.1.0 · " + ENTROPAN_BUILD;
-document.getElementById("brandBlock").addEventListener("click", e => {
-  aboutPopover.classList.toggle("open");
-  if (aboutPopover.classList.contains("open")) refreshLicense();   // license lives here now
-  e.stopPropagation();
-});
-document.addEventListener("mousedown", e => {
-  if (aboutPopover.classList.contains("open")
-      && !aboutPopover.contains(e.target)
-      && !(e.target.closest && e.target.closest("#brandBlock")))
-    aboutPopover.classList.remove("open");
-});
+wirePopover(aboutPopover, document.getElementById("brandBlock"), "#brandBlock", refreshLicense);
 const openUrlNative = native("openExternalURL");
 document.getElementById("contactLink").addEventListener("click", () => {
   if (EMBEDDED) openUrlNative("https://entropiaudio.com").catch(() => {});
   else window.open("https://entropiaudio.com", "_blank");   // browser preview
-});
-document.addEventListener("mousedown", e => {
-  // closest(), not target.id — the gear's <svg>/<path> is the actual target, so
-  // an id check let mousedown close the popover and the button's click reopen it
-  if (settingsPopover.classList.contains("open")
-      && !settingsPopover.contains(e.target)
-      && !(e.target.closest && e.target.closest("#settingsBtn")))
-    settingsPopover.classList.remove("open");
 });
 
 const settings = (() => {

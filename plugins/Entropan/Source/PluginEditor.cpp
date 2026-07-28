@@ -485,7 +485,7 @@ void EntropanAudioProcessorEditor::timerCallback()
 
     // Everything below builds telemetry for the web UI. When the WebView is
     // hidden (Activate overlay up, or host hid us) JUCE drops the events at
-    // emit time — but only AFTER we would have paid for the full 4096-pt FFT
+    // emit time — but only AFTER we would have paid for the full FFTs
     // and array building, 60×/s for nobody. Skip it. (The overlay swap above
     // must stay ahead of this gate or a licensed UI could never swap back in.)
     if (! webView->isVisible())
@@ -587,7 +587,7 @@ void EntropanAudioProcessorEditor::timerCallback()
 
         // big FFT: every 2nd emit once 65536 contiguous samples exist —
         // the low columns update at ~30 Hz, plenty for slow-moving lows
-        if (accumFill >= kBigSize && (bigCounter++ & 1) == 0)
+        if (accumFill >= kBigSize && (bigCounter++ & 3) == 0)
         {
             std::memcpy (workBig.data(), fftAccum.data(), sizeof (float) * kBigSize);
             winBig.multiplyWithWindowingTable (workBig.data(), kBigSize);

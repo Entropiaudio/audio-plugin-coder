@@ -81,135 +81,6 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;   // message manager for APVTS
     bool ok = true;
 
-    // ── diagnostic harness (ENTROPAN_DIAG=fft): replicate the editor's exact
-    //    analyzer pipeline on a pure sine and print the display columns ──
-    if (std::getenv ("ENTROPAN_DIAG") != nullptr
-        && juce::String (std::getenv ("ENTROPAN_DIAG")) == "fft")
-    {
-        constexpr int kOrd = 14, kN = 1 << kOrd, kBins = 256;
-        for (double sr : { 48000.0, 44100.0 })
-        {
-            EntropanAudioProcessor p;
-            p.prepareToPlay (sr, kBlock);
-            setParam (p, "b1_on", 1.0f);
-            setParam (p, "b1_freq", 237.0f); setParam (p, "b1_width", 1.41f);
-            setParam (p, "b1_lift", 0.0f);   setParam (p, "b1_depth", 100.0f);
-            setParam (p, "b1_ratemode", 1.0f); setParam (p, "b1_rate", 0.5f);
-            juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
-            juce::dsp::FFT fft (kOrd);
-            juce::dsp::WindowingFunction<float> win ((size_t) kN, juce::dsp::WindowingFunction<float>::blackmanHarris);
-            std::vector<float> drain ((size_t) kN), accum ((size_t) kN, 0.0f), work ((size_t) kN * 2, 0.0f);
-            int fill = 0;
-            double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*237.0/sr;
-            // editor cadence: process ~1 block then drain (60 Hz ≈ 800 samples ≈ 1.5 blocks)
-            std::vector<float> cols ((size_t) kBins, -120.0f);
-            for (int blk = 0; blk < 300; ++blk)
-            {
-                for (int s = 0; s < kBlock; ++s) {
-                    if (std::getenv ("ENTROPAN_SPLICE") != nullptr && ((blk * kBlock + s) % (int) (sr / 2)) == 0)
-                        phase = 0.0;   // loop-point discontinuity every 0.5 s
-                    const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
-                p.processBlock (buf, midi);
-                const int got = p.popAnalyzer (drain.data(), kN);
-                if (got > 0)
-                {
-                    if (got >= kN) std::memcpy (accum.data(), drain.data() + (got - kN), sizeof (float) * kN);
-                    else { const int keep = kN - got;
-                           std::memmove (accum.data(), accum.data() + got, sizeof (float) * (size_t) keep);
-                           std::memcpy (accum.data() + keep, drain.data(), sizeof (float) * (size_t) got);
-                    }
-                    fill = juce::jmin (kN, fill + got);
-                }
-                if (blk < 299 || fill < kN) continue;
-                std::memcpy (work.data(), accum.data(), sizeof (float) * kN);
-                win.multiplyWithWindowingTable (work.data(), kN);
-                fft.performFrequencyOnlyForwardTransform (work.data());
-                const double binHz = sr / (double) kN;
-                for (int b = 0; b < kBins; ++b)
-                {
-                    const double f0 = 20.0 * std::pow (1000.0, (double) b / kBins);
-                    const double f1 = 20.0 * std::pow (1000.0, (double) (b + 1) / kBins);
-                    const double fc = std::sqrt (f0 * f1);
-                    const int b0 = juce::jlimit (1, kN/2 - 2, (int) (fc / binHz));
-                    const float fr = (float) juce::jlimit (0.0, 1.0, fc / binHz - b0);
-                    const int i0 = juce::jlimit (1, kN/2 - 1, (int) (f0 / binHz));
-                    const int i1 = juce::jlimit (i0 + 1, kN/2, (int) std::ceil (f1 / binHz));
-                    float mag;
-                    if (i1 - i0 >= 2) { mag = 0; for (int k = i0; k < i1; ++k) mag = juce::jmax (mag, work[(size_t) k]); }
-                    else mag = work[(size_t) b0] * (1.0f - fr) + work[(size_t) (b0 + 1)] * fr;
-                    cols[(size_t) b] = (float) juce::Decibels::gainToDecibels ((double) mag / (double) (kN / 4), -80.0);
-                }
-            }
-            // report: peak col + every col above -55 dB with its frequency
-            int pk = 0; for (int b = 1; b < kBins; ++b) if (cols[(size_t) b] > cols[(size_t) pk]) pk = b;
-            std::printf ("sr %.0f  peak col %d (%.0f Hz, %.1f dB)  cols > -55 dB:\n", sr,
-                         pk, 20.0 * std::pow (1000.0, (pk + 0.5) / (double) kBins), cols[(size_t) pk]);
-            for (int b = 0; b < kBins; ++b)
-                if (cols[(size_t) b] > -55.0f)
-                    std::printf ("  col %3d  %6.0f Hz  %6.1f dB\n", b,
-                                 20.0 * std::pow (1000.0, (b + 0.5) / (double) kBins), cols[(size_t) b]);
-        }
-        return 0;
-    }
-
-    // ── diagnostic harness (ENTROPAN_DIAG=1): pan reach + volume-vs-pan sweep ──
-    // Renders a mono sine through one band and reports, per scenario, the
-    // balance extremes and the output power binned by |balance| — the two
-    // numbers behind "doesn't reach hard L/R" and "volume changes at centre".
-    if (std::getenv ("ENTROPAN_DIAG") != nullptr)
-    {
-        struct Scen { const char* name; float sineHz, depth; const char* routes; float biasFree, gainRouteDepth; };
-        const Scen scens[] = {
-            { "S1 depth100 no-routes            ", 1000.0f, 100.0f, nullptr, 0.0f, 0.0f },
-            { "S2 depth34  no-routes            ", 1000.0f,  34.0f, nullptr, 0.0f, 0.0f },
-            { "S3 depth34  sine->BIAS 100       ", 1000.0f,  34.0f, "{\"routes\":[{\"src\":0,\"stype\":0,\"dst\":8,\"depth\":100}]}", 0.0f, 0.0f },
-            { "S4 depth34  sine->BIAS 100 +OVR  ", 1000.0f,  34.0f, "{\"routes\":[{\"src\":0,\"stype\":0,\"dst\":8,\"depth\":100}]}", 1.0f, 0.0f },
-            { "S5 depth0   sine->BIAS 100       ", 1000.0f,   0.0f, "{\"routes\":[{\"src\":0,\"stype\":0,\"dst\":8,\"depth\":100}]}", 0.0f, 0.0f },
-            { "S6 depth100 sine at band edge    ",  500.0f, 100.0f, nullptr, 0.0f, 0.0f },
-            { "S7 depth100 + sine->GAIN 100     ", 1000.0f, 100.0f, "{\"routes\":[{\"src\":0,\"stype\":0,\"dst\":4,\"depth\":100}]}", 0.0f, 0.0f },
-        };
-        for (const auto& sc : scens)
-        {
-            EntropanAudioProcessor p;
-            p.prepareToPlay (kSampleRate, kBlock);
-            setParam (p, "b1_on", 1.0f);
-            setParam (p, "b1_freq", 1000.0f); setParam (p, "b1_width", 2.0f);
-            setParam (p, "b1_lift", 100.0f);  setParam (p, "b1_depth", sc.depth);
-            setParam (p, "amount", 100.0f);
-            setParam (p, "b1_ratemode", 1.0f); setParam (p, "b1_rate", 0.5f);
-            setParam (p, "b1_inertia", 0.0f);
-            setParam (p, "b1_override", sc.biasFree);
-            if (sc.routes != nullptr) p.setRoutesJson (sc.routes);
-            juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
-            double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*(double) sc.sineHz/kSampleRate;
-            double balMin = 1e9, balMax = -1e9;
-            double pwrCentre = 0, nCentre = 0, pwrSide = 0, nSide = 0, pwrAll = 0, nAll = 0;
-            constexpr int kWin = 96;   // ~2 ms windows
-            for (int blk = 0; blk < kWarmBlocks + 400; ++blk) {   // ~4.3 s = 2+ mod cycles
-                for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
-                p.processBlock (buf, midi);
-                if (blk < kWarmBlocks) continue;
-                for (int w = 0; w + kWin <= kBlock; w += kWin) {
-                    double el = 1e-12, er = 1e-12;
-                    for (int s = w; s < w + kWin; ++s) { el += juce::square ((double) buf.getSample (0, s));
-                                                         er += juce::square ((double) buf.getSample (1, s)); }
-                    const double bal = (el - er) / (el + er);
-                    const double pwr = (el + er) / (double) kWin;   // vs mono sine pwr 0.5·2ch
-                    balMin = juce::jmin (balMin, bal); balMax = juce::jmax (balMax, bal);
-                    pwrAll += pwr; nAll++;
-                    if (std::abs (bal) < 0.15) { pwrCentre += pwr; nCentre++; }
-                    if (std::abs (bal) > 0.55) { pwrSide   += pwr; nSide++;   }
-                }
-            }
-            const double pc = nCentre ? dB (pwrCentre / nCentre) : -999;
-            const double ps = nSide   ? dB (pwrSide   / nSide)   : -999;
-            std::printf ("%s bal %+.3f..%+.3f  pwr centre %+.2f dB (n=%.0f)  side %+.2f dB (n=%.0f)  Δ %+.2f dB\n",
-                         sc.name, balMin, balMax, pc, nCentre, ps, nSide,
-                         (nCentre && nSide) ? pc - ps : 0.0);
-        }
-        return 0;
-    }
-
     // ── T1: all bands off → exact wire ──
     {
         EntropanAudioProcessor p;
@@ -1278,6 +1149,46 @@ int main()
         std::printf ("    argmax: block %d sample %d (sweep t=%.3f)\n", maxBlk, maxS, (double) (maxBlk - kWarmBlocks) / 400.0);
         ok &= check ("T35 wow/flutter sweep is click-free", maxStep < 0.25);
         std::printf ("    max sample step during W&F sweep: %.3f (clean sine ≈ 0.131)\n", maxStep);
+    }
+
+    // ── T36: slope sweep is click-free even at MINIMUM width on a LOW bell —
+    //         guards the B90 out-of-zone cascade gate (a cold resume of the
+    //         steep 8-section cascade is the worst case; if the dormant-reset
+    //         is wrong this thumps, exactly like the W&F engage bug T35 caught) ──
+    {
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        setParam (p, "b1_on", 1.0f);
+        setParam (p, "b1_freq", 120.0f);   // low → longest bell ring-up
+        setParam (p, "b1_width", 0.1f);    // narrowest → steepest resonance
+        setParam (p, "b1_lift", 100.0f); setParam (p, "b1_depth", 100.0f);
+        auto* slopeParam = p.apvts.getParameter ("b1_slope");
+        juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+        double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*120.0/kSampleRate;
+        float prev = 0.0f; double maxStep = 0.0; bool have = false;
+        const int sweepBlocks = 600;   // slow full sweep 0→100→0, crosses both zone edges
+        for (int blk = 0; blk < kWarmBlocks + sweepBlocks; ++blk)
+        {
+            if (blk >= kWarmBlocks)
+            {
+                const double u = (double) (blk - kWarmBlocks) / (double) sweepBlocks;
+                const double tri = u < 0.5 ? u * 2.0 : 2.0 - u * 2.0;   // 0→1→0 in normalized param
+                slopeParam->setValueNotifyingHost ((float) tri);
+            }
+            for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+            p.processBlock (buf, midi);
+            if (blk < kWarmBlocks) { prev = buf.getSample (0, kBlock - 1); have = true; continue; }
+            for (int s = 0; s < kBlock; ++s)
+            {
+                const float v = buf.getSample (0, s);
+                if (have) maxStep = juce::jmax (maxStep, (double) std::abs (v - prev));
+                prev = v; have = true;
+            }
+        }
+        // 120 Hz sine max step ≈ 2π·120/48000 ≈ 0.0157; the pan sweeps too, so
+        // allow generous headroom. A cascade-resume click is an impulse, ≫ this.
+        ok &= check ("T36 slope sweep click-free (min width, low bell)", maxStep < 0.045);
+        std::printf ("    max sample step, narrow low sweep: %.4f\n", maxStep);
     }
 
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");

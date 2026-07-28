@@ -23,7 +23,8 @@ namespace Moonbase { namespace JUCEClient { struct API; } }
 /**
  * Entropan — band-targeted spectral panner (Entropia Audio).
  *
- * Serial Linkwitz-Riley splitter cascade with allpass compensation, per-band
+ * Subtractive-displacement band engine (unity-peak resonant bell per band,
+ * three warm cascades crossfaded for a continuous 12→48 dB/oct slope morph),
  * lift split → equal-power pan → ±6 dB gain, six per-band modulator engines
  * (Sine/Tri/S&H/Chaos/Steps/Env) evaluated per sample, PPQ sync + free +
  * MIDI rate modes, global speed, snapshot undo/redo, analyzer + scope
@@ -135,11 +136,6 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     //==============================================================================
-    //==============================================================================
-    // Per-band DSP stage: 3-way LR split with allpass-compensated low branch.
-    //   input → splitLo → {low, rest};  rest → splitHi → {band, high}
-    //   low → apLow (LP+HP sum = allpass at f_hi) → residual = lowAP + high
-    //   band → lift split → pan/gain → out = residual + unlifted + panned
     // SUBTRACTIVE DISPLACEMENT topology (the dynamic-EQ construction).
     // The band is a UNITY-PEAK resonant bell B(x); the "residual" is literally
     // input − band, so:
@@ -201,7 +197,6 @@ private:
     {
         BellCascade bell2, bell4, bell8;      // ≈12 / 24 / 48 dB/oct skirts
         juce::SmoothedValue<float> slope01;   // 0..1 (param /100), 30 ms
-        int zoneApplied = 0;                  // 0 = blend 2↔4, 1 = blend 4↔8
 
         juce::SmoothedValue<float> lift;      // 0..1
         juce::SmoothedValue<float> gainLin;   // linear, from ±6 dB
@@ -217,7 +212,6 @@ private:
             const double sr = spec.sampleRate;
             bell2.configure (2); bell4.configure (4); bell8.configure (8);
             bell2.prepare (sr);  bell4.prepare (sr);  bell8.prepare (sr);
-            zoneApplied = 0;
             slope01.reset (sr, 0.030);
             lift.reset    (sr, 0.005);
             gainLin.reset (sr, 0.005);
@@ -288,7 +282,7 @@ private:
         std::atomic<float>* bias;
         std::atomic<float>* biasFree;   // override: drop the bias headroom clamp (pan may hit the rail)
         std::atomic<float>* stepSmooth; // Steps mode: 0 = square, 100 = glide between steps
-        std::atomic<float>* slope;      // crossover slope choice: 0=12, 1=24, 2=48 dB/oct
+        std::atomic<float>* slope;      // 0..100 %, continuous log morph: 12 → 24 → 48 dB/oct
     };
     std::array<BandParams, kNumBands> bandParams {};
     std::atomic<float>* pAmount = nullptr;
