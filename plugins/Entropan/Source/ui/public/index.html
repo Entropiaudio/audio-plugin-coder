@@ -611,7 +611,7 @@
   <div class="header">
     <div class="header-left" id="brandBlock" data-tip="About · license · contact">
       <div class="plugin-title">Entropan</div>
-      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio &middot; V0.1.0</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio</div>
     </div>
     <div class="header-center">
       <div class="chaos-row">
@@ -804,7 +804,10 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B92";
+const ENTROPAN_BUILD = "B93";
+// single source for the UI version string — must match juce_add_plugin VERSION
+// in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
+const ENTROPAN_VERSION = "0.5.0";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -3075,7 +3078,8 @@ wirePopover(settingsPopover, document.getElementById("settingsBtn"), "#settingsB
 
 /* ── ABOUT popup: the Entropan name opens build + license + contact ── */
 const aboutPopover = document.getElementById("aboutPopover");
-document.getElementById("aboutBuild").textContent = "V0.1.0 · " + ENTROPAN_BUILD;
+document.getElementById("aboutBuild").textContent = "V" + ENTROPAN_VERSION + " · " + ENTROPAN_BUILD;
+document.getElementById("eyebrow").textContent = "Entropia Audio · V" + ENTROPAN_VERSION + " · " + ENTROPAN_BUILD;
 wirePopover(aboutPopover, document.getElementById("brandBlock"), "#brandBlock", refreshLicense);
 const openUrlNative = native("openExternalURL");
 document.getElementById("contactLink").addEventListener("click", () => {

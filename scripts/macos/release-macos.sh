@@ -13,7 +13,7 @@
 set -euo pipefail
 
 PLUGIN="Entropan"
-VERSION="${VERSION:-0.1.0}"
+VERSION="${VERSION:-0.5.0}"
 TEAM_ID="7CM4GS8JY9"
 APP_CERT="Developer ID Application: noam ben shabat (${TEAM_ID})"
 INSTALLER_CERT="Developer ID Installer: noam ben shabat (${TEAM_ID})"
