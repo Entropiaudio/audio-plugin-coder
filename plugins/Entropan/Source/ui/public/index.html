@@ -804,7 +804,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B90";
+const ENTROPAN_BUILD = "B92";
 console.log("Entropan UI " + ENTROPAN_BUILD);
 // eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
 document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
@@ -1040,8 +1040,21 @@ const depthTrim = (pb, i) => bandOverride(i) ? 1 : biasTrim(pb);
 // base == depth / trim at any moment. (A stored copy needed four sync
 // mechanisms and still broke on the plugin's async init push — B39.)
 const depthBaseOf = (pb, i) => clamp(pb.depth.get() / depthTrim(pb, i), 0, 100);
-function setDepthEff(pb, i, effPct) {             // user set DEPTH — capped at base 100 × trim
-  pb.depth.set(clamp(clamp(effPct / depthTrim(pb, i), 0, 100) * depthTrim(pb, i), 0, 100));
+function setDepthEff(pb, i, effPct) {             // user set DEPTH
+  effPct = clamp(effPct, 0, 100);
+  const trim = depthTrim(pb, i);
+  // Linked + pushed PAST the bias-limited ceiling (base would exceed 100) →
+  // trade BIAS back toward centre so DEPTH can keep rising: the reverse of
+  // "bias trims depth". base pins at 100, so trim must become effPct/100 →
+  // |bias| = 200·(1 − trim). Continuous with the current bias at the ceiling;
+  // reaches bias 0 at depth 100. Override (unlinked) never enters this branch.
+  if (!bandOverride(i) && effPct / trim > 100 && pb.bias.get() !== 0) {
+    const sign = pb.bias.get() < 0 ? -1 : 1;
+    pb.bias.set(sign * clamp(200 * (1 - effPct / 100), 0, 100));
+    pb.depth.set(effPct);
+  } else {
+    pb.depth.set(clamp(clamp(effPct / trim, 0, 100) * trim, 0, 100));
+  }
 }
 function setBiasRemembered(pb, i, b) {            // user set BIAS → trim/restore DEPTH from the base
   const base = depthBaseOf(pb, i);                // derive BEFORE the bias moves (base is bias-invariant)
@@ -1594,7 +1607,7 @@ const knobLift = makeKnob("knob_lift", "LIFT", {
 const knobDepth = makeKnob("knob_depth", "DEPTH", {
   color: bandColor(), def: 1.0, lockKey: "depth",
   get: () => PB().depth.get() / 100,
-  set: n => { setDepthEff(PB(), ui.selected, n * 100); },
+  set: n => { setDepthEff(PB(), ui.selected, n * 100); knobBias.refresh(); },   // depth may trade bias back
   fmt: () => Math.round(PB().depth.get()) + "%"
 });
 const knobBias = makeKnob("knob_bias", "BIAS", {
@@ -1934,6 +1947,21 @@ document.getElementById("stepDown").onclick = () => { B().stepCount = Math.max(2
 
 /* MIDI note display — updated live by the "modvals" telemetry handler */
 let midiNoteName = "—", midiFreq = 0;
+
+/* Per-frame chase of the 60 Hz telemetry targets. Frame-rate independent:
+   the same ~11 ms time constant at 60 or 120 Hz. Only runs when embedded —
+   the browser sim writes pan directly. Snaps when the gap is tiny so a
+   settled pan is exact, and on a big jump (preset load) so it doesn't glide. */
+function smoothTelemetry(dt) {
+  if (!EMBEDDED) return;
+  const k = 1 - Math.exp(-dt / 0.011);
+  for (let i = 0; i < 6; i++) {
+    const b = ui.bands[i];
+    if (b.panTarget === undefined) continue;
+    const d = b.panTarget - b.pan;
+    b.pan = Math.abs(d) < 0.0005 || Math.abs(d) > 1.2 ? b.panTarget : b.pan + d * k;
+  }
+}
 
 /* ════════════════════════════════════════════════════════════════════
    PANEL REFRESH
@@ -2697,7 +2725,7 @@ qmDragRow(qmRate, n => {
   hsRate.refresh();
   if (pb.mode.get() === 4) hsStepSpeed.refresh();
 }, () => rateCtl.reset(PB()));
-qmDragRow(qmDepth, n => { setDepthEff(PB(), ui.selected, n * 100); knobDepth.refresh(); }, () => setDepthEff(PB(), ui.selected, 100));
+qmDragRow(qmDepth, n => { setDepthEff(PB(), ui.selected, n * 100); knobDepth.refresh(); knobBias.refresh(); }, () => setDepthEff(PB(), ui.selected, 100));
 qmDragRow(qmGain, n => { PB().gain.set(-6 + n * 12); }, () => PB().gain.set(0));
 qmDragRow(qmBias, n => { setBiasRemembered(PB(), ui.selected, -100 + n * 200); knobBias.refresh(); knobDepth.refresh(); }, () => setBiasRemembered(PB(), ui.selected, 0));
 // floating band rows are mod destinations too (GAIN is only reachable here)
@@ -2737,7 +2765,11 @@ if (EMBEDDED) {
       const d = typeof data === "string" ? JSON.parse(data) : data;
       if (!d || !d.pans) return;
       lastModEvent = performance.now();
-      for (let i = 0; i < 6; i++) ui.bands[i].pan = d.pans[i] || 0;
+      // TARGETS, not display values — the audio thread emits at 60 Hz on its
+      // own clock, which beats against the display's refresh (one frame gets
+      // two updates, the next none → visible stepping). smoothTelemetry()
+      // chases these per frame, so motion stays fluid at any refresh rate.
+      for (let i = 0; i < 6; i++) ui.bands[i].panTarget = d.pans[i] || 0;
       if (d.phases) for (let i = 0; i < 6; i++) ui.bands[i].livePhase = d.phases[i];
       if (d.srcs) for (let i = 0; i < 36; i++) modSrcVals[i] = d.srcs[i] || 0;   // band-major × waveform
       if (d.midiNote !== undefined && d.midiNote >= 0) {
@@ -2892,13 +2924,17 @@ let lastFrame = 0, loopCalls = 0, loopErr = null, ringFrame = false;
 function loop(ts) {
   loopCalls++;
   requestAnimationFrame(loop);
-  if (ts - lastFrame < 15) return;      // ~60 fps cap — matches 60 Hz mod telemetry (smooth fast pans)
+  // No frame cap: rAF already paces to the display. The old 15 ms gate pinned
+  // 120 Hz screens to 60 fps and, on a 60 Hz screen, dropped a frame whenever
+  // rAF jittered under 15 ms — the "not smooth" judder. Painters cost ~0.3 ms,
+  // so there is nothing to protect against here.
   lastFrame = ts;
   const now = performance.now(), dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now; simClock += dt;
   applyBandDrag();
   tickAnalyzer(simClock);
   tickMods(dt);
+  smoothTelemetry(dt);
   pushScope();
   try {
     drawSpectrum(simClock);
