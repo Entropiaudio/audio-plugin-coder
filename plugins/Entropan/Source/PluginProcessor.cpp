@@ -1018,6 +1018,26 @@ void EntropanAudioProcessor::setStepPresetsJson (const juce::String& json)
     f.replaceWithText (json);
 }
 
+juce::File EntropanAudioProcessor::uiSettingsFile()
+{
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+               .getChildFile ("Entropia").getChildFile ("Entropan")
+               .getChildFile ("ui-settings.json");
+}
+
+juce::String EntropanAudioProcessor::getUiSettingsJson() const
+{
+    const auto f = uiSettingsFile();
+    return f.existsAsFile() ? f.loadFileAsString() : juce::String ("{}");
+}
+
+void EntropanAudioProcessor::setUiSettingsJson (const juce::String& json)
+{
+    auto f = uiSettingsFile();
+    f.getParentDirectory().createDirectory();   // best-effort; ignore failure
+    f.replaceWithText (json);
+}
+
 //==============================================================================
 juce::String EntropanAudioProcessor::getRoutesJson() const
 {

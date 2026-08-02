@@ -97,6 +97,14 @@ public:
     juce::String getStepPresetsJson() const;
     void setStepPresetsJson (const juce::String& json);
 
+    // UI preferences (theme, tooltips, brightness) — a GLOBAL user choice, so
+    // it lives in the same shared app-data dir as the step presets rather than
+    // the WebView's localStorage (that sits in a unique per-instance temp
+    // folder and is lost on reopen).
+    static juce::File uiSettingsFile();
+    juce::String getUiSettingsJson() const;
+    void setUiSettingsJson (const juce::String& json);
+
     // ── Mod matrix: band modulators → any continuous parameter ──
     // Routes live as JSON in apvts.state ("modRoutes") → undoable + persisted.
     // Applied at block rate in the NORMALIZED param domain (skew-aware), as an

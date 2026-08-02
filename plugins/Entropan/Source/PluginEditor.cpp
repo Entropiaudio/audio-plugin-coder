@@ -157,6 +157,18 @@ EntropanAudioProcessorEditor::EntropanAudioProcessorEditor (EntropanAudioProcess
             {
                 complete (audioProcessor.getStepPresetsJson());
             })
+        .withNativeFunction ("setUiSettings",
+            [this] (const juce::Array<juce::var>& args, auto complete)
+            {
+                if (args.size() >= 1)
+                    audioProcessor.setUiSettingsJson (args[0].toString());
+                complete (true);
+            })
+        .withNativeFunction ("getUiSettings",
+            [this] (const juce::Array<juce::var>&, auto complete)
+            {
+                complete (audioProcessor.getUiSettingsJson());
+            })
         .withNativeFunction ("setRoutes",
             [this] (const juce::Array<juce::var>& args, auto complete)
             {

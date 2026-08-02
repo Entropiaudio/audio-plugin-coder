@@ -44,6 +44,47 @@
     --t-base: 200ms;
     --t-slow: 350ms;
     --ease-editorial: cubic-bezier(0.22, 1, 0.36, 1);
+    /* canvas-only inks — JS reads these so the renderers follow the theme */
+    --knob-track: #1f1c19;
+    --knob-face: #1f1c19;
+    --knob-face-locked: #181612;
+    --knob-dot: #ffffff;
+    --analyzer-ink: 232,226,214;   /* rgb triplet: analyser fill/stroke */
+    --grid-ink: 232,226,214;
+    --floating-bg: rgba(36, 32, 29, 0.92);   /* quick-menu floating over the analyser */
+    --dim-veil: rgba(20, 17, 15, 0.55);      /* bypass wash: toward the dark shell */
+  }
+
+  /* ── LIGHT SKIN (Entropia "daylight" palette: parchment + plum ink) ──
+     Only token values change; every rule above/below reads the variables, so
+     the whole UI re-skins from this one block. */
+  body.theme-light {
+    --bg-shell: #EDE0CC;          /* paper */
+    --bg-card: #F0E0D0;           /* parchment */
+    --bg-elevated: #F7ECDC;       /* lifted surface */
+    --border-subtle: rgba(38,16,25,0.14);
+    --border-bright: rgba(38,16,25,0.26);
+    --border-divider: rgba(38,16,25,0.10);
+    --text-primary: #261019;      /* plum-black ink */
+    --text-secondary: rgba(38,16,25,0.72);
+    --text-dim: rgba(38,16,25,0.50);
+    --text-faint: rgba(38,16,25,0.30);
+    --accent: #DD6E26;            /* burnt copper */
+    --accent-bright: #F08030;
+    --accent-glow: rgba(221,110,38,0.35);
+    --accent-tint: rgba(221,110,38,0.10);
+    --section-output: #9A6A45;    /* toasted umber */
+    --state-warning: #C98A32;     /* ochre */
+    /* On paper the knob well is an INSET field, and the face is the deep ink
+       block — inverting the dark theme's "darker than card" logic. */
+    --knob-track: #D8C4A8;
+    --knob-face: #E4D3BB;         /* --field */
+    --knob-face-locked: #DCCBB4;
+    --knob-dot: #302030;          /* --plum */
+    --analyzer-ink: 38,16,25;     /* ink, not cream */
+    --grid-ink: 38,16,25;
+    --floating-bg: rgba(247, 236, 220, 0.94);   /* lifted parchment, not ink */
+    --dim-veil: rgba(237, 224, 204, 0.62);      /* bypass wash: toward paper (--paper-veil) */
   }
 
   html, body { height: 100%; margin: 0; padding: 0; }
@@ -204,7 +245,7 @@
   .quick-menu {
     position: absolute; z-index: 4; display: none;
     width: 118px; padding: 5px 7px 6px 7px;
-    background: rgba(36, 32, 29, 0.92);
+    background: var(--floating-bg);
     border: 1px solid var(--border-bright); border-radius: 7px;
     backdrop-filter: blur(2px);
     box-shadow: 0 2px 10px rgba(0,0,0,0.45);
@@ -319,7 +360,7 @@
   }
   .knob-face {
     position: absolute; top: 9px; left: 9px; width: 38px; height: 38px;
-    border-radius: 50%; background: #1f1c19;
+    border-radius: 50%; background: var(--knob-face);
     border: 1px solid var(--border-bright);
     box-shadow: none; z-index: 2;
     transition: border-color 0.15s ease, background 0.15s ease;
@@ -328,7 +369,7 @@
     position: absolute; top: 50%; left: 50%;
     width: 2.5px; height: 2.5px;
     margin-left: -1.25px; margin-top: -1.25px;
-    border-radius: 50%; background: #ffffff;
+    border-radius: 50%; background: var(--knob-dot);
     z-index: 4; pointer-events: none;
     transition: background 0.15s ease;
     transform-origin: 50% 50%;
@@ -519,7 +560,7 @@
   .mutation-flash.fire { opacity: 0.6; transition: none; }
   .bypass-dim {
     position: absolute; inset: 0; z-index: 9; pointer-events: none;
-    background: rgba(20, 17, 15, 0.55); opacity: 0;
+    background: var(--dim-veil); opacity: 0;
     transition: opacity var(--t-base) var(--ease-editorial);
   }
   .bypass-dim.on { opacity: 1; }
@@ -767,6 +808,12 @@
   <div class="settings-popover" id="settingsPopover">
     <h3>Settings</h3>
     <div class="settings-row">
+      <span class="settings-row-label">Theme</span>
+      <button class="settings-mini-btn" id="themeToggle"
+              style="width:auto; padding:0 8px;"
+              data-tip="Switch between the Night and Daylight skins">Night</button>
+    </div>
+    <div class="settings-row">
       <span class="settings-row-label">Tooltips</span>
       <button class="settings-toggle" id="tooltipsToggle"></button>
     </div>
@@ -804,7 +851,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B93";
+const ENTROPAN_BUILD = "B94";
 // single source for the UI version string — must match juce_add_plugin VERSION
 // in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
 const ENTROPAN_VERSION = "0.5.0";
@@ -824,7 +871,36 @@ const EMBEDDED = typeof window.__JUCE__ !== "undefined"
   && (window.__JUCE__.initialisationData?.__juce__platform?.length ?? 0) > 0;
 
 const DPR = window.devicePixelRatio || 1;
-const BAND_COLORS = ["#3ab8d4", "#8aaa7a", "#5fc88a", "#b06ed4", "#d6884a", "#D4A574"];
+/* ── THEME ────────────────────────────────────────────────────────────────
+   CSS handles everything styled by a rule; the canvas renderers can't read
+   CSS, so they read THEME instead. Voice hues differ per skin: the dark set
+   would wash out on parchment, so the light skin uses the palette's section
+   accents (dusty teal / olive / jade / mulberry / ochre / copper). Index
+   meaning is preserved — band 1 is the "cyan slot" in both skins. */
+const THEMES = {
+  dark: {
+    bands: ["#3ab8d4", "#8aaa7a", "#5fc88a", "#b06ed4", "#d6884a", "#D4A574"],
+    accent: "#D4A574", knobTrack: "#1f1c19",
+    face: "#1f1c19", faceLocked: "#181612",
+    dot: "#ffffff", dotLocked: "#aaaaaa", dotGhost: "#88837a", onAccent: "#14110F",
+    ink: "232,226,214",
+  },
+  light: {
+    bands: ["#4E7C86", "#7E8A3A", "#4F9A78", "#8A5A7E", "#C98A32", "#DD6E26"],
+    accent: "#DD6E26", knobTrack: "#D8C4A8",
+    face: "#E4D3BB", faceLocked: "#DCCBB4",
+    dot: "#302030", dotLocked: "#8A7A6A", dotGhost: "#A08D74", onAccent: "#F7ECDC",
+    ink: "38,16,25",
+  },
+};
+let THEME = THEMES.dark;
+const BAND_COLORS = THEMES.dark.bands.slice();   // live array — patched on theme change
+function applyTheme(name) {
+  const t = THEMES[name] || THEMES.dark;
+  THEME = t;
+  for (let i = 0; i < 6; i++) BAND_COLORS[i] = t.bands[i];
+  document.body.classList.toggle("theme-light", name === "light");
+}
 const MODES = ["SINE", "TRI", "S&H", "CHAOS", "STEPS", "ENV"];
 const DIVS = ["1/16", "1/8", "1/4", "1/2", "1 BAR", "2 BAR", "4 BAR"];
 const DIV_HZ = [8, 4, 2, 1, 0.5, 0.25, 0.125]; // at 120 bpm — UI sim only
@@ -1428,7 +1504,7 @@ function drawKnob(canvas, normValue, accentColor, locked) {
   // background track
   ctx.beginPath();
   ctx.arc(cx, cy, r, degToRad(ARC_START), degToRad(ARC_START + 270));
-  ctx.strokeStyle = "#1f1c19"; ctx.lineWidth = arcWidth; ctx.lineCap = "round";
+  ctx.strokeStyle = THEME.knobTrack; ctx.lineWidth = arcWidth; ctx.lineCap = "round";
   ctx.stroke();
 
   if (normValue > 0.001) {
@@ -1441,7 +1517,7 @@ function drawKnob(canvas, normValue, accentColor, locked) {
         const segEnd = degToRad(ARC_START + t1 * totalAngle) + 0.012;
         ctx.beginPath();
         ctx.arc(cx, cy, r, segStart, segEnd);
-        ctx.strokeStyle = locked ? "#666" : lerpColor("#D4A574", accentColor, (t0 + t1) * 0.5);
+        ctx.strokeStyle = locked ? "#666" : lerpColor(THEME.accent, accentColor, (t0 + t1) * 0.5);
         ctx.lineWidth = arcWidth;
         ctx.lineCap = i === 0 || i === segments - 1 ? "round" : "butt";
         ctx.stroke();
@@ -1487,10 +1563,10 @@ function makeKnob(containerId, label, opts) {
       refreshModHandle(modHandle, el);
       ind.style.transform = `rotate(${-135 + clamp(norm, 0, 1) * 270}deg) translateY(-14px)`;
       // Locked: grey dot, no glow, dim face — position still readable (Chaosverb).
-      ind.style.background = locked ? "#aaaaaa" : "#ffffff";
+      ind.style.background = locked ? THEME.dotLocked : THEME.dot;
       ind.style.boxShadow = locked ? "none" : `0 0 4px ${k.color}`;
       ind.style.opacity = locked ? "0.85" : "1";
-      face.style.background = locked ? "#181612" : "#1f1c19";
+      face.style.background = locked ? THEME.faceLocked : THEME.face;
       face.style.borderColor = locked ? "#2e2a25" : "";
       face.style.opacity = locked ? "0.5" : "1";
       body.classList.toggle("locked", locked);
@@ -2002,7 +2078,7 @@ function refreshPanels() {
   knobAmount.refresh(); knobOut.refresh(); knobWow.refresh(); knobFlutter.refresh(); knobSpeed.refresh();
   document.querySelectorAll(".mode-chip").forEach((el, i) => {
     const on = i === pb.mode.get();
-    el.style.color = on ? "#14110F" : "";
+    el.style.color = on ? THEME.onAccent : "";
     el.style.background = on ? c : "";
     el.style.borderColor = on ? c : "";
   });
@@ -2351,14 +2427,17 @@ function bellY(i, x) {
 const auraCache = Array.from({ length: 6 }, () => ({ key: "", canvas: document.createElement("canvas") }));
 
 /* static grid cache (redrawn on resize only) */
-let gridCache = null;
+let gridCache = null, gridCacheInk = null;
 function drawGridCached(ctx, W, H) {
-  if (!gridCache || gridCache.width !== W || gridCache.height !== H) {
+  // THEME must be in the cache key — without it the dark grid survived a skin
+  // change (same class of bug as the aura cache missing its shape input)
+  if (!gridCache || gridCache.width !== W || gridCache.height !== H || gridCacheInk !== THEME.ink) {
     gridCache = document.createElement("canvas");
     gridCache.width = W; gridCache.height = H;
+    gridCacheInk = THEME.ink;
     const g = gridCache.getContext("2d");
-    g.strokeStyle = "#26221F"; g.lineWidth = DPR;
-    g.fillStyle = "#403A32"; g.font = `${9 * DPR}px 'JetBrains Mono', ui-monospace, monospace`;
+    g.strokeStyle = `rgba(${THEME.ink},0.10)`; g.lineWidth = DPR;
+    g.fillStyle = `rgba(${THEME.ink},0.28)`; g.font = `${9 * DPR}px 'JetBrains Mono', ui-monospace, monospace`;
     [50, 100, 200, 500, 1000, 2000, 5000, 10000].forEach(f => {
       const x = fx(f) * W;
       g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke();
@@ -2393,14 +2472,15 @@ function drawSpectrum(t) {
   }
   ctx.lineTo(W, ay(anaBins - 1));
   ctx.lineTo(W, H); ctx.closePath();
-  // gradient cached per height (static stops) — same pattern as drawGridCached
-  if (!drawSpectrum._g || drawSpectrum._gH !== H) {
+  // gradient cached per height + ink (stops bake the theme) — same pattern as drawGridCached
+  const gKey = H + "|" + THEME.ink;
+  if (!drawSpectrum._g || drawSpectrum._gKey !== gKey) {
     const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, "rgba(232,226,214,0.10)"); g.addColorStop(1, "rgba(232,226,214,0.0)");
-    drawSpectrum._g = g; drawSpectrum._gH = H;
+    g.addColorStop(0, `rgba(${THEME.ink},0.10)`); g.addColorStop(1, `rgba(${THEME.ink},0.0)`);
+    drawSpectrum._g = g; drawSpectrum._gKey = gKey;
   }
   ctx.fillStyle = drawSpectrum._g; ctx.fill();
-  ctx.strokeStyle = "rgba(232,226,214,0.25)"; ctx.lineWidth = DPR; ctx.stroke();
+  ctx.strokeStyle = `rgba(${THEME.ink},0.25)`; ctx.lineWidth = DPR; ctx.stroke();
 
   const topH = H * 0.82;
 
@@ -2431,7 +2511,7 @@ function drawSpectrum(t) {
     ctx.beginPath(); ctx.arc(hx, hy, (sel ? 6 : 4.5) * DPR, 0, 7);
     ctx.fillStyle = c + (ghost ? "55" : "ff"); ctx.fill();
     ctx.beginPath(); ctx.arc(hx, hy, 2 * DPR, 0, 7);
-    ctx.fillStyle = ghost ? "#88837a" : "#fff"; ctx.fill();
+    ctx.fillStyle = ghost ? THEME.dotGhost : THEME.dot; ctx.fill();
 
     // gain aura — expensive blur render is CACHED per band; re-rendered only
     // when bell geometry or gain changes, stamped as a bitmap every frame.
@@ -2466,7 +2546,7 @@ function drawSpectrum(t) {
       const cache = auraCache[bi];
       // bellP (slope morph) shapes the traced bell — without it in the key a
       // slope change kept stamping the stale aura bitmap (user report)
-      const key = [W, H, gainV.toFixed(2), freqV.toFixed(1), widthV.toFixed(3), liftV.toFixed(1), dd.bellP.toFixed(2)].join("|");
+      const key = [W, H, gainV.toFixed(2), freqV.toFixed(1), widthV.toFixed(3), liftV.toFixed(1), dd.bellP.toFixed(2), c].join("|");
       if (cache.key !== key) {
         cache.key = key;
         cache.canvas.width = W; cache.canvas.height = H;
@@ -2826,7 +2906,7 @@ function drawScope() {
     ctx.stroke();
     const last = clamp(envBuf[(envHead + SCOPE_N - 1) % SCOPE_N], 0, 1);
     ctx.beginPath(); ctx.arc(W - 3 * DPR, H - last * (H * 0.92) - 2 * DPR, 2.5 * DPR, 0, 7);
-    ctx.fillStyle = on ? "#fff" : "#88837a"; ctx.fill();
+    ctx.fillStyle = on ? THEME.dot : THEME.dotGhost; ctx.fill();
     return;
   }
 
@@ -2849,7 +2929,7 @@ function drawScope() {
   ctx.stroke();
   const last = scopeBuf[(scopeHead + SCOPE_N - 1) % SCOPE_N];
   ctx.beginPath(); ctx.arc(W - 3 * DPR, H / 2 - last * H * 0.38, 2.5 * DPR, 0, 7);
-  ctx.fillStyle = on ? "#fff" : "#88837a"; ctx.fill();
+  ctx.fillStyle = on ? THEME.dot : THEME.dotGhost; ctx.fill();
 }
 
 /* local sim (skipped for bands when live telemetry present) */
@@ -3087,10 +3167,40 @@ document.getElementById("contactLink").addEventListener("click", () => {
   else window.open("https://entropiaudio.com", "_blank");   // browser preview
 });
 
+/* UI preferences. In the plugin these ride a shared app-data file (native
+   get/setUiSettings) so a skin choice survives reopen and is shared by every
+   instance — the WebView's localStorage lives in a per-instance temp folder
+   and is lost. In a plain browser we fall back to localStorage. */
 const settings = (() => {
   try { return JSON.parse(localStorage.getItem("entropanSettings") || "{}"); } catch { return {}; }
 })();
-function saveSettings() { try { localStorage.setItem("entropanSettings", JSON.stringify(settings)); } catch {} }
+const getUiSettingsNative = native("getUiSettings"), setUiSettingsNative = native("setUiSettings");
+let prefsTouched = false;   // user beat the async load → their choice wins
+function saveSettings() {
+  prefsTouched = true;
+  if (EMBEDDED) setUiSettingsNative(JSON.stringify(settings)).catch(() => {});
+  else { try { localStorage.setItem("entropanSettings", JSON.stringify(settings)); } catch {} }
+}
+
+/* theme (skin): Night = the original dark UI, Daylight = the parchment palette.
+   Canvas renderers read THEME; CSS reads body.theme-light. Everything that
+   caches a rendered bitmap keys on the theme so nothing survives the switch. */
+let themeName = settings.theme === "light" ? "light" : "dark";
+const themeToggle = document.getElementById("themeToggle");
+function applyThemeUI() {
+  applyTheme(themeName);
+  themeToggle.textContent = themeName === "light" ? "Daylight" : "Night";
+  gridCache = null;                       // grid bitmap is theme-coloured
+  auraCache.forEach(c => c.key = "");     // aura bitmaps bake the band colour
+  refreshPanels();
+  drawSpectrum(simClock); drawScope();
+  if (PB().mode.get() === 4) drawSteps();
+}
+themeToggle.addEventListener("click", () => {
+  themeName = themeName === "light" ? "dark" : "light";
+  settings.theme = themeName; saveSettings();
+  applyThemeUI();
+});
 
 /* brightness */
 let brightness = clamp(settings.brightness ?? 100, 70, 130);
@@ -3120,6 +3230,21 @@ function applyTooltipsToggle() {
 }
 tooltipsToggle.addEventListener("click", () => { tooltipsEnabled = !tooltipsEnabled; applyTooltipsToggle(); });
 applyTooltipsToggle();
+
+/* Pull the shared UI-preferences file (plugin only — async, so the UI starts on
+   its defaults and re-skins once the file arrives). Nothing here is audio
+   state, so a late apply is harmless. */
+if (EMBEDDED) {
+  getUiSettingsNative().then(json => {
+    if (prefsTouched) return;             // user already picked in the gap — don't undo it
+    let saved = {};
+    try { saved = JSON.parse(json || "{}"); } catch { return; }
+    Object.assign(settings, saved);
+    if (saved.theme === "light" || saved.theme === "dark") { themeName = saved.theme; applyThemeUI(); }
+    if (typeof saved.brightness === "number") { brightness = clamp(saved.brightness, 70, 130); applyBrightness(); }
+    if (typeof saved.tooltips === "boolean") { tooltipsEnabled = saved.tooltips; applyTooltipsToggle(); }
+  }).catch(() => {});
+}
 
 const tipEl = document.createElement("div");
 tipEl.className = "ui-tooltip";
