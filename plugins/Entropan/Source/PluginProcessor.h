@@ -43,18 +43,25 @@ public:
     // modulating a delay swings pitch by 2*pi*rate*peakDelay, so the peak delay
     // each one needs is kWowPitch / (2*pi*kWowRate) — which means the rates can
     // be retuned without the depth character drifting with them.
-    //   0.45% ~ 7.8 cents, 0.36% ~ 6.2 cents at 100%: past a real cassette
-    //   (0.15-0.35%), so 100% is a warped one and ordinary tape lands near 30%.
-    static constexpr double kWowRate    = 0.4;      // Hz — slow capstan drift
+    //   0.80% ~ 13.8 cents, 0.60% ~ 10.4 cents at 100%: roughly twice a badly
+    //   worn cassette (0.15-0.35%), so 100% is openly an effect while ordinary
+    //   tape still lands around a third of the way up the knob.
+    static constexpr double kWowRate    = 0.5;      // Hz — capstan drift
     static constexpr double kFlutRate   = 6.3;      // Hz — pinch-roller flutter
-    static constexpr double kWowPitch   = 0.0045;   // peak dp/p at 100%
-    static constexpr double kFlutPitch  = 0.0036;
+    static constexpr double kWowPitch   = 0.0080;   // peak dp/p at 100%
+    static constexpr double kFlutPitch  = 0.0060;
     static constexpr double kWowPeakS   = kWowPitch  / (2.0 * juce::MathConstants<double>::pi * kWowRate);
     static constexpr double kFlutPeakS  = kFlutPitch / (2.0 * juce::MathConstants<double>::pi * kFlutRate);
     // The read tap sits kBaseDelayS behind and swings +/-(wow+flutter); the base
     // only has to keep it positive, and every extra millisecond is latency the
-    // host has to compensate. 2.5x the worst-case swing is ample.
-    static constexpr double kBaseDelayS = 2.5 * (kWowPeakS + kFlutPeakS);
+    // host has to compensate. 1.5x the worst-case swing still leaves ~40 samples
+    // of margin under the tap, twenty times what Lagrange3rd needs.
+    static constexpr double kBaseDelayS = 1.5 * (kWowPeakS + kFlutPeakS);
+    // Engage GLIDE, not crossfade — see the tap ramp in processBlock. The dip
+    // this costs is kBaseDelayS / kEngageS in pitch, so 4.0 ms over 300 ms is
+    // ~1.3%: the same order as the wow itself, which is why it reads as the
+    // machine spinning up rather than as an edit.
+    static constexpr double kEngageS    = 0.30;
 
     // Samples the wet path adds when engaged; 0 when both knobs are down.
     int wfLatencySamples() const noexcept;
@@ -289,6 +296,7 @@ private:
 
     juce::SmoothedValue<float> outGainSm;    // linear
     juce::SmoothedValue<float> bypassSm;     // 0 = process, 1 = bypassed
+    juce::SmoothedValue<float> soloSm;       // 0 = mix, 1 = soloed bands only
     juce::SmoothedValue<float> amountSm;     // 0..1 master depth
     juce::SmoothedValue<float> routingSm;    // 0 = serial, 1 = parallel — crossfaded so the flip never pops
     juce::AudioBuffer<float> dryBuffer;
@@ -314,6 +322,7 @@ private:
         std::atomic<float>* biasFree;   // override: drop the bias headroom clamp (pan may hit the rail)
         std::atomic<float>* stepSmooth; // Steps mode: 0 = square, 100 = glide between steps
         std::atomic<float>* slope;      // 0..100 %, continuous log morph: 12 → 24 → 48 dB/oct
+        std::atomic<float>* solo;       // monitor this band alone (its bell, panned)
     };
     std::array<BandParams, kNumBands> bandParams {};
     std::atomic<float>* pAmount = nullptr;

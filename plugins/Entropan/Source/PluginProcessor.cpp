@@ -283,6 +283,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::crea
             juce::AudioParameterFloatAttributes().withLabel ("%")));   // 0=12, 50=24, 100=48 dB/oct (log morph)
     }
 
+    // Solo, appended AFTER every other parameter on purpose: adding these
+    // inside the per-band block above would shift the index of every parameter
+    // that follows, and hosts that automate by index would silently re-point.
+    for (int i = 0; i < kNumBands; ++i)
+        params.push_back (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID { "b" + juce::String (i + 1) + "_solo", 1 },
+            "Band " + juce::String (i + 1) + " Solo", false));
+
     return { params.begin(), params.end() };
 }
 
@@ -317,7 +325,8 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
 
     wfDelay.prepare (spec);
     wfDelay.reset();
-    wfEngage.reset (sampleRate, 0.020);
+    wfEngage.reset (sampleRate, kEngageS);
+    soloSm.reset (sampleRate, 0.020);
     wowDepthSm.reset (sampleRate, 0.080);
     flutDepthSm.reset (sampleRate, 0.080);
     wowPhase = flutPhase = 0.0;
@@ -358,7 +367,8 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
             apvts.getRawParameterValue (p + "bias"),
             apvts.getRawParameterValue (p + "override"),
             apvts.getRawParameterValue (p + "stepsmooth"),
-            apvts.getRawParameterValue (p + "slope")
+            apvts.getRawParameterValue (p + "slope"),
+            apvts.getRawParameterValue (p + "solo")
         };
     }
 
@@ -522,6 +532,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         bool   biasFree = false;   // override: bias not headroom-clamped → pan may reach the rail
         juce::uint8 waves = 0;     // consumer mask: which waveforms tick this block
         int    zone = 0;           // slope blend pair: 0 = bell2↔bell4, 1 = bell4↔bell8
+        bool   solo = false;       // monitor this band alone
         const StepsData* steps = nullptr;   // RT snapshot, resolved once per block
     };
     std::array<BandBlock, kNumBands> bb;
@@ -579,6 +590,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         cfg.uni      = pp.uni->load() > 0.5f;
         cfg.freeze   = pp.freeze->load() > 0.5f;
         cfg.biasFree = pp.biasFree->load() > 0.5f;
+        cfg.solo     = pp.solo->load() > 0.5f;
         // routes' bits (gathered in the matrix scan) + the pan's own waveform
         cfg.waves    = (juce::uint8) (waveMask[i] | (1u << cfg.mode));
         cfg.steps    = &stepsBuf[(size_t) i][(size_t) stepsActive[(size_t) i].load (std::memory_order_acquire)];
@@ -665,6 +677,15 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     outGainSm.setTargetValue (juce::Decibels::decibelsToGain (globMod[3]));
     bypassSm.setTargetValue (pBypass->load() > 0.5f ? 1.0f : 0.0f);
+    // Any band armed puts the whole plugin in solo; a soloed band that is
+    // switched off contributes silence, which is the useful answer (you hear
+    // that you soloed nothing) rather than falling back to the mix.
+    {
+        bool anySolo = false;
+        for (int i = 0; i < kNumBands; ++i)
+            anySolo = anySolo || bb[(size_t) i].solo;
+        soloSm.setTargetValue (anySolo ? 1.0f : 0.0f);
+    }
     // Serial chains bands; Parallel runs each on the dry input. The topology is
     // CONTINUOUS in rx = routingSm (0..1): band input lerps chain→dry and both
     // recombination laws blend, so flipping the switch never steps the filter
@@ -726,6 +747,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         float xl = left[s], xr = right[s];
         const float xinL = xl, xinR = xr;      // dry-in — the parallel side reads this
         float accL = 0.0f, accR = 0.0f;        // parallel: summed per-band displacements
+        float soloL = 0.0f, soloR = 0.0f;      // solo: summed per-band bells, panned
         const float amountV = amountSm.getNextValue();
         const float rx = routingSm.getNextValue();       // 0 = serial … 1 = parallel
         const float sxw = 1.0f - rx;                     // serial-side weight
@@ -902,6 +924,17 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const float outL = inL + bandL * liftV * (gL - 1.0f);
             const float outR = inR + bandR * liftV * (gR - 1.0f);
 
+            // Solo bus: the band's own content, panned — band·lift·g, NOT the
+            // displacement band·lift·(g−1) that the mix path adds. The
+            // displacement is the difference the band makes to the mix, so on
+            // its own it inverts and nulls at centre; what you want to audition
+            // is the bell itself moving through the field.
+            if (cfg.solo)
+            {
+                soloL += bandL * liftV * gL * e;
+                soloR += bandR * liftV * gR * e;
+            }
+
             // Parallel side: add only the pan/gain DISPLACEMENT — overlapping
             // bands SUM their movement instead of the later one re-panning the
             // earlier. Serial side: chain replacement. Both weighted by rx.
@@ -913,6 +946,19 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // settled: rx=0 → pure serial chain; rx=1 → dry + displacements
         xl = xl * sxw + (xinL + accL) * rx;
         xr = xr * sxw + (xinR + accR) * rx;
+
+        // Solo replaces the mix, crossfaded so arming it is not an edit. The
+        // bus is summed unconditionally above but costs nothing when nothing is
+        // soloed, and routing does not enter: solo is a monitor tap on the
+        // bells themselves, identical in Serial and Parallel.
+        {
+            const float sv = soloSm.getNextValue();
+            if (sv > 0.0f)
+            {
+                xl += (soloL - xl) * sv;
+                xr += (soloR - xr) * sv;
+            }
+        }
 
         // scope ring: sample every band's live mod value every 64 samples —
         // captured IN the loop (a post-loop fill repeats the block's final
@@ -939,13 +985,22 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             flutPhase += flutInc; if (flutPhase >= 1.0) flutPhase -= 1.0;
             const float wowMod  = std::sin ((float) wowPhase  * juce::MathConstants<float>::twoPi) * wowDepthSm.getNextValue();
             const float flutMod = std::sin ((float) flutPhase * juce::MathConstants<float>::twoPi) * flutDepthSm.getNextValue();
-            // slight L/R divergence for width
-            wfDelay.setDelay (juce::jlimit (1.0f, 4000.0f, baseDelay + wowMod + flutMod));
+            // Engage by GLIDING THE TAP from ~0 up to the base, and take the
+            // tap as the output. The old scheme crossfaded dry against the
+            // delayed copy, which is a comb: the first null sits at
+            // 1/(2*baseDelay) — 124 Hz here — and it swept in during the fade,
+            // gutting that band by ~20 dB. That was the engage click (T39).
+            // One gliding tap is a single signal path throughout; the only
+            // cost is a brief pitch bend, which is what tape does anyway.
+            // Slight L/R divergence on wow for width; flutter stays common-mode.
+            const float dTargetL = baseDelay + wowMod + flutMod;
+            const float dTargetR = baseDelay - wowMod + flutMod;
+            wfDelay.setDelay (juce::jlimit (1.0f, 4000.0f, 1.0f + eng * (dTargetL - 1.0f)));
             const float dl = wfDelay.popSample (0);
-            wfDelay.setDelay (juce::jlimit (1.0f, 4000.0f, baseDelay - wowMod + flutMod));
+            wfDelay.setDelay (juce::jlimit (1.0f, 4000.0f, 1.0f + eng * (dTargetR - 1.0f)));
             const float dr = wfDelay.popSample (1);
-            xl += (dl - xl) * eng;
-            xr += (dr - xr) * eng;
+            xl = dl;
+            xr = dr;
         }
         else
         {

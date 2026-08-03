@@ -1253,10 +1253,9 @@ int main()
         using P = EntropanAudioProcessor;
         const double wowPitch  = 2.0*juce::MathConstants<double>::pi * P::kWowRate  * P::kWowPeakS;
         const double flutPitch = 2.0*juce::MathConstants<double>::pi * P::kFlutRate * P::kFlutPeakS;
-        // Musical middle ground: past a real cassette (0.15-0.35%) but nowhere
-        // near the old build's 1.5% / 4.75%.
-        ok &= check ("T38a wow peak pitch in 0.3-0.5%",     wowPitch  > 0.003 && wowPitch  < 0.005);
-        ok &= check ("T38b flutter peak pitch in 0.3-0.5%", flutPitch > 0.003 && flutPitch < 0.005);
+        // Openly an effect now — about 2x a worn cassette (0.15-0.35%).
+        ok &= check ("T38a wow peak pitch in 0.7-0.9%",     wowPitch  > 0.007 && wowPitch  < 0.009);
+        ok &= check ("T38b flutter peak pitch in 0.5-0.7%", flutPitch > 0.005 && flutPitch < 0.007);
         // The read tap must never run off the front of the line.
         ok &= check ("T38c base delay clears the swing",    P::kBaseDelayS > (P::kWowPeakS + P::kFlutPeakS));
         std::printf ("    wow %.3f%% (%.1f cents), flutter %.3f%% (%.1f cents), base %.2f ms\n",
@@ -1282,6 +1281,132 @@ int main()
         setParam (p, "flutter", 0.0f);
         setParam (p, "wow", 0.0f);
         ok &= check ("T38g latency returns to 0", p.wfLatencySamples() == 0);
+    }
+
+    // ── T39: ENGAGING W&F must not comb. T35 already engages instantly and
+    //         passes, but it measures max sample-step on a 1 kHz sine, which
+    //         cannot see the real artifact: while the engage crossfade runs,
+    //         the output is dry summed with a copy of itself delayed by the
+    //         base — a comb whose first null sits at 1/(2*base). Feed exactly
+    //         that frequency and the level collapses mid-fade. Measured as an
+    //         RMS dip in short windows against the steady-state level. ──
+    {
+        const double fNull = 1.0 / (2.0 * EntropanAudioProcessor::kBaseDelayS);
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        setParam (p, "b1_on", 0.0f);          // W&F is global
+        juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+        double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*fNull/kSampleRate;
+
+        const int win = 128;                  // ~2.7 ms — finer than the fade
+        double refRms = 0.0, minRms = 1.0e9;
+        double acc = 0.0; int accN = 0;
+        const int preBlocks = 60, postBlocks = 120;
+        for (int blk = 0; blk < kWarmBlocks + preBlocks + postBlocks; ++blk)
+        {
+            if (blk == kWarmBlocks + preBlocks)       // flip it ON in one block
+                setParam (p, "wow", 100.0f);
+            for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+            p.processBlock (buf, midi);
+            if (blk < kWarmBlocks) continue;
+            for (int s = 0; s < kBlock; ++s)
+            {
+                const double v = buf.getSample (0, s);
+                acc += v * v;
+                if (++accN == win)
+                {
+                    const double rms = std::sqrt (acc / (double) win);
+                    // last window before the flip = the reference level
+                    if (blk < kWarmBlocks + preBlocks) refRms = rms;
+                    else minRms = juce::jmin (minRms, rms);
+                    acc = 0.0; accN = 0;
+                }
+            }
+        }
+        const double dipDb = 20.0 * std::log10 (juce::jmax (1.0e-9, minRms / juce::jmax (1.0e-9, refRms)));
+        // A gliding tap keeps ONE signal path, so the level holds. A crossfade
+        // against a delayed copy nulls this frequency outright.
+        ok &= check ("T39 W&F engage does not comb", dipDb > -3.0);
+        std::printf ("    engage dip at %.1f Hz (the comb null): %.1f dB\n", fNull, dipDb);
+    }
+
+    // ── T40: per-band SOLO. Auditions the band's own bell, panned — so a
+    //         soloed narrow band on a two-tone input must keep the tone inside
+    //         the band and reject the one outside it, and must follow the pan
+    //         rather than nulling at centre (which is what auditioning the
+    //         DISPLACEMENT band*(g-1) would do). ──
+    {
+        auto runSolo = [] (bool solo, double toneHz, float bias, double& outL, double& outR)
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (kSampleRate, kBlock);
+            setParam (p, "b1_on", 1.0f);
+            setParam (p, "b1_freq", 1000.0f);
+            setParam (p, "b1_width", 0.5f);      // narrow — clear in/out of band
+            setParam (p, "b1_lift", 100.0f);
+            setParam (p, "b1_depth", 0.0f);      // static: pan set by bias alone
+            setParam (p, "b1_bias", bias);
+            setParam (p, "b1_solo", solo ? 1.0f : 0.0f);
+            juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+            double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*toneHz/kSampleRate;
+            double sl = 0.0, sr = 0.0; int n = 0;
+            for (int blk = 0; blk < kWarmBlocks + 80; ++blk)
+            {
+                for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase)*0.5f; phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+                p.processBlock (buf, midi);
+                if (blk < kWarmBlocks) continue;
+                for (int s = 0; s < kBlock; ++s)
+                { sl += (double) buf.getSample(0,s) * buf.getSample(0,s);
+                  sr += (double) buf.getSample(1,s) * buf.getSample(1,s); ++n; }
+            }
+            outL = std::sqrt (sl / (double) n); outR = std::sqrt (sr / (double) n);
+        };
+
+        double inbandL, inbandR, outbandL, outbandR, mixL, mixR;
+        runSolo (true,  1000.0,  0.0f, inbandL,  inbandR);    // tone AT the band
+        runSolo (true,  100.0,   0.0f, outbandL, outbandR);   // tone well below it
+        runSolo (false, 1000.0,  0.0f, mixL,     mixR);       // same, unsoloed
+
+        ok &= check ("T40a solo passes the band's own tone", inbandL > 0.2 * mixL);
+        ok &= check ("T40b solo rejects out-of-band content", outbandL < 0.1 * inbandL);
+        std::printf ("    solo RMS: in-band %.4f, out-of-band %.4f, unsoloed mix %.4f\n",
+                     inbandL, outbandL, mixL);
+
+        // Panned hard left: the whole point of soloing is hearing this.
+        double hlL, hlR;
+        runSolo (true, 1000.0, -100.0f, hlL, hlR);
+        ok &= check ("T40c soloed band still pans", hlL > 4.0 * hlR);
+        std::printf ("    solo bias L: L %.4f vs R %.4f\n", hlL, hlR);
+
+        // No band armed => the mix is untouched, bit for bit.
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (kSampleRate, kBlock);
+            for (int i = 1; i <= 6; ++i)          // band 1 defaults ON — same premise as T1
+                setParam (p, "b" + juce::String (i) + "_on", 0.0f);
+            juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+            juce::Random rng (7);
+            double maxDiff = 0.0;
+            for (int blk = 0; blk < kWarmBlocks + 40; ++blk)
+            {
+                std::array<float, kBlock> refL {}, refR {};
+                for (int s = 0; s < kBlock; ++s)
+                {
+                    const float l = rng.nextFloat()*2.0f-1.0f, r = rng.nextFloat()*2.0f-1.0f;
+                    refL[(size_t) s] = l; refR[(size_t) s] = r;
+                    buf.setSample (0, s, l); buf.setSample (1, s, r);
+                }
+                p.processBlock (buf, midi);
+                if (blk < kWarmBlocks) continue;
+                for (int s = 0; s < kBlock; ++s)
+                    maxDiff = juce::jmax (maxDiff,
+                                (double) juce::jmax (std::abs (buf.getSample(0,s) - refL[(size_t) s]),
+                                                     std::abs (buf.getSample(1,s) - refR[(size_t) s])));
+            }
+            // Same bar T1 sets for "exact wire".
+            ok &= check ("T40d nothing soloed leaves the wire exact", maxDiff < 1.0e-6);
+            std::printf ("    idle maxDiff with solo compiled in: %.3g\n", maxDiff);
+        }
     }
 
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");

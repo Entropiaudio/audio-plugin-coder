@@ -489,6 +489,22 @@
   .band-bypass-btn { position: absolute; bottom: 7px; left: 50%; transform: translateX(-50%); z-index: 5; }
   /* .bypass-btn.active already sets colour+border (band button carries both classes) */
   .band-bypass-btn.active { box-shadow: 0 0 7px color-mix(in srgb, var(--state-warning) 35%, transparent); }
+  /* SOLO mirrors the link button's 80% at 20%, so the bottom row reads
+     symmetrically around the centred BYPASS. Armed it takes the accent, not
+     the warning colour — bypass is a subtraction, solo is a monitor state. */
+  .band-solo-btn {
+    position: absolute; left: 20%; bottom: 7px; transform: translateX(-50%);
+    height: 17px; box-sizing: border-box; padding: 0 9px; z-index: 5;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .band-solo-btn.active {
+    color: var(--accent); border-color: var(--accent);
+    box-shadow: 0 0 7px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  /* A soloed band must stay legible even while the card is dimmed for bypass. */
+  .sec-band.bypassed .band-solo-btn { opacity: 1; }
+  /* another band is soloed — this one is being silenced by it */
+  .band-solo-btn.dimmed { border-style: dashed; opacity: 0.55; }
 
   /* mode chips */
   .mode-chips { display: flex; gap: 3px; margin: 2px 0 8px 0; flex-wrap: wrap; }
@@ -738,6 +754,7 @@
     <div class="section-col sec-band">
       <div class="section-label" id="bandSecLabel">Band 1</div>
       <button class="toggle-btn bypass-btn band-bypass-btn" id="bandBypassBtn" data-tip="Bypass this band — its bell stays placed but stops processing">BYPASS</button>
+      <button class="toggle-btn band-solo-btn" id="bandSoloBtn" data-tip="Solo — monitor this band's bell on its own, panned. Arm several to hear them together">SOLO</button>
       <button class="mode-toggle routing-toggle" id="slopeToggle" data-tip="Crossover slope — drag ↑↓, continuous 12…48 dB/oct. Soft wide grab … surgical edges. Double-click: 24" style="cursor: ns-resize;"><canvas id="slopeDial"></canvas><span id="slopeDbText">24 dB</span></button>
       <div class="knob-row">
         <div class="knob-wrap" id="knob_freq"></div>
@@ -887,7 +904,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B99";
+const ENTROPAN_BUILD = "B100";
 // single source for the UI version string — must match juce_add_plugin VERSION
 // in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
 const ENTROPAN_VERSION = "0.6.0";
@@ -998,7 +1015,8 @@ function bandIds(i) { const p = `b${i + 1}_`; return {
   bias:    { id: p + "bias",    kind: "slider", def: 0 },
   override:{ id: p + "override",kind: "toggle", def: false },
   stepsmooth:{ id: p + "stepsmooth", kind: "slider", def: 0 },
-  slope:   { id: p + "slope",   kind: "slider", def: 50 }
+  slope:   { id: p + "slope",   kind: "slider", def: 50 },
+  solo:    { id: p + "solo",    kind: "toggle", def: false }
 }; }
 const GLOBALS = {
   seed:   { id: "seed",   kind: "slider", def: 1 },
@@ -2013,6 +2031,7 @@ function drawSlopeDial(v, col) {
 // band bypass: flips the selected band's ON param (the bell ghosts, audio
 // passes clean through this band; the 30 ms enable crossfade makes it pop-free)
 document.getElementById("bandBypassBtn").onclick = () => { PB().on.set(!PB().on.get()); refreshPanels(); };
+document.getElementById("bandSoloBtn").onclick = () => { PB().solo.set(!PB().solo.get()); refreshPanels(); };
 {
   const st = document.getElementById("slopeToggle");
   let drag = null;
@@ -2194,6 +2213,17 @@ function refreshPanels() {
   bb.classList.toggle("active", bandBypassed);
   bb.style.color = bb.style.borderColor = ""; bb.style.boxShadow = "";   // same neutral look as the global bypass
   document.querySelector(".sec-band").classList.toggle("bypassed", bandBypassed);
+  // SOLO is global in effect, so the button reports whether ANY band is armed
+  // as well as this one — otherwise you can be hearing a solo bus with no lit
+  // button in front of you after switching bands.
+  const sb = document.getElementById("bandSoloBtn");
+  const soloedElsewhere = ui.bands.some((_, i) => i !== ui.selected && P.bands[i].solo.get());
+  sb.classList.toggle("active", pb.solo.get());
+  sb.classList.toggle("dimmed", !pb.solo.get() && soloedElsewhere);
+  sb.dataset.tip = pb.solo.get()
+    ? "Soloed — monitoring this band's bell alone, panned"
+    : soloedElsewhere ? "Another band is soloed; arm this one to hear them together"
+                      : "Solo — monitor this band's bell on its own, panned";
   const st = document.getElementById("slopeToggle");
   document.getElementById("slopeDbText").textContent = slopeDb(pb.slope.get()) + " dB";
   drawSlopeDial(pb.slope.get(), c);
