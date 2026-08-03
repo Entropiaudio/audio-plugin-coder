@@ -30,11 +30,34 @@ namespace Moonbase { namespace JUCEClient { struct API; } }
  * MIDI rate modes, global speed, snapshot undo/redo, analyzer + scope
  * telemetry for the WebView UI. Gate: Source/tests/NullTest.cpp.
  */
-class EntropanAudioProcessor : public juce::AudioProcessor
+class EntropanAudioProcessor : public juce::AudioProcessor,
+                               private juce::AsyncUpdater
 {
 public:
     static constexpr int kNumBands = 6;
     static constexpr int kMaxSteps = 16;
+
+    // ── Wow & flutter spec ────────────────────────────────────────────────
+    // Depth is stated as PEAK PITCH DEVIATION, not as a delay time, because
+    // that is what the ear judges and what tape decks are specced by. A sine
+    // modulating a delay swings pitch by 2*pi*rate*peakDelay, so the peak delay
+    // each one needs is kWowPitch / (2*pi*kWowRate) — which means the rates can
+    // be retuned without the depth character drifting with them.
+    //   0.45% ~ 7.8 cents, 0.36% ~ 6.2 cents at 100%: past a real cassette
+    //   (0.15-0.35%), so 100% is a warped one and ordinary tape lands near 30%.
+    static constexpr double kWowRate    = 0.4;      // Hz — slow capstan drift
+    static constexpr double kFlutRate   = 6.3;      // Hz — pinch-roller flutter
+    static constexpr double kWowPitch   = 0.0045;   // peak dp/p at 100%
+    static constexpr double kFlutPitch  = 0.0036;
+    static constexpr double kWowPeakS   = kWowPitch  / (2.0 * juce::MathConstants<double>::pi * kWowRate);
+    static constexpr double kFlutPeakS  = kFlutPitch / (2.0 * juce::MathConstants<double>::pi * kFlutRate);
+    // The read tap sits kBaseDelayS behind and swings +/-(wow+flutter); the base
+    // only has to keep it positive, and every extra millisecond is latency the
+    // host has to compensate. 2.5x the worst-case swing is ample.
+    static constexpr double kBaseDelayS = 2.5 * (kWowPeakS + kFlutPeakS);
+
+    // Samples the wet path adds when engaged; 0 when both knobs are down.
+    int wfLatencySamples() const noexcept;
     static constexpr int kNumWaves = 6;   // Sine, Tri, S&H, Chaos, Steps, Env
 
     EntropanAudioProcessor();
@@ -312,13 +335,17 @@ private:
     float envState = 0.0f;  // ballistics state
     float globalEnv = 0.0f; // 0..1, updated per sample from the input copy
 
-    // Global wow & flutter — wet-only modulated stereo delay (RC-20-style),
-    // engage-crossfaded so 0 = truly dry (no added latency).
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Lagrange3rd> wfDelay { 4096 };
     double wowPhase = 0.0, flutPhase = 0.0;
     juce::SmoothedValue<float> wfEngage;
     // tap-depth smoothing: block-rate depth jumps clicked while turning the knobs
     juce::SmoothedValue<float> wowDepthSm, flutDepthSm;
+
+    // Host PDC. setLatencySamples() reaches the host through listener callbacks,
+    // so the audio thread only publishes the wanted value and the message thread
+    // applies it.
+    std::atomic<int> wantedLatency { 0 };
+    void handleAsyncUpdate() override;
 
     // MIDI rate mode: last note frequency (Hz); 0 = no note yet (frozen).
     float midiFreq = 0.0f;

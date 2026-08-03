@@ -109,7 +109,25 @@ EntropanAudioProcessor::EntropanAudioProcessor()
 
 // Out-of-line: the Moonbase client is a unique_ptr to a type that is incomplete
 // in the header, so the destructor must be emitted where the type is complete.
-EntropanAudioProcessor::~EntropanAudioProcessor() = default;
+EntropanAudioProcessor::~EntropanAudioProcessor()
+{
+    cancelPendingUpdate();   // no latency callback into a half-destroyed processor
+}
+
+// Samples the wet path adds when engaged; 0 when both knobs are down.
+int EntropanAudioProcessor::wfLatencySamples() const noexcept
+{
+    if (currentSampleRate <= 0.0)
+        return 0;
+    const bool on = (pWow != nullptr && pWow->load() > 0.1f)
+                 || (pFlutter != nullptr && pFlutter->load() > 0.1f);
+    return on ? (int) std::lround (kBaseDelayS * currentSampleRate) : 0;
+}
+
+void EntropanAudioProcessor::handleAsyncUpdate()
+{
+    setLatencySamples (wantedLatency.load (std::memory_order_relaxed));
+}
 
 //==============================================================================
 void EntropanAudioProcessor::commitUndoIfChanged()
@@ -361,6 +379,11 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
         reg (kNumBands * kDestSlotsPerBand + 3, "output");
     }
     parseRoutesSnapshot();
+
+    // Publish PDC before the first block, so a session that opens with W&F
+    // already up is aligned from the first sample instead of after an async hop.
+    wantedLatency.store (wfLatencySamples(), std::memory_order_relaxed);
+    setLatencySamples (wantedLatency.load (std::memory_order_relaxed));
 
 #if ENTROPAN_MOONBASE
     // Give the trial/lock signal interrupter the current rate so its timing is
@@ -660,13 +683,29 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const float flutAmt = globMod[2] * 0.01f;
     const bool  wfOn    = (wowAmt > 0.001f || flutAmt > 0.001f);
     wfEngage.setTargetValue (wfOn ? 1.0f : 0.0f);
-    const double wowInc  = 0.4  / currentSampleRate;   // ~0.4 Hz wow (slow tape drift)
-    const double flutInc = 6.3  / currentSampleRate;   // ~6.3 Hz flutter
-    const float  baseDelay   = 0.010f * (float) currentSampleRate;  // ~10 ms centre
+    const double wowInc  = kWowRate  / currentSampleRate;
+    const double flutInc = kFlutRate / currentSampleRate;
+    const float  baseDelay = (float) (kBaseDelayS * currentSampleRate);
     // tap depths are SMOOTHED per sample — a block-rate depth change jumps the
     // delay read position (up to ms) and clicks while the knobs move (T35)
-    wowDepthSm.setTargetValue  (wowAmt  * 0.006f  * (float) currentSampleRate);   // up to 6 ms
-    flutDepthSm.setTargetValue (flutAmt * 0.0012f * (float) currentSampleRate);   // up to 1.2 ms
+    wowDepthSm.setTargetValue  (wowAmt  * (float) (kWowPeakS  * currentSampleRate));
+    flutDepthSm.setTargetValue (flutAmt * (float) (kFlutPeakS * currentSampleRate));
+
+    // Host PDC. The wet path reads the line baseDelay behind, so engaging adds
+    // exactly that many samples and idling adds none. Decided from the RAW
+    // parameters rather than the modulated values on purpose: a mod source
+    // sweeping WOW across zero would otherwise toggle the reported latency
+    // every few blocks, and hosts rebuild delay compensation on every change.
+    // (Cost: a route that drives W&F from a knob sitting at 0 stays
+    // uncompensated — a mod-only engage is not a steady state to report.)
+    {
+        const int want = wfLatencySamples();
+        if (want != wantedLatency.load (std::memory_order_relaxed))
+        {
+            wantedLatency.store (want, std::memory_order_relaxed);
+            triggerAsyncUpdate();
+        }
+    }
 
     // The delay line is FED unconditionally (see the per-sample tap below) so
     // it is always warm — the old skip-and-reset-on-engage scheme blended the

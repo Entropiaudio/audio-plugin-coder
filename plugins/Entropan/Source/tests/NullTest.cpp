@@ -1244,6 +1244,46 @@ int main()
                      maxStep, 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate);
     }
 
+    // ── T38: wow & flutter depth is specced in PITCH, and the engaged latency
+    //         is reported to the host. Pitch swing for a sine-modulated delay
+    //         is 2*pi*rate*peakDelay; the constants derive the peak delay from
+    //         the pitch target, so this pins the audible spec rather than the
+    //         implementation detail. ──
+    {
+        using P = EntropanAudioProcessor;
+        const double wowPitch  = 2.0*juce::MathConstants<double>::pi * P::kWowRate  * P::kWowPeakS;
+        const double flutPitch = 2.0*juce::MathConstants<double>::pi * P::kFlutRate * P::kFlutPeakS;
+        // Musical middle ground: past a real cassette (0.15-0.35%) but nowhere
+        // near the old build's 1.5% / 4.75%.
+        ok &= check ("T38a wow peak pitch in 0.3-0.5%",     wowPitch  > 0.003 && wowPitch  < 0.005);
+        ok &= check ("T38b flutter peak pitch in 0.3-0.5%", flutPitch > 0.003 && flutPitch < 0.005);
+        // The read tap must never run off the front of the line.
+        ok &= check ("T38c base delay clears the swing",    P::kBaseDelayS > (P::kWowPeakS + P::kFlutPeakS));
+        std::printf ("    wow %.3f%% (%.1f cents), flutter %.3f%% (%.1f cents), base %.2f ms\n",
+                     wowPitch * 100.0,  1200.0 * std::log2 (1.0 + wowPitch),
+                     flutPitch * 100.0, 1200.0 * std::log2 (1.0 + flutPitch),
+                     P::kBaseDelayS * 1000.0);
+
+        // Host PDC. wfLatencySamples() is the value the processor publishes;
+        // prepareToPlay pushes it synchronously, so that path is checked against
+        // getLatencySamples() directly. (Mid-session changes take the same value
+        // through an AsyncUpdater — the message hop is plumbing, not arithmetic.)
+        const int expected = (int) std::lround (P::kBaseDelayS * kSampleRate);
+        EntropanAudioProcessor p;
+        p.prepareToPlay (kSampleRate, kBlock);
+        ok &= check ("T38d latency 0 while W&F is down",
+                     p.wfLatencySamples() == 0 && p.getLatencySamples() == 0);
+        setParam (p, "wow", 50.0f);
+        ok &= check ("T38e engaged latency == base delay", p.wfLatencySamples() == expected);
+        p.prepareToPlay (kSampleRate, kBlock);        // re-prepare publishes it
+        ok &= check ("T38f engaged latency reaches the host", p.getLatencySamples() == expected);
+        std::printf ("    reported %d samples engaged (%.2f ms @ %.0f Hz)\n",
+                     p.getLatencySamples(), P::kBaseDelayS * 1000.0, kSampleRate);
+        setParam (p, "flutter", 0.0f);
+        setParam (p, "wow", 0.0f);
+        ok &= check ("T38g latency returns to 0", p.wfLatencySamples() == 0);
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }
