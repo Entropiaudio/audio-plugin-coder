@@ -10,6 +10,7 @@
 */
 
 #include "../PluginProcessor.h"
+#include "../PluginEditor.h"
 #include "../AnalyzerResample.h"
 #include <cstdio>
 
@@ -1407,6 +1408,110 @@ int main()
             ok &= check ("T40d nothing soloed leaves the wire exact", maxDiff < 1.0e-6);
             std::printf ("    idle maxDiff with solo compiled in: %.3g\n", maxDiff);
         }
+    }
+
+    // ── T41: every APVTS parameter must appear in exactly one of the editor's
+    //         relay ID lists. Those lists are hand-maintained, and a parameter
+    //         missing from them gets no WebView relay — so Juce.getSliderState/
+    //         getToggleState binds to nothing and the control silently does
+    //         nothing. That is exactly how b*_solo shipped broken in B100: the
+    //         DSP was right and tested, the knob just was not connected. ──
+    {
+        EntropanAudioProcessor p;
+        juce::StringArray relayed;
+        relayed.addArray (EntropanAudioProcessorEditor::sliderParamIds());
+        relayed.addArray (EntropanAudioProcessorEditor::comboParamIds());
+        relayed.addArray (EntropanAudioProcessorEditor::toggleParamIds());
+
+        juce::StringArray missing, unknown;
+        for (auto* param : p.getParameters())
+            if (auto* wid = dynamic_cast<juce::AudioProcessorParameterWithID*> (param))
+                if (! relayed.contains (wid->paramID))
+                    missing.add (wid->paramID);
+
+        for (const auto& id : relayed)
+            if (p.apvts.getParameter (id) == nullptr)
+                unknown.add (id);
+
+        // A duplicate would build two relays for one parameter and the second
+        // would quietly win, so catch that too.
+        juce::StringArray dupes;
+        for (int i = 0; i < relayed.size(); ++i)
+            for (int j = i + 1; j < relayed.size(); ++j)
+                if (relayed[i] == relayed[j] && ! dupes.contains (relayed[i]))
+                    dupes.add (relayed[i]);
+
+        ok &= check ("T41a every parameter has a UI relay", missing.isEmpty());
+        ok &= check ("T41b no relay for a parameter that does not exist", unknown.isEmpty());
+        ok &= check ("T41c no duplicate relay ids", dupes.isEmpty());
+        std::printf ("    %d parameters, %d relayed", p.getParameters().size(), relayed.size());
+        if (! missing.isEmpty()) std::printf ("; MISSING: %s", missing.joinIntoString (", ").toRawUTF8());
+        if (! unknown.isEmpty()) std::printf ("; UNKNOWN: %s", unknown.joinIntoString (", ").toRawUTF8());
+        if (! dupes.isEmpty())   std::printf ("; DUPLICATE: %s", dupes.joinIntoString (", ").toRawUTF8());
+        std::printf ("\n");
+    }
+
+    // ── T42: FLUX. Two properties have to hold. At 0 it must be EXACTLY the
+    //         old pure-sine wow/flutter, so turning the knob up is the only way
+    //         to change the sound. And because FLUX crossfades toward a bounded
+    //         walk instead of adding a term, it must not widen the delay swing
+    //         — if it did, the read tap could cross zero and the reported
+    //         latency would be a lie. ──
+    {
+        auto capture = [] (float flux, std::vector<float>& out)
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (kSampleRate, kBlock);
+            setParam (p, "b1_on", 0.0f);
+            setParam (p, "wow", 100.0f);
+            setParam (p, "flutter", 100.0f);
+            setParam (p, "flux", flux);
+            juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+            double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*440.0/kSampleRate;
+            out.clear();
+            for (int blk = 0; blk < 260; ++blk)   // ~2.8 s: several wow revolutions
+            {
+                for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase)*0.5f; phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+                p.processBlock (buf, midi);
+                if (blk >= kWarmBlocks)
+                    for (int s = 0; s < kBlock; ++s) out.push_back (buf.getSample (0, s));
+            }
+        };
+
+        std::vector<float> a, b, c;
+        capture (0.0f,   a);
+        capture (0.0f,   b);
+        capture (100.0f, c);
+
+        double sameDiff = 0.0, fluxDiff = 0.0;
+        for (size_t i = 0; i < a.size(); ++i)
+        {
+            sameDiff = juce::jmax (sameDiff, (double) std::abs (a[i] - b[i]));
+            fluxDiff = juce::jmax (fluxDiff, (double) std::abs (a[i] - c[i]));
+        }
+        ok &= check ("T42a flux 0 is deterministic", sameDiff == 0.0);
+        ok &= check ("T42b flux 100 actually changes the sound", fluxDiff > 0.01);
+        std::printf ("    flux 0 vs 0: %.3g;  flux 0 vs 100: %.3g\n", sameDiff, fluxDiff);
+
+        // Peak excursion must not grow: same input, so any extra output swing
+        // would mean the shape left +/-1. Compare peak levels.
+        double peakA = 0.0, peakC = 0.0;
+        for (size_t i = 0; i < a.size(); ++i)
+        {
+            peakA = juce::jmax (peakA, (double) std::abs (a[i]));
+            peakC = juce::jmax (peakC, (double) std::abs (c[i]));
+        }
+        ok &= check ("T42c flux does not widen the swing", peakC <= peakA * 1.02 + 1.0e-6);
+        std::printf ("    peak flux 0 %.4f vs flux 100 %.4f\n", peakA, peakC);
+
+        // And the latency it reports is unchanged by flux — the whole point of
+        // crossfading rather than adding.
+        EntropanAudioProcessor p0;
+        p0.prepareToPlay (kSampleRate, kBlock);
+        setParam (p0, "wow", 100.0f);
+        const int latNoFlux = p0.wfLatencySamples();
+        setParam (p0, "flux", 100.0f);
+        ok &= check ("T42d flux costs no latency", p0.wfLatencySamples() == latNoFlux);
     }
 
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");

@@ -201,6 +201,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::crea
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { "flutter", 1 }, "Flutter", pct(), 0.0f,
         juce::AudioParameterFloatAttributes().withLabel ("%")));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { "flux", 1 }, "Flux", pct(), 0.0f,
+        juce::AudioParameterFloatAttributes().withLabel ("%")));
 
     // Envelope follower — global detection circuit (Env mode)
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
@@ -341,6 +344,7 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     pRouting = apvts.getRawParameterValue ("routing");
     pWow     = apvts.getRawParameterValue ("wow");
     pFlutter = apvts.getRawParameterValue ("flutter");
+    pFlux    = apvts.getRawParameterValue ("flux");
     pEnvAtk  = apvts.getRawParameterValue ("env_atk");
     pEnvRel  = apvts.getRawParameterValue ("env_rel");
     pEnvScf  = apvts.getRawParameterValue ("env_scf");
@@ -387,6 +391,7 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
         reg (kNumBands * kDestSlotsPerBand + 1, "wow");
         reg (kNumBands * kDestSlotsPerBand + 2, "flutter");
         reg (kNumBands * kDestSlotsPerBand + 3, "output");
+        reg (kNumBands * kDestSlotsPerBand + 4, "flux");
     }
     parseRoutesSnapshot();
 
@@ -706,6 +711,11 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     wfEngage.setTargetValue (wfOn ? 1.0f : 0.0f);
     const double wowInc  = kWowRate  / currentSampleRate;
     const double flutInc = kFlutRate / currentSampleRate;
+    const float  fluxAmt = juce::jlimit (0.0f, 1.0f, globMod[4] * 0.01f);
+    // The walk settles over about a quarter revolution, so it reads as drift
+    // rather than as a stepped sample-and-hold.
+    const float  wowWalkC  = (float) juce::jmin (1.0, 4.0 * wowInc);
+    const float  flutWalkC = (float) juce::jmin (1.0, 4.0 * flutInc);
     const float  baseDelay = (float) (kBaseDelayS * currentSampleRate);
     // tap depths are SMOOTHED per sample — a block-rate depth change jumps the
     // delay read position (up to ms) and clicks while the knobs move (T35)
@@ -981,10 +991,34 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         if (wfActive)
         {
             const float eng = wfEngage.getNextValue();
-            wowPhase  += wowInc;  if (wowPhase  >= 1.0) wowPhase  -= 1.0;
-            flutPhase += flutInc; if (flutPhase >= 1.0) flutPhase -= 1.0;
-            const float wowMod  = std::sin ((float) wowPhase  * juce::MathConstants<float>::twoPi) * wowDepthSm.getNextValue();
-            const float flutMod = std::sin ((float) flutPhase * juce::MathConstants<float>::twoPi) * flutDepthSm.getNextValue();
+            // FLUX: jitter the rate and morph the shape toward a random walk,
+            // re-dealt once per revolution — no two turns of the capstan alike.
+            // At flux = 0 both reduce to exactly the old pure sine.
+            wowPhase += wowInc * wowJit;
+            if (wowPhase >= 1.0)
+            {
+                wowPhase -= 1.0;
+                wowWalkT = fluxRng.nextDouble() * 2.0 - 1.0;
+                wowJit   = 1.0 + fluxAmt * kFluxJitter * (fluxRng.nextDouble() * 2.0 - 1.0);
+            }
+            flutPhase += flutInc * flutJit;
+            if (flutPhase >= 1.0)
+            {
+                flutPhase -= 1.0;
+                flutWalkT = fluxRng.nextDouble() * 2.0 - 1.0;
+                flutJit   = 1.0 + fluxAmt * kFluxJitter * (fluxRng.nextDouble() * 2.0 - 1.0);
+            }
+            wowWalk  += (wowWalkT  - wowWalk)  * wowWalkC;
+            flutWalk += (flutWalkT - flutWalk) * flutWalkC;
+
+            const float wowSin  = std::sin ((float) wowPhase  * juce::MathConstants<float>::twoPi);
+            const float flutSin = std::sin ((float) flutPhase * juce::MathConstants<float>::twoPi);
+            // Crossfade, so |shape| never exceeds the sine's own 1 and the tap
+            // headroom (and the reported latency) is unaffected by FLUX.
+            const float wowShape  = wowSin  + (float) (wowWalk  - (double) wowSin)  * fluxAmt;
+            const float flutShape = flutSin + (float) (flutWalk - (double) flutSin) * fluxAmt;
+            const float wowMod  = wowShape  * wowDepthSm.getNextValue();
+            const float flutMod = flutShape * flutDepthSm.getNextValue();
             // Engage by GLIDING THE TAP from ~0 up to the base, and take the
             // tap as the output. The old scheme crossfaded dry against the
             // delayed copy, which is a comb: the first null sits at

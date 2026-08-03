@@ -62,6 +62,17 @@ public:
     // ~1.3%: the same order as the wow itself, which is why it reads as the
     // machine spinning up rather than as an edit.
     static constexpr double kEngageS    = 0.30;
+    // FLUX — a real transport is not two sine waves. The capstan speeds and
+    // slows, flutter drifts with tape tension, and no two revolutions match.
+    // FLUX morphs each modulator from a pure periodic sine toward a random
+    // walk and jitters its rate, re-dealt once per revolution.
+    //
+    // It is a CROSSFADE toward the walk, never an addition, and the walk is
+    // bounded to the same +/-1 the sine occupies — so the worst-case delay
+    // excursion, and therefore the reported latency, does not grow with FLUX.
+    // The extra intensity comes from the rate jitter instead: pitch swing is
+    // 2*pi*rate*peak, so a faster revolution swings harder for free.
+    static constexpr double kFluxJitter = 0.6;   // rate wander, +/-60% at 100%
 
     // Samples the wet path adds when engaged; 0 when both knobs are down.
     int wfLatencySamples() const noexcept;
@@ -143,7 +154,9 @@ public:
     // phase,bias,stepsmooth) or 60+ (amount,wow,flutter,output).
     static constexpr int kMaxRoutes = 16;
     static constexpr int kDestSlotsPerBand = 10;
-    static constexpr int kNumDests = kNumBands * kDestSlotsPerBand + 4;
+    // +5: amount, wow, flutter, output, flux. Flux is APPENDED so every saved
+    // route keeps its dst index.
+    static constexpr int kNumDests = kNumBands * kDestSlotsPerBand + 5;
     // stype: which of the source band's six waveforms drives the route
     // (0..5 explicit; −1 = follow the band's selected MODE — the pre-B68
     // behaviour, kept so old sessions load identically).
@@ -333,6 +346,7 @@ private:
     std::atomic<float>* pRouting = nullptr;   // 0 = Serial, 1 = Parallel
     std::atomic<float>* pWow     = nullptr;
     std::atomic<float>* pFlutter = nullptr;
+    std::atomic<float>* pFlux    = nullptr;
     std::atomic<float>* pEnvAtk  = nullptr;
     std::atomic<float>* pEnvRel  = nullptr;
     std::atomic<float>* pEnvScf  = nullptr;
@@ -346,6 +360,11 @@ private:
 
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Lagrange3rd> wfDelay { 4096 };
     double wowPhase = 0.0, flutPhase = 0.0;
+    // FLUX state: per-revolution random walk + rate jitter for each modulator.
+    double wowWalk = 0.0, flutWalk = 0.0;      // smoothed value, bounded -1..1
+    double wowWalkT = 0.0, flutWalkT = 0.0;    // target dealt on each wrap
+    double wowJit = 1.0, flutJit = 1.0;        // rate multiplier for this revolution
+    juce::Random fluxRng { 0x656E7472 };       // fixed seed: same tape every session
     juce::SmoothedValue<float> wfEngage;
     // tap-depth smoothing: block-rate depth jumps clicked while turning the knobs
     juce::SmoothedValue<float> wowDepthSm, flutDepthSm;

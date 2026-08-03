@@ -35,11 +35,16 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
-private:
+public:
     // ── ID inventories (built once, drive relay/attachment loops) ──
+    // Public so the gate can assert every APVTS parameter appears in exactly
+    // one of them: a parameter missing here has no relay, so the UI control
+    // binds to nothing and silently does nothing (T41).
     static juce::StringArray sliderParamIds();
     static juce::StringArray comboParamIds();
     static juce::StringArray toggleParamIds();
+
+private:
 
     // 1. RELAYS (destroyed last)
     std::vector<std::unique_ptr<juce::WebSliderRelay>>       sliderRelays;

@@ -375,6 +375,13 @@
   }
   .me-dial canvas { position: absolute; inset: 0; width: 14px; height: 14px; pointer-events: none; }
   .sec-out  { flex: 0 0 260px; }
+  /* Sits on the bottom row beside BYPASS, left half of the card. */
+  .out-flux {
+    position: absolute; left: 10px; bottom: 5px; width: 96px;
+    height: 19px; flex: none;
+  }
+  /* BYPASS shifts right of the fader instead of sitting centred on the card. */
+  .sec-out .out-bypass-shift { left: auto; right: 10px; transform: none; }
   .sec-out .section-label { color: var(--section-output); opacity: 0.7; }
 
   .knob-row { display: flex; justify-content: space-around; align-items: center; flex: 1; }
@@ -489,22 +496,27 @@
   .band-bypass-btn { position: absolute; bottom: 7px; left: 50%; transform: translateX(-50%); z-index: 5; }
   /* .bypass-btn.active already sets colour+border (band button carries both classes) */
   .band-bypass-btn.active { box-shadow: 0 0 7px color-mix(in srgb, var(--state-warning) 35%, transparent); }
-  /* SOLO mirrors the link button's 80% at 20%, so the bottom row reads
-     symmetrically around the centred BYPASS. Armed it takes the accent, not
-     the warning colour — bypass is a subtraction, solo is a monitor state. */
-  .band-solo-btn {
-    position: absolute; left: 20%; bottom: 7px; transform: translateX(-50%);
-    height: 17px; box-sizing: border-box; padding: 0 9px; z-index: 5;
-    display: inline-flex; align-items: center; justify-content: center;
+  /* SOLO lives in the floating quick-menu, on the band it belongs to, rather
+     than in the panel: the menu already follows the selected bell around the
+     analyser, so the control sits where you are looking while you place it.
+     Armed it takes the accent, not the warning colour — bypass is a
+     subtraction, solo is a monitor state. */
+  .qm-btn-row { margin-top: 4px; display: flex; }
+  .qm-solo {
+    flex: 1; height: 15px; font-family: inherit; font-size: 8px;
+    letter-spacing: 1px; box-sizing: border-box;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 4px; cursor: pointer;
+    transition: color var(--t-fast) var(--ease-editorial),
+                border-color var(--t-fast) var(--ease-editorial);
   }
-  .band-solo-btn.active {
+  .qm-solo:hover { color: var(--text-secondary); }
+  .qm-solo.active {
     color: var(--accent); border-color: var(--accent);
-    box-shadow: 0 0 7px color-mix(in srgb, var(--accent) 35%, transparent);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 35%, transparent);
   }
-  /* A soloed band must stay legible even while the card is dimmed for bypass. */
-  .sec-band.bypassed .band-solo-btn { opacity: 1; }
-  /* another band is soloed — this one is being silenced by it */
-  .band-solo-btn.dimmed { border-style: dashed; opacity: 0.55; }
+  /* another band holds the solo bus — this one is being silenced by it */
+  .qm-solo.dimmed { border-style: dashed; opacity: 0.55; }
 
   /* mode chips */
   .mode-chips { display: flex; gap: 3px; margin: 2px 0 8px 0; flex-wrap: wrap; }
@@ -597,7 +609,9 @@
   .routing-toggle { position: absolute; top: 6px; right: 14px; z-index: 5;
     width: 64px; padding: 2px 0; font-size: 8px; letter-spacing: 1px;
     text-align: center; white-space: nowrap; }
-  .out-knob-row { display: flex; justify-content: space-around; align-items: center; flex: 1; }
+  /* padding-bottom reserves the strip the FLUX fader and BYPASS share, so the
+     fader.s label cannot ride up into the knob values. */
+  .out-knob-row { display: flex; justify-content: space-around; align-items: center; flex: 1; padding-bottom: 12px; }
 
   /* overlays */
   .mutation-flash {
@@ -746,6 +760,9 @@
         <div class="qm-label">GAIN</div><div class="qm-value"></div>
         <div class="qm-track"><div class="qm-fill"></div></div>
       </div>
+      <div class="qm-btn-row">
+        <button class="qm-solo" id="qmSolo" data-tip="Solo — monitor this band's bell on its own, panned. Arm several to hear them together">SOLO</button>
+      </div>
     </div>
   </div>
 
@@ -754,7 +771,6 @@
     <div class="section-col sec-band">
       <div class="section-label" id="bandSecLabel">Band 1</div>
       <button class="toggle-btn bypass-btn band-bypass-btn" id="bandBypassBtn" data-tip="Bypass this band — its bell stays placed but stops processing">BYPASS</button>
-      <button class="toggle-btn band-solo-btn" id="bandSoloBtn" data-tip="Solo — monitor this band's bell on its own, panned. Arm several to hear them together">SOLO</button>
       <button class="mode-toggle routing-toggle" id="slopeToggle" data-tip="Crossover slope — drag ↑↓, continuous 12…48 dB/oct. Soft wide grab … surgical edges. Double-click: 24" style="cursor: ns-resize;"><canvas id="slopeDial"></canvas><span id="slopeDbText">24 dB</span></button>
       <div class="knob-row">
         <div class="knob-wrap" id="knob_freq"></div>
@@ -824,7 +840,11 @@
         <div class="knob-wrap" id="knob_flutter"></div>
         <div class="knob-wrap" id="knob_output"></div>
       </div>
-      <button class="toggle-btn bypass-btn" id="bypassBtn">BYPASS</button>
+      <!-- FLUX belongs with WOW and FLUTTER, but a fifth knob does not fit the
+           column without squeezing the MODULATOR beside it, so it rides the
+           bottom row as a compact fader instead of a knob. -->
+      <div class="hslider out-flux" id="hs_flux" data-tip="Flux — how unstable the transport is. At 0 wow and flutter are pure repeating sines; turn it up and each revolution drifts in rate and shape, like real tape"></div>
+      <button class="toggle-btn bypass-btn out-bypass-shift" id="bypassBtn">BYPASS</button>
     </div>
   </div>
 
@@ -904,7 +924,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B100";
+const ENTROPAN_BUILD = "B102";
 // single source for the UI version string — must match juce_add_plugin VERSION
 // in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
 const ENTROPAN_VERSION = "0.6.0";
@@ -1025,6 +1045,7 @@ const GLOBALS = {
   routing:{ id: "routing",kind: "combo",  def: 0 },
   wow:     { id: "wow",     kind: "slider", def: 0 },
   flutter: { id: "flutter", kind: "slider", def: 0 },
+  flux:    { id: "flux",    kind: "slider", def: 0 },
   envAtk:  { id: "env_atk", kind: "slider", def: 20 },
   envRel:  { id: "env_rel", kind: "slider", def: 150 },
   envScf:  { id: "env_scf", kind: "slider", def: 20 },
@@ -1791,6 +1812,11 @@ const knobFlutter = makeKnob("knob_flutter", "FLUTTER", {
   color: THEME.voiceViolet, def: 0, lockKey: "flutter", lockGlobal: true,
   get: () => P.flutter.get() / 100, set: n => P.flutter.set(n * 100), fmt: () => Math.round(P.flutter.get()) + "%"
 });
+const hsFlux = makeHSlider("hs_flux", "FLUX", {
+  color: THEME.voiceViolet, def: 0, lockKey: "flux", lockGlobal: true,
+  get: () => P.flux.get() / 100, set: n => P.flux.set(n * 100),
+  fmt: () => Math.round(P.flux.get()) + "%"
+});
 const knobSpeed = makeKnob("knob_speed", "SPEED", {
   color: THEME.voiceWarm, def: 2 / 5,
   get: () => P.speed.get() / 5,
@@ -1804,6 +1830,7 @@ const knobSpeed = makeKnob("knob_speed", "SPEED", {
 function retintGlobalKnobs() {
   knobAmount.color = knobOut.color = THEME.neutral;
   knobWow.color = knobFlutter.color = THEME.voiceViolet;
+  hsFlux.color = THEME.voiceViolet;
   knobSpeed.color = THEME.voiceWarm;
 }
 
@@ -2031,7 +2058,11 @@ function drawSlopeDial(v, col) {
 // band bypass: flips the selected band's ON param (the bell ghosts, audio
 // passes clean through this band; the 30 ms enable crossfade makes it pop-free)
 document.getElementById("bandBypassBtn").onclick = () => { PB().on.set(!PB().on.get()); refreshPanels(); };
-document.getElementById("bandSoloBtn").onclick = () => { PB().solo.set(!PB().solo.get()); refreshPanels(); };
+document.getElementById("qmSolo").onclick = e => {
+  e.stopPropagation();                      // the menu body is a drag surface
+  PB().solo.set(!PB().solo.get());
+  refreshPanels(); updateQuickMenu();
+};
 {
   const st = document.getElementById("slopeToggle");
   let drag = null;
@@ -2163,7 +2194,7 @@ function refreshPanels() {
   document.querySelector(".sec-mod").classList.toggle("section-off", noBands);
   [knobFreq, knobWidth, knobLift, knobDepth, knobBias].forEach(k => { k.color = c; k.refresh(); });
   [hsRate, hsInertia, hsPhase].forEach(s => { s.color = c; s.refresh(); });
-  knobAmount.refresh(); knobOut.refresh(); knobWow.refresh(); knobFlutter.refresh(); knobSpeed.refresh();
+  knobAmount.refresh(); knobOut.refresh(); knobWow.refresh(); knobFlutter.refresh(); hsFlux.refresh(); knobSpeed.refresh();
   document.querySelectorAll(".mode-chip").forEach((el, i) => {
     const on = i === pb.mode.get();
     el.style.color = on ? THEME.onAccent : "";
@@ -2213,17 +2244,6 @@ function refreshPanels() {
   bb.classList.toggle("active", bandBypassed);
   bb.style.color = bb.style.borderColor = ""; bb.style.boxShadow = "";   // same neutral look as the global bypass
   document.querySelector(".sec-band").classList.toggle("bypassed", bandBypassed);
-  // SOLO is global in effect, so the button reports whether ANY band is armed
-  // as well as this one — otherwise you can be hearing a solo bus with no lit
-  // button in front of you after switching bands.
-  const sb = document.getElementById("bandSoloBtn");
-  const soloedElsewhere = ui.bands.some((_, i) => i !== ui.selected && P.bands[i].solo.get());
-  sb.classList.toggle("active", pb.solo.get());
-  sb.classList.toggle("dimmed", !pb.solo.get() && soloedElsewhere);
-  sb.dataset.tip = pb.solo.get()
-    ? "Soloed — monitoring this band's bell alone, panned"
-    : soloedElsewhere ? "Another band is soloed; arm this one to hear them together"
-                      : "Solo — monitor this band's bell on its own, panned";
   const st = document.getElementById("slopeToggle");
   document.getElementById("slopeDbText").textContent = slopeDb(pb.slope.get()) + " dB";
   drawSlopeDial(pb.slope.get(), c);
@@ -2827,6 +2847,7 @@ const qmRate = document.getElementById("qm_rate");
 const qmDepth = document.getElementById("qm_depth");
 const qmGain = document.getElementById("qm_gain");
 const qmBias = document.getElementById("qm_bias");
+const qmSolo = document.getElementById("qmSolo");
 let qmOffset = null;
 let qmAnchor = { x: 0, y: 0 };
 (() => {
@@ -2888,6 +2909,17 @@ function updateQuickMenu() {
   qmRefreshRow(qmGain, (gv + 6) / 12, (gv >= 0 ? "+" : "") + gv.toFixed(1) + " dB", bandColor());
   const bs = clamp(pb.bias.get(), -100, 100);
   qmRefreshRow(qmBias, (bs + 100) / 200, (bs > 0 ? "R" : bs < 0 ? "L" : "C") + " " + Math.abs(Math.round(bs)) + "%", bandColor());
+  // Solo is global in effect, so the button also has to report when SOME OTHER
+  // band holds the bus — otherwise you sit on a silent band with an unlit
+  // button and no clue why you are hearing something else.
+  const soloOn = pb.solo.get();
+  const soloElsewhere = P.bands.some((b, i) => i !== ui.selected && b.solo.get());
+  qmSolo.classList.toggle("active", soloOn);
+  qmSolo.classList.toggle("dimmed", !soloOn && soloElsewhere);
+  qmSolo.dataset.tip = soloOn
+    ? "Soloed — monitoring this band's bell alone, panned"
+    : soloElsewhere ? "Another band holds the solo bus; arm this one to hear both"
+                    : "Solo — monitor this band's bell on its own, panned";
 }
 function qmDragRow(row, apply, reset) {
   let drag = false;

@@ -19,7 +19,7 @@ namespace
 //==============================================================================
 juce::StringArray EntropanAudioProcessorEditor::sliderParamIds()
 {
-    juce::StringArray ids { "seed", "amount", "output", "wow", "flutter", "env_atk", "env_rel", "env_scf", "env_gain" };
+    juce::StringArray ids { "seed", "amount", "output", "wow", "flutter", "flux", "env_atk", "env_rel", "env_scf", "env_gain" };
     for (int i = 1; i <= EntropanAudioProcessor::kNumBands; ++i)
     {
         const juce::String p = "b" + juce::String (i) + "_";
@@ -50,8 +50,9 @@ juce::StringArray EntropanAudioProcessorEditor::toggleParamIds()
         ids.add ("b" + juce::String (i) + "_uni");
         ids.add ("b" + juce::String (i) + "_freeze");
         ids.add ("b" + juce::String (i) + "_override");
+        ids.add ("b" + juce::String (i) + "_solo");
     }
-    return ids;   // 2 + 6×4 = 26
+    return ids;   // 2 + 6×5 = 32
 }
 
 //==============================================================================
