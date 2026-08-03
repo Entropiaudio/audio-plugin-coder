@@ -376,9 +376,14 @@
   .me-dial canvas { position: absolute; inset: 0; width: 14px; height: 14px; pointer-events: none; }
   .sec-out  { flex: 0 0 260px; }
   /* Sits on the bottom row beside BYPASS, left half of the card. */
-  .out-flux {
-    position: absolute; left: 10px; bottom: 5px; width: 96px;
-    height: 19px; flex: none;
+  /* Compound selector for the same reason as the BYPASS rule below: plain
+     `.hslider` sets height:22px further down, and at equal specificity the
+     later rule wins — which left this box oversized and dropped the track well
+     clear of its label. 18px matches the step row's compact fader, so FLUX
+     reads exactly like SPEED does under the modulator. */
+  .sec-out .hslider.out-flux {
+    position: absolute; left: 10px; bottom: 6px; width: 96px;
+    height: 18px; flex: none;
   }
   /* BYPASS shifts right of the fader instead of sitting centred on the card. */
   /* Two class names, not one: `.sec-out .bypass-btn` further down centres the
@@ -927,7 +932,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B103";
+const ENTROPAN_BUILD = "B104";
 // single source for the UI version string — must match juce_add_plugin VERSION
 // in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
 const ENTROPAN_VERSION = "0.6.0";
