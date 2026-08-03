@@ -596,9 +596,12 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const double periodS = cfg.cycPerSample > 1.0e-9
                                  ? 1.0 / (cfg.cycPerSample * currentSampleRate) : 1.0e9;
         // All six waveforms run per band (any can feed the mod matrix), so every
-        // (formulas mirrored by the browser sim in index.html tickMods — keep in sync)
         // one gets its own coefficient — same formulas as when it was the single
-        // mode-selected engine:
+        // mode-selected engine. The browser sim (index.html tickMods) is an
+        // APPROXIMATION for the little scope, not a mirror: it lumps Steps in
+        // with S&H and never reads SMOOTH. That costs nothing today because
+        // Steps shows the step editor rather than the scope, and the editor
+        // models the glide term itself.
         for (int t = 0; t < kNumWaves; ++t)
         {
             double slewT;
@@ -607,14 +610,19 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             else if (t == 4)                          // Steps — dedicated SMOOTH (square → glide)
             {
                 const float sm = mv[9] * 0.01f;   // 0 = square, 1 = glide
-                if (sm < 1.0e-4f)
-                    slewT = 0.0;
-                else
-                {
-                    const int cnt = cfg.steps->count;
-                    const double stepDur = cnt > 0 ? periodS / (double) cnt : periodS;
-                    slewT = (double) sm * sm * stepDur * 1.5;  // corner scales with one step
-                }
+                const int cnt = cfg.steps->count;
+                const double stepDur = cnt > 0 ? periodS / (double) cnt : periodS;
+                const double glide = (double) sm * sm * stepDur * 1.5;  // corner scales with one step
+                // SMOOTH = 0 used to mean slewT = 0, i.e. coefficient 1 — the pan
+                // jumped between step values in a single sample. That is a
+                // discontinuity in the pan gains at EVERY edge, and a fast
+                // sequencer delivers dozens per second, so "square" clicked.
+                // Every other waveform already carries a floor (S&H and Chaos
+                // 4 ms, Env 5 ms); Steps was the one branch without one.
+                // 1.5 ms is short enough to still read as square, and the
+                // stepDur/6 cap stops the floor from eating the step itself
+                // once the rate climbs.
+                slewT = juce::jmax (glide, juce::jmin (0.0015, stepDur / 6.0));
             }
             else if (t == 3)                          // Chaos — free viscosity (unbounded wanderer)
                 slewT = juce::jmin (2.0, 0.004 + i2 * 2.0);

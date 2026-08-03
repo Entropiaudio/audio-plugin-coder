@@ -1191,6 +1191,59 @@ int main()
         std::printf ("    max sample step, narrow low sweep: %.4f\n", maxStep);
     }
 
+    // ── T37: STEPS at a fast rate must not click. Every other waveform's slew
+    //         has a floor (S&H 4 ms, Env 5 ms, Chaos 4 ms); Steps was the one
+    //         branch that took slewT = 0 at SMOOTH = 0, i.e. coefficient 1 —
+    //         an INSTANT pan jump at each step edge. One step boundary is a
+    //         discontinuity in the pan gains, which is a click on sustained
+    //         material, and fast rates deliver them by the hundred per second. ──
+    {
+        EntropanAudioProcessor p;
+        // Hard alternating pattern: every boundary is a full L→R throw, the
+        // worst case the sequencer can produce.
+        juce::String json = "{\"count\":8,\"steps\":[";
+        for (int k = 0; k < 8; ++k)
+        {
+            json << "{\"subdiv\":1,\"vals\":[" << ((k % 2) ? "1.0" : "-1.0") << "]}";
+            if (k < 7) json << ",";
+        }
+        json << "]}";
+        p.setStepsJson (0, json);
+        p.prepareToPlay (kSampleRate, kBlock);
+        setParam (p, "b1_on", 1.0f);
+        setParam (p, "b1_freq", 1000.0f);
+        setParam (p, "b1_width", 2.0f);      // wide → the band carries the tone
+        setParam (p, "b1_lift", 100.0f);
+        setParam (p, "b1_depth", 100.0f);    // full throw, so a jump is maximal
+        setParam (p, "b1_mode", 4.0f);       // Steps
+        setParam (p, "b1_ratemode", 1.0f);   // Free — not tempo-locked
+        setParam (p, "b1_rate", 8.0f);       // 8 Hz x 8 steps = 64 edges/sec
+        setParam (p, "b1_stepsmooth", 0.0f); // square: the branch under test
+
+        juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+        double phase = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate;
+        float prevL = 0.0f, prevR = 0.0f; double maxStep = 0.0; bool have = false;
+        const int runBlocks = 400;
+        for (int blk = 0; blk < kWarmBlocks + runBlocks; ++blk)
+        {
+            for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(phase); phase+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+            p.processBlock (buf, midi);
+            if (blk < kWarmBlocks) { prevL = buf.getSample(0,kBlock-1); prevR = buf.getSample(1,kBlock-1); have = true; continue; }
+            for (int s = 0; s < kBlock; ++s)
+            {
+                const float l = buf.getSample (0, s), r = buf.getSample (1, s);
+                if (have) maxStep = juce::jmax (maxStep, (double) juce::jmax (std::abs (l - prevL), std::abs (r - prevR)));
+                prevL = l; prevR = r; have = true;
+            }
+        }
+        // A clean 1 kHz sine steps by at most 2π·1000/48000 ≈ 0.131 per sample.
+        // The pan also moves, so allow headroom — but an instant full-throw
+        // jump lands far above this, exactly like the T35 W&F engage thump.
+        ok &= check ("T37 fast STEPS sequencer is click-free", maxStep < 0.20);
+        std::printf ("    max sample step, 8 Hz x 8 steps, SMOOTH=0: %.4f (clean sine %.4f)\n",
+                     maxStep, 2.0*juce::MathConstants<double>::pi*1000.0/kSampleRate);
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }

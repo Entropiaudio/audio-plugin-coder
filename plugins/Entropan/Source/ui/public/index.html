@@ -887,7 +887,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B97";
+const ENTROPAN_BUILD = "B98";
 // single source for the UI version string — must match juce_add_plugin VERSION
 // in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
 const ENTROPAN_VERSION = "0.6.0";
@@ -3341,6 +3341,13 @@ if (EMBEDDED) {
     if (typeof saved.tooltips === "boolean") { tooltipsEnabled = saved.tooltips; applyTooltipsToggle(); }
   }).catch(() => {});
 }
+
+/* Right-click is OUR gesture (CHAOS locks, mod-route removal), but anywhere we
+   don't handle it the WebView popped its own native menu — Reload / Back /
+   Inspect — over the plugin. Reload in particular drops the UI back to defaults
+   mid-session. Kill the default document-wide; the element handlers still run,
+   this only removes the browser menu. */
+document.addEventListener("contextmenu", e => e.preventDefault());
 
 const tipEl = document.createElement("div");
 tipEl.className = "ui-tooltip";
