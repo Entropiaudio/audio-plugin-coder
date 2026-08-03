@@ -55,7 +55,7 @@ juce_add_plugin(Entropan
     # Explicit: without it the plugin inherits the monorepo project's version
     # and reported "1.0.0" to hosts + Moonbase analytics while the UI said
     # V0.1.0. This is the single source for JucePlugin_VersionString.
-    VERSION 0.5.0
+    VERSION 0.6.0
     COMPANY_NAME "Entropia Audio"
     # Explicit: JUCE would otherwise derive "com.Entropia Audio.Entropan" from
     # COMPANY_NAME — a space in the bundle ID breaks notarisation/Gatekeeper.
