@@ -273,23 +273,6 @@
     cursor: pointer;
   }
 
-  /* right-click menu on a band handle */
-  .ctx-menu {
-    position: absolute; z-index: 6; display: none;
-    padding: 3px; border-radius: 6px;
-    background: var(--floating-bg); border: 1px solid var(--border-bright);
-    box-shadow: 0 2px 10px rgba(0,0,0,0.45);
-  }
-  .ctx-menu.visible { display: block; }
-  .ctx-item {
-    font-family: inherit; font-size: 8.5px; letter-spacing: 0.6px;
-    background: transparent; border: none; border-radius: 4px;
-    padding: 4px 10px; cursor: pointer; white-space: nowrap;
-    color: var(--text-secondary);
-  }
-  .ctx-item:hover { background: var(--accent-tint); color: var(--text-primary); }
-  .ctx-item.danger:hover { background: var(--danger-tint); color: var(--danger); }
-
   /* floating band quick-menu */
   .quick-menu {
     position: absolute; z-index: 4; display: none;
@@ -526,7 +509,19 @@
      analyser, so the control sits where you are looking while you place it.
      Armed it takes the accent, not the warning colour — bypass is a
      subtraction, solo is a monitor state. */
-  .qm-btn-row { margin-top: 4px; display: flex; }
+  .qm-btn-row { margin-top: 4px; display: flex; gap: 3px; }
+  /* Delete sits BESIDE solo rather than in the panel's top corner: an X in the
+     corner of a floating panel reads as "close this", which is the last thing a
+     destructive control should look like. */
+  .qm-del {
+    flex: 0 0 16px; height: 15px; padding: 0; line-height: 1;
+    font-family: inherit; font-size: 11px; box-sizing: border-box;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 4px; cursor: pointer;
+    transition: color var(--t-fast) var(--ease-editorial),
+                border-color var(--t-fast) var(--ease-editorial);
+  }
+  .qm-del:hover { color: var(--danger); border-color: var(--danger); }
   .qm-solo {
     flex: 1; height: 15px; font-family: inherit; font-size: 8px;
     letter-spacing: 1px; box-sizing: border-box;
@@ -767,10 +762,6 @@
   <!-- SPECTRUM -->
   <div class="spectrum-wrap">
     <canvas id="spectrum"></canvas>
-    <!-- right-click a band's handle -->
-    <div class="ctx-menu" id="bandCtx">
-      <button class="ctx-item danger" id="bandCtxDelete">Delete band</button>
-    </div>
     <div class="quick-menu" id="quickMenu">
       <div class="qm-grip" id="qmGrip" data-tip="Drag to move"></div>
       <div class="qm-row" id="qm_rate">
@@ -791,6 +782,7 @@
       </div>
       <div class="qm-btn-row">
         <button class="qm-solo" id="qmSolo" data-tip="Solo — monitor this band's bell on its own, panned. Arm several to hear them together">SOLO</button>
+        <button class="qm-del" id="qmDelete" data-tip="Delete this band — frees the slot and resets it. BYPASS only mutes it and keeps the settings">×</button>
       </div>
     </div>
   </div>
@@ -953,7 +945,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B105";
+const ENTROPAN_BUILD = "B106";
 // single source for the UI version string — must match juce_add_plugin VERSION
 // in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
 const ENTROPAN_VERSION = "0.6.0";
@@ -2087,6 +2079,10 @@ function drawSlopeDial(v, col) {
 // band bypass: flips the selected band's ON param (the bell ghosts, audio
 // passes clean through this band; the 30 ms enable crossfade makes it pop-free)
 document.getElementById("bandBypassBtn").onclick = () => { PB().on.set(!PB().on.get()); refreshPanels(); };
+document.getElementById("qmDelete").onclick = e => {
+  e.stopPropagation();                      // the menu body is a drag surface
+  deleteBand(ui.selected);
+};
 document.getElementById("qmSolo").onclick = e => {
   e.stopPropagation();                      // the menu body is a drag surface
   PB().solo.set(!PB().solo.get());
@@ -2837,14 +2833,11 @@ function applyBandDrag() {
   pb.lift.set(clamp((1 - (e.clientY - r.top) / r.height) / 0.82 * 100, 0, 100));
   knobFreq.refresh(); knobLift.refresh();
 }
-/* Right-click a band's handle → delete it. Delete is not the same as the
-   BYPASS toggle: bypass keeps the band's settings and its bell on the
-   analyser, delete returns the slot to the pool — parameters back to their
-   defaults, any mod routes aimed at it dropped — so re-adding later starts
-   clean instead of inheriting a band you thought you had thrown away. */
-const bandCtx = document.getElementById("bandCtx");
-let ctxBand = -1;
-function hideBandCtx() { bandCtx.classList.remove("visible"); ctxBand = -1; }
+/* Delete is not the same as the BYPASS toggle: bypass keeps the band's
+   settings and its bell on the analyser, delete returns the slot to the pool —
+   parameters back to their defaults, any mod routes aimed at it dropped — so
+   re-adding later starts clean instead of inheriting a band you thought you
+   had thrown away. Driven by the × in the floating band menu. */
 function deleteBand(i) {
   const defs = bandIds(i), pb = P.bands[i];
   for (const k in defs) if (pb[k] && defs[k].def !== undefined) pb[k].set(defs[k].def);
@@ -2860,28 +2853,6 @@ function deleteBand(i) {
   }
   refreshPanels();
 }
-spec.addEventListener("contextmenu", e => {
-  const hit = bandAt(e);
-  e.preventDefault();
-  if (hit < 0) { hideBandCtx(); return; }
-  ctxBand = hit;
-  const r = spec.parentElement.getBoundingClientRect();
-  bandCtx.classList.add("visible");
-  // clamp inside the analyser so the menu never hangs off the edge
-  const mw = bandCtx.offsetWidth, mh = bandCtx.offsetHeight;
-  bandCtx.style.left = clamp(e.clientX - r.left, 2, r.width  - mw - 2) + "px";
-  bandCtx.style.top  = clamp(e.clientY - r.top,  2, r.height - mh - 2) + "px";
-  document.getElementById("bandCtxDelete").textContent = "Delete band " + (hit + 1);
-  e.stopPropagation();
-});
-document.getElementById("bandCtxDelete").addEventListener("click", e => {
-  e.stopPropagation();
-  if (ctxBand >= 0) deleteBand(ctxBand);
-  hideBandCtx();
-});
-window.addEventListener("mousedown", e => { if (!e.target.closest("#bandCtx")) hideBandCtx(); });
-window.addEventListener("keydown", e => { if (e.key === "Escape") hideBandCtx(); });
-
 spec.addEventListener("dblclick", e => {
   const hit = bandAt(e);
   if (hit >= 0) { // double-click the tip = on/off toggle
