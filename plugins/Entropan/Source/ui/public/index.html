@@ -48,7 +48,20 @@
     --knob-track: #1f1c19;
     --knob-face: #1f1c19;
     --knob-face-locked: #181612;
+    --knob-face-border: #3e3a35;   /* == --border-bright; Daylight overrides */
     --knob-dot: #ffffff;
+    /* States. "Locked" and "frozen" were literals until Daylight arrived, and
+       a literal tuned for near-black inverts on parchment: #444 reads as DIM
+       on ink and as EMPHASIS on paper. Each state gets a pair. */
+    --locked-ink: #444;
+    --locked-line: #2a2724;
+    --locked-fill: linear-gradient(90deg, #4a4a4a, #666);
+    --freeze-on: #7fd4ff;
+    --freeze-glow: #7fd4ff55;
+    --danger: #d98a8a;
+    --danger-line: #5a3a3a;
+    --danger-tint: rgba(217,138,138,0.12);
+    --warn: #d9b98a;
     --analyzer-ink: 232,226,214;   /* rgb triplet: analyser fill/stroke */
     --grid-ink: 232,226,214;
     --floating-bg: rgba(36, 32, 29, 0.92);   /* quick-menu floating over the analyser */
@@ -75,12 +88,27 @@
     --accent-tint: rgba(221,110,38,0.10);
     --section-output: #9A6A45;    /* toasted umber */
     --state-warning: #C98A32;     /* ochre */
-    /* On paper the knob well is an INSET field, and the face is the deep ink
-       block — inverting the dark theme's "darker than card" logic. */
-    --knob-track: #D8C4A8;
-    --knob-face: #E4D3BB;         /* --field */
-    --knob-face-locked: #DCCBB4;
-    --knob-dot: #302030;          /* --plum */
+    /* Knobs do NOT invert on paper. Per the Daylight spec (palette repo,
+       components/audio/Knob.jsx) the face stays the deep ink block — --plum,
+       the same disc as Night — with a parchment pip and a hairline of paper
+       around it. Only the track lightens: ink at 10%, not a tan fill. */
+    --knob-track: rgba(38,16,25,0.10);
+    --knob-face: #302030;         /* --plum */
+    --knob-face-locked: #241826;
+    --knob-face-border: rgba(240,224,208,0.14);
+    --knob-dot: #F0E0D0;          /* --parchment */
+    /* Locked has to stay QUIETER than --text-dim (ink @ 0.50), so on paper it
+       goes thinner, not darker. Freeze borrows the dusty teal; the reds move
+       to a brick that survives on parchment. */
+    --locked-ink: rgba(38,16,25,0.26);
+    --locked-line: rgba(38,16,25,0.06);
+    --locked-fill: linear-gradient(90deg, rgba(38,16,25,0.16), rgba(38,16,25,0.30));
+    --freeze-on: #37707C;
+    --freeze-glow: rgba(55,112,124,0.22);
+    --danger: #A34234;
+    --danger-line: rgba(163,66,52,0.42);
+    --danger-tint: rgba(163,66,52,0.12);
+    --warn: #8A6420;
     --analyzer-ink: 38,16,25;     /* ink, not cream */
     --grid-ink: 38,16,25;
     --floating-bg: rgba(247, 236, 220, 0.94);   /* lifted parchment, not ink */
@@ -174,7 +202,7 @@
     font-size: 11px; color: var(--text-faint); background: transparent;
     border: none; border-radius: 50%; cursor: pointer; padding: 0;
   }
-  .preset-row .preset-x:hover { color: #d98a8a; background: rgba(217,138,138,0.12); }
+  .preset-row .preset-x:hover { color: var(--danger); background: var(--danger-tint); }
   .preset-action-icon { width: 11px; text-align: center; color: var(--accent); }
   .preset-divider { height: 1px; background: var(--border-divider); margin: 4px 2px; }
   .preset-section-label {
@@ -199,7 +227,7 @@
   }
   .preset-save-card input:focus { border-color: var(--accent); }
   .preset-save-msg { font-size: 9px; line-height: 1.4; color: var(--text-dim); margin-top: 8px; min-height: 12px; }
-  .preset-save-msg.warn { color: #d9b98a; }
+  .preset-save-msg.warn { color: var(--warn); }
   .preset-save-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 10px; }
   .preset-save-actions button {
     font-family: inherit; font-size: 9px; letter-spacing: 1px; cursor: pointer;
@@ -208,7 +236,7 @@
   }
   .preset-save-actions button:hover { color: var(--text-primary); border-color: var(--border-bright); }
   .preset-save-actions button.primary { color: var(--accent); border-color: var(--accent-glow); }
-  .preset-save-actions button.danger  { color: #d98a8a; border-color: #5a3a3a; }
+  .preset-save-actions button.danger  { color: var(--danger); border-color: var(--danger-line); }
   .header-right { display: flex; align-items: center; gap: 11px; min-width: 210px; justify-content: flex-end; }
   .settings-btn.hdr { align-self: center; }
   .knob-wrap.knob-hdr { display: flex; flex-direction: row; align-items: center; gap: 8px; width: auto; cursor: ns-resize; }
@@ -311,8 +339,8 @@
     border-radius: 9px; color: var(--text-dim); cursor: pointer; user-select: none;
   }
   .mod-freeze-btn.frozen {
-    color: #7fd4ff; border-color: #7fd4ff;
-    box-shadow: 0 0 7px #7fd4ff55; text-shadow: 0 0 5px #7fd4ff;
+    color: var(--freeze-on); border-color: var(--freeze-on);
+    box-shadow: 0 0 7px var(--freeze-glow); text-shadow: 0 0 5px var(--freeze-on);
   }
   .drag-ghost {
     position: fixed; z-index: 90; pointer-events: none;
@@ -361,7 +389,7 @@
   .knob-face {
     position: absolute; top: 9px; left: 9px; width: 38px; height: 38px;
     border-radius: 50%; background: var(--knob-face);
-    border: 1px solid var(--border-bright);
+    border: 1px solid var(--knob-face-border);
     box-shadow: none; z-index: 2;
     transition: border-color 0.15s ease, background 0.15s ease;
   }
@@ -390,8 +418,8 @@
      CHAOS leaves it alone. Section titles lock every param in the section and
      go BRIGHT when fully locked (bright = "this is held"). */
   .knob-body.locked .knob-face { border-color: transparent; }
-  .hslider.locked .hs-label, .hslider.locked .hs-value { color: #444; }
-  .hslider.locked .hs-track { border-color: #2a2724; }
+  .hslider.locked .hs-label, .hslider.locked .hs-value { color: var(--locked-ink); }
+  .hslider.locked .hs-track { border-color: var(--locked-line); }
   .mode-chips.locked .mode-chip { opacity: 0.45; filter: saturate(0.2); }
   .section-label.lockable {
     cursor: pointer; user-select: none;
@@ -517,7 +545,7 @@
   .step-ctl-row .mode-toggle { font-size: 8px; padding: 1.5px 8px; }
   .step-count-row { display: flex; align-items: center; gap: 5px; justify-content: flex-end; flex: 0 0 16px; }
   .step-count-row .step-preset-sel, .step-count-row .step-save-btn { font-size: 8px; padding: 1px 5px; }
-  .step-del-btn { color: #d98a8a; border-color: #5a3a3a; }
+  .step-del-btn { color: var(--danger); border-color: var(--danger-line); }
   .step-del-btn:disabled { opacity: 0.35; cursor: default; color: var(--text-dim); border-color: var(--border-subtle); }
   .preset-name-input {
     position: absolute; left: 8px; right: 8px; bottom: 6px; z-index: 20;
@@ -795,7 +823,7 @@
     </div>
     <div id="licenseErrorRow" style="display:none; padding:2px 0 4px;">
       <span class="settings-row-value" id="licenseError"
-            style="color:#d98a8a; font-size:9px; line-height:1.35; display:block;
+            style="color:var(--danger); font-size:9px; line-height:1.35; display:block;
                    white-space:normal; word-break:break-word;"></span>
     </div>
     <div class="settings-row">
@@ -851,7 +879,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B94";
+const ENTROPAN_BUILD = "B95";
 // single source for the UI version string — must match juce_add_plugin VERSION
 // in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
 const ENTROPAN_VERSION = "0.5.0";
@@ -876,20 +904,42 @@ const DPR = window.devicePixelRatio || 1;
    CSS, so they read THEME instead. Voice hues differ per skin: the dark set
    would wash out on parchment, so the light skin uses the palette's section
    accents (dusty teal / olive / jade / mulberry / ochre / copper). Index
-   meaning is preserved — band 1 is the "cyan slot" in both skins. */
+   meaning is preserved — band 1 is the "cyan slot" in both skins.
+
+   `dot` vs `mark` are NOT the same colour on paper, even though they were in
+   the dark skin. `dot` is the knob pip and sits ON the plum face, so it has to
+   be light in both skins. `mark` is the band handle centre and the scope
+   playhead, which sit on the parchment, so on Daylight it has to be ink. They
+   were one token until the faces went plum, which made every canvas dot
+   vanish. */
 const THEMES = {
   dark: {
     bands: ["#3ab8d4", "#8aaa7a", "#5fc88a", "#b06ed4", "#d6884a", "#D4A574"],
     accent: "#D4A574", knobTrack: "#1f1c19",
     face: "#1f1c19", faceLocked: "#181612",
-    dot: "#ffffff", dotLocked: "#aaaaaa", dotGhost: "#88837a", onAccent: "#14110F",
+    faceBorderLocked: "#2e2a25",   // unlocked border comes from CSS (--knob-face-border)
+    dot: "#ffffff", dotLocked: "#aaaaaa",
+    mark: "#ffffff", markGhost: "#88837a", onAccent: "#14110F",
+    neutral: "#c8c8d0", voiceWarm: "#D4A574", voiceViolet: "#b06ed4", voiceCyan: "#3ab8d4",
+    arcLocked: "#666",
+    line: "#26221F", lineBright: "#3e3a35", textFaint: "#403A32",
     ink: "232,226,214",
   },
   light: {
     bands: ["#4E7C86", "#7E8A3A", "#4F9A78", "#8A5A7E", "#C98A32", "#DD6E26"],
-    accent: "#DD6E26", knobTrack: "#D8C4A8",
-    face: "#E4D3BB", faceLocked: "#DCCBB4",
-    dot: "#302030", dotLocked: "#8A7A6A", dotGhost: "#A08D74", onAccent: "#F7ECDC",
+    accent: "#DD6E26", knobTrack: "rgba(38,16,25,0.10)",
+    face: "#302030", faceLocked: "#241826",
+    faceBorderLocked: "rgba(240,224,208,0.05)",
+    dot: "#F0E0D0", dotLocked: "#9A8A88",
+    mark: "#302030", markGhost: "#A08D74", onAccent: "#F7ECDC",
+    // The global knobs and the toggle tints used to carry the dark hues as
+    // literals. #c8c8d0 (the "no voice" steel of AMOUNT/LEVEL) and #b06ed4
+    // both die on parchment, so each voice gets a paper-side twin: a plum-grey
+    // neutral, and the palette's own mulberry / dusty teal / copper.
+    neutral: "#6E5C66", voiceWarm: "#DD6E26", voiceViolet: "#8A5A7E", voiceCyan: "#4E7C86",
+    arcLocked: "#9A8A92",
+    // canvas twins of --border-divider / --border-bright / --text-faint
+    line: "rgba(38,16,25,0.10)", lineBright: "rgba(38,16,25,0.26)", textFaint: "rgba(38,16,25,0.30)",
     ink: "38,16,25",
   },
 };
@@ -1321,7 +1371,7 @@ function meDialDraw(dial) {
   ctx.clearRect(0, 0, S, S);
   ctx.lineWidth = 2; ctx.lineCap = "round";
   ctx.beginPath(); ctx.arc(C, C, 5, 0, Math.PI * 2);          // track
-  ctx.strokeStyle = "#26221F"; ctx.stroke();
+  ctx.strokeStyle = THEME.line; ctx.stroke();
   const sweep = Math.abs(rt.depth) / 100 * Math.PI * 1.7;     // the arc IS the value
   ctx.beginPath();
   ctx.arc(C, C, 5, -Math.PI / 2, -Math.PI / 2 + (rt.depth < 0 ? -sweep : sweep), rt.depth < 0);
@@ -1517,7 +1567,7 @@ function drawKnob(canvas, normValue, accentColor, locked) {
         const segEnd = degToRad(ARC_START + t1 * totalAngle) + 0.012;
         ctx.beginPath();
         ctx.arc(cx, cy, r, segStart, segEnd);
-        ctx.strokeStyle = locked ? "#666" : lerpColor(THEME.accent, accentColor, (t0 + t1) * 0.5);
+        ctx.strokeStyle = locked ? THEME.arcLocked : lerpColor(THEME.accent, accentColor, (t0 + t1) * 0.5);
         ctx.lineWidth = arcWidth;
         ctx.lineCap = i === 0 || i === segments - 1 ? "round" : "butt";
         ctx.stroke();
@@ -1567,11 +1617,11 @@ function makeKnob(containerId, label, opts) {
       ind.style.boxShadow = locked ? "none" : `0 0 4px ${k.color}`;
       ind.style.opacity = locked ? "0.85" : "1";
       face.style.background = locked ? THEME.faceLocked : THEME.face;
-      face.style.borderColor = locked ? "#2e2a25" : "";
+      face.style.borderColor = locked ? THEME.faceBorderLocked : "";
       face.style.opacity = locked ? "0.5" : "1";
       body.classList.toggle("locked", locked);
       val.textContent = opts.fmt();
-      val.style.color = locked ? "#444" : "";
+      val.style.color = locked ? "var(--locked-ink)" : "";
     }
   };
   // Drag accumulates into dragNorm rather than re-reading opts.get() each move.
@@ -1620,7 +1670,7 @@ function makeHSlider(id, label, opts) {
       const norm = clamp(opts.get(), 0, 1);
       const locked = opts.lockKey ? isLocked(opts.lockKey) : false;
       fill.style.width = (norm * 100) + "%";
-      fill.style.background = locked ? "linear-gradient(90deg, #4a4a4a, #666)"
+      fill.style.background = locked ? "var(--locked-fill)"
                                      : `linear-gradient(90deg, ${s.color}55, ${s.color})`;
       val.textContent = opts.fmt();
       el.classList.toggle("locked", locked);
@@ -1696,31 +1746,40 @@ const knobBias = makeKnob("knob_bias", "BIAS", {
   fmt: () => { const b = PB().bias.get(); return (b > 0 ? "R" : b < 0 ? "L" : "C") + " " + Math.abs(Math.round(b)) + "%"; }
 });
 const knobAmount = makeKnob("knob_mix", "AMOUNT", {
-  color: "#c8c8d0", def: 1, lockKey: "amount", lockGlobal: true,
+  color: THEME.neutral, def: 1, lockKey: "amount", lockGlobal: true,
   get: () => P.amount.get() / 100,
   set: n => P.amount.set(n * 100),
   fmt: () => Math.round(P.amount.get()) + "%"
 });
 const knobOut = makeKnob("knob_output", "LEVEL", {
-  color: "#c8c8d0", def: (0 + 24) / 36,
+  color: THEME.neutral, def: (0 + 24) / 36,
   get: () => (P.output.get() + 24) / 36,
   set: n => P.output.set(-24 + n * 36),
   fmt: () => { const v = P.output.get(); return (Math.abs(v) < 0.05 ? 0 : v).toFixed(1) + " dB"; }
 });
 const knobWow = makeKnob("knob_wow", "WOW", {
-  color: "#b06ed4", def: 0, lockKey: "wow", lockGlobal: true,
+  color: THEME.voiceViolet, def: 0, lockKey: "wow", lockGlobal: true,
   get: () => P.wow.get() / 100, set: n => P.wow.set(n * 100), fmt: () => Math.round(P.wow.get()) + "%"
 });
 const knobFlutter = makeKnob("knob_flutter", "FLUTTER", {
-  color: "#b06ed4", def: 0, lockKey: "flutter", lockGlobal: true,
+  color: THEME.voiceViolet, def: 0, lockKey: "flutter", lockGlobal: true,
   get: () => P.flutter.get() / 100, set: n => P.flutter.set(n * 100), fmt: () => Math.round(P.flutter.get()) + "%"
 });
 const knobSpeed = makeKnob("knob_speed", "SPEED", {
-  color: "#D4A574", def: 2 / 5,
+  color: THEME.voiceWarm, def: 2 / 5,
   get: () => P.speed.get() / 5,
   set: n => P.speed.set(Math.round(clamp(n, 0, 1) * 5)),
   fmt: () => SPEED_LABELS[P.speed.get()] || "×1"
 });
+
+/* The band knobs get re-coloured every refreshPanels (they follow the selected
+   band), but the global ones capture their colour once at construction — so a
+   skin change has to hand them the new voice explicitly. */
+function retintGlobalKnobs() {
+  knobAmount.color = knobOut.color = THEME.neutral;
+  knobWow.color = knobFlutter.color = THEME.voiceViolet;
+  knobSpeed.color = THEME.voiceWarm;
+}
 
 const ENV_ATK = MAPS.log(1, 500), ENV_REL = MAPS.log(5, 2000), ENV_SCF = MAPS.log(20, 2000);
 const RATE_MAP = MAPS.log(RATE_MIN, RATE_MAX);
@@ -1939,7 +1998,7 @@ function drawSlopeDial(v, col) {
   ctx.lineWidth = 1.6; ctx.lineCap = "round";
   const a0 = degToRad(ARC_START), span = degToRad(270);   // shared knob geometry
   ctx.beginPath(); ctx.arc(C, C, 4, a0, a0 + span);
-  ctx.strokeStyle = "#26221F"; ctx.stroke();
+  ctx.strokeStyle = THEME.line; ctx.stroke();
   ctx.beginPath(); ctx.arc(C, C, 4, a0, a0 + span * clamp(v, 0, 100) / 100);
   ctx.strokeStyle = col || "#3ab8d4"; ctx.stroke();
 }
@@ -2046,12 +2105,14 @@ function smoothTelemetry(dt) {
    PANEL REFRESH
    ════════════════════════════════════════════════════════════════════ */
 /* Chaosverb-style toggle tinting: the toggle wears its current option's colour */
-const COL_ORANGE = "#D4A574", COL_PURPLE = "#b06ed4", COL_CYAN = "#3ab8d4";
+// Toggle tints follow the skin, so they are read at paint time, not captured.
+const COL_ORANGE = () => THEME.voiceWarm, COL_PURPLE = () => THEME.voiceViolet, COL_CYAN = () => THEME.voiceCyan;
 const tintToggle = (el, col) => { el.style.color = col; el.style.borderColor = col; el.style.boxShadow = "0 0 7px " + col + "55"; };
-const RATE_MODE_NAMES = ["SYNC", "FREE", "MIDI"], RATE_MODE_COLS = [COL_ORANGE, COL_PURPLE, COL_CYAN];
+const RATE_MODE_NAMES = ["SYNC", "FREE", "MIDI"];
+const RATE_MODE_COLS = () => [COL_ORANGE(), COL_PURPLE(), COL_CYAN()];
 function applyRateModeToggle(el, rm) {
   el.textContent = RATE_MODE_NAMES[rm] || "SYNC";
-  tintToggle(el, RATE_MODE_COLS[rm] || COL_ORANGE);
+  tintToggle(el, RATE_MODE_COLS()[rm] || COL_ORANGE());
 }
 
 function refreshPanels() {
@@ -2088,7 +2149,7 @@ function refreshPanels() {
   if (mode === 5) {   // Env: sliders become the detection-circuit controls
     setHsLabel(hsRate, "ATK"); setHsLabel(hsInertia, "REL"); setHsLabel(hsPhase, "SC-F");
     rm.textContent = P.envRms.get() ? "RMS" : "PEAK";
-    tintToggle(rm, P.envRms.get() ? COL_PURPLE : COL_ORANGE);   // PEAK orange → RMS purple
+    tintToggle(rm, P.envRms.get() ? COL_PURPLE() : COL_ORANGE());   // PEAK orange → RMS purple
     hsPhase.el.classList.remove("disabled");
     hsInertia.el.classList.remove("disabled");
   } else {
@@ -2113,13 +2174,13 @@ function refreshPanels() {
   document.getElementById("stepCount").textContent = b.stepCount;
   const pol = document.getElementById("polToggle");
   pol.textContent = pb.uni.get() ? "UNI" : "BI";
-  tintToggle(pol, pb.uni.get() ? COL_PURPLE : COL_ORANGE);   // BI orange → UNI purple
+  tintToggle(pol, pb.uni.get() ? COL_PURPLE() : COL_ORANGE());   // BI orange → UNI purple
   const ovr = document.getElementById("overrideToggle");
   ovr.classList.toggle("free", pb.override.get());                // chain intact ↔ broken
-  tintToggle(ovr, pb.override.get() ? COL_PURPLE : COL_ORANGE);   // linked orange → free purple
+  tintToggle(ovr, pb.override.get() ? COL_PURPLE() : COL_ORANGE());   // linked orange → free purple
   const rt = document.getElementById("routingToggle");
   rt.textContent = P.routing.get() ? "PARALLEL" : "SERIAL";
-  tintToggle(rt, P.routing.get() ? COL_PURPLE : COL_ORANGE);   // Serial orange → Parallel purple
+  tintToggle(rt, P.routing.get() ? COL_PURPLE() : COL_ORANGE());   // Serial orange → Parallel purple
   const bb = document.getElementById("bandBypassBtn");
   const bandBypassed = b.configured && !pb.on.get();
   bb.classList.toggle("active", bandBypassed);
@@ -2177,7 +2238,7 @@ function drawSteps() {
   if (stepCanvas.width !== W) { stepCanvas.width = W; stepCanvas.height = H; }
   const ctx = stepCanvas.getContext("2d");
   ctx.clearRect(0, 0, W, H);
-  ctx.strokeStyle = "#3e3a35"; ctx.lineWidth = DPR;
+  ctx.strokeStyle = THEME.lineBright; ctx.lineWidth = DPR;
   ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
   const n = b.stepCount, c = bandColor();
   const telemetryLive = EMBEDDED && performance.now() - lastModEvent < 300;
@@ -2198,7 +2259,7 @@ function drawSteps() {
       ctx.fillStyle = c + (hot ? "cc" : "59");
       ctx.fillRect(x + 1.5 * DPR, Math.min(y0, y1), Math.max(subW - 3 * DPR, DPR), Math.abs(y1 - y0) || DPR);
     }
-    ctx.fillStyle = "#26221F";
+    ctx.fillStyle = THEME.line;
     ctx.fillRect(runX, 0, DPR, H);   // divider only at run boundaries → glued cells read as one
     if (st.subdiv > 1) {
       ctx.fillStyle = c + "ee";
@@ -2511,7 +2572,7 @@ function drawSpectrum(t) {
     ctx.beginPath(); ctx.arc(hx, hy, (sel ? 6 : 4.5) * DPR, 0, 7);
     ctx.fillStyle = c + (ghost ? "55" : "ff"); ctx.fill();
     ctx.beginPath(); ctx.arc(hx, hy, 2 * DPR, 0, 7);
-    ctx.fillStyle = ghost ? THEME.dotGhost : THEME.dot; ctx.fill();
+    ctx.fillStyle = ghost ? THEME.markGhost : THEME.mark; ctx.fill();
 
     // gain aura — expensive blur render is CACHED per band; re-rendered only
     // when bell geometry or gain changes, stamped as a bitmap every frame.
@@ -2886,9 +2947,9 @@ function drawScope() {
 
   if (PB().mode.get() === 5) {
     // ── ENVELOPE scope: 0 at bottom → 1 at top, filled ──
-    ctx.strokeStyle = "#26221F"; ctx.lineWidth = DPR;
+    ctx.strokeStyle = THEME.line; ctx.lineWidth = DPR;
     [0.25, 0.5, 0.75].forEach(fy => { ctx.beginPath(); ctx.moveTo(0, fy * H); ctx.lineTo(W, fy * H); ctx.stroke(); });
-    ctx.fillStyle = "#403A32"; ctx.fillText("ENV", 3 * DPR, 10 * DPR);
+    ctx.fillStyle = THEME.textFaint; ctx.fillText("ENV", 3 * DPR, 10 * DPR);
     ctx.beginPath(); ctx.moveTo(0, H);
     for (let i = 0; i < SCOPE_N; i++) {
       const v = clamp(envBuf[(envHead + i) % SCOPE_N], 0, 1);
@@ -2906,16 +2967,16 @@ function drawScope() {
     ctx.stroke();
     const last = clamp(envBuf[(envHead + SCOPE_N - 1) % SCOPE_N], 0, 1);
     ctx.beginPath(); ctx.arc(W - 3 * DPR, H - last * (H * 0.92) - 2 * DPR, 2.5 * DPR, 0, 7);
-    ctx.fillStyle = on ? THEME.dot : THEME.dotGhost; ctx.fill();
+    ctx.fillStyle = on ? THEME.mark : THEME.markGhost; ctx.fill();
     return;
   }
 
   // ── PAN scope: L (top) / centre / R (bottom) ──
-  ctx.strokeStyle = "#3e3a35"; ctx.lineWidth = DPR;
+  ctx.strokeStyle = THEME.lineBright; ctx.lineWidth = DPR;
   ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
-  ctx.strokeStyle = "#26221F";
+  ctx.strokeStyle = THEME.line;
   [0.12, 0.88].forEach(fy => { ctx.beginPath(); ctx.moveTo(0, fy * H); ctx.lineTo(W, fy * H); ctx.stroke(); });
-  ctx.fillStyle = "#403A32";
+  ctx.fillStyle = THEME.textFaint;
   ctx.fillText("L", 3 * DPR, 0.12 * H + 3 * DPR);
   ctx.fillText("R", 3 * DPR, 0.88 * H + 3 * DPR);
   ctx.strokeStyle = c + (on ? "dd" : "44"); ctx.lineWidth = 1.5 * DPR;
@@ -2929,7 +2990,7 @@ function drawScope() {
   ctx.stroke();
   const last = scopeBuf[(scopeHead + SCOPE_N - 1) % SCOPE_N];
   ctx.beginPath(); ctx.arc(W - 3 * DPR, H / 2 - last * H * 0.38, 2.5 * DPR, 0, 7);
-  ctx.fillStyle = on ? THEME.dot : THEME.dotGhost; ctx.fill();
+  ctx.fillStyle = on ? THEME.mark : THEME.markGhost; ctx.fill();
 }
 
 /* local sim (skipped for bands when live telemetry present) */
@@ -3103,7 +3164,7 @@ function refreshLicense() {
     if (!s) return;
     licenseRow.style.display = "flex";
     licenseState.textContent = LICENSE_LABEL[s.state] || s.state;
-    licenseState.style.color = s.active ? "" : "#d98a8a";
+    licenseState.style.color = s.active ? "" : "var(--danger)";
     // Deactivate only makes sense for a real activation — a trial has nothing
     // to release, and an unlicensed instance has nothing to release either.
     licenseDeactivate.style.display = (s.active && !s.isTrial) ? "block" : "none";
@@ -3192,6 +3253,7 @@ function applyThemeUI() {
   themeToggle.textContent = themeName === "light" ? "Daylight" : "Night";
   gridCache = null;                       // grid bitmap is theme-coloured
   auraCache.forEach(c => c.key = "");     // aura bitmaps bake the band colour
+  retintGlobalKnobs();                    // globals captured their voice at build time
   refreshPanels();
   drawSpectrum(simClock); drawScope();
   if (PB().mode.get() === 4) drawSteps();
@@ -3201,17 +3263,30 @@ themeToggle.addEventListener("click", () => {
   settings.theme = themeName; saveSettings();
   applyThemeUI();
 });
+/* Paint the stored skin now. The plugin also re-applies once the shared file
+   lands, but only the embedded path did — in a plain browser themeName said
+   "light" while the body still rendered Night, and the first click then read
+   as a no-op. */
+applyThemeUI();
 
 /* brightness */
 let brightness = clamp(settings.brightness ?? 100, 70, 130);
 const brightnessValue = document.getElementById("brightnessValue");
+/* apply* only PAINTS. Persisting from inside them meant the two init calls
+   below wrote the defaults to the shared file — and flipped prefsTouched —
+   before the restore had even read it, so no preference ever came back. Only
+   a real gesture saves. */
 function applyBrightness() {
   shellEl.style.filter = brightness === 100 ? "" : `brightness(${brightness}%)`;
   brightnessValue.textContent = brightness + "%";
-  settings.brightness = brightness; saveSettings();
 }
-document.getElementById("brightnessUp").addEventListener("click", () => { brightness = clamp(brightness + 5, 70, 130); applyBrightness(); });
-document.getElementById("brightnessDown").addEventListener("click", () => { brightness = clamp(brightness - 5, 70, 130); applyBrightness(); });
+const nudgeBrightness = d => {
+  brightness = clamp(brightness + d, 70, 130);
+  applyBrightness();
+  settings.brightness = brightness; saveSettings();
+};
+document.getElementById("brightnessUp").addEventListener("click", () => nudgeBrightness(+5));
+document.getElementById("brightnessDown").addEventListener("click", () => nudgeBrightness(-5));
 applyBrightness();
 
 /* window size presets → native editor resize */
@@ -3226,9 +3301,11 @@ let tooltipsEnabled = settings.tooltips !== false;
 const tooltipsToggle = document.getElementById("tooltipsToggle");
 function applyTooltipsToggle() {
   tooltipsToggle.classList.toggle("on", tooltipsEnabled);
-  settings.tooltips = tooltipsEnabled; saveSettings();
 }
-tooltipsToggle.addEventListener("click", () => { tooltipsEnabled = !tooltipsEnabled; applyTooltipsToggle(); });
+tooltipsToggle.addEventListener("click", () => {
+  tooltipsEnabled = !tooltipsEnabled; applyTooltipsToggle();
+  settings.tooltips = tooltipsEnabled; saveSettings();
+});
 applyTooltipsToggle();
 
 /* Pull the shared UI-preferences file (plugin only — async, so the UI starts on
