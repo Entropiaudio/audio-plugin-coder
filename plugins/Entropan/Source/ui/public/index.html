@@ -58,6 +58,8 @@
     --locked-fill: linear-gradient(90deg, #4a4a4a, #666);
     --freeze-on: #7fd4ff;
     --freeze-glow: #7fd4ff55;
+    --switch-off: #2A2724;
+    --switch-thumb: #E8E2D6;
     --danger: #d98a8a;
     --danger-line: #5a3a3a;
     --danger-tint: rgba(217,138,138,0.12);
@@ -105,6 +107,8 @@
     --locked-fill: linear-gradient(90deg, rgba(38,16,25,0.16), rgba(38,16,25,0.30));
     --freeze-on: #37707C;
     --freeze-glow: rgba(55,112,124,0.22);
+    --switch-off: rgba(38,16,25,0.18);
+    --switch-thumb: #F7ECDC;
     --danger: #A34234;
     --danger-line: rgba(163,66,52,0.42);
     --danger-tint: rgba(163,66,52,0.12);
@@ -616,19 +620,24 @@
   .settings-row:last-child { border-bottom: none; }
   .settings-row-label { font-size: 8.5px; letter-spacing: 1px; color: var(--text-secondary); }
   .settings-row-value { font-size: 8.5px; color: var(--text-secondary); min-width: 30px; text-align: center; }
+  /* iOS-style switch: the TRACK carries the state colour and the thumb stays a
+     light disc, so on/off reads at a glance without a word in the control. */
   .settings-toggle {
-    width: 26px; height: 14px; border-radius: 7px; cursor: pointer;
-    background: var(--bg-shell); border: 1px solid var(--border-subtle);
+    width: 26px; height: 15px; border-radius: 8px; cursor: pointer;
+    background: var(--switch-off); border: 1px solid var(--border-subtle);
     position: relative; padding: 0;
+    transition: background var(--t-fast) var(--ease-editorial),
+                border-color var(--t-fast) var(--ease-editorial);
   }
   .settings-toggle::after {
-    content: ""; position: absolute; top: 1.5px; left: 2px;
-    width: 9px; height: 9px; border-radius: 50%;
-    background: var(--text-dim);
-    transition: left var(--t-fast) var(--ease-editorial), background var(--t-fast);
+    content: ""; position: absolute; top: 1.5px; left: 1.5px;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--switch-thumb);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.35);
+    transition: left var(--t-fast) var(--ease-editorial);
   }
-  .settings-toggle.on { border-color: var(--accent); }
-  .settings-toggle.on::after { left: 13px; background: var(--accent); }
+  .settings-toggle.on { background: var(--accent); border-color: var(--accent); }
+  .settings-toggle.on::after { left: 12.5px; }
   .settings-preset-btn, .settings-mini-btn {
     font-family: inherit; font-size: 8px; letter-spacing: 0.5px;
     background: transparent; color: var(--text-dim);
@@ -836,10 +845,9 @@
   <div class="settings-popover" id="settingsPopover">
     <h3>Settings</h3>
     <div class="settings-row">
-      <span class="settings-row-label">Theme</span>
-      <button class="settings-mini-btn" id="themeToggle"
-              style="width:auto; padding:0 8px;"
-              data-tip="Switch between the Night and Daylight skins">Night</button>
+      <span class="settings-row-label">Daylight</span>
+      <button class="settings-toggle" id="themeToggle"
+              data-tip="Daylight skin — off is Night, the original dark UI"></button>
     </div>
     <div class="settings-row">
       <span class="settings-row-label">Tooltips</span>
@@ -879,7 +887,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B95";
+const ENTROPAN_BUILD = "B96";
 // single source for the UI version string — must match juce_add_plugin VERSION
 // in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
 const ENTROPAN_VERSION = "0.6.0";
@@ -3250,7 +3258,7 @@ let themeName = settings.theme === "light" ? "light" : "dark";
 const themeToggle = document.getElementById("themeToggle");
 function applyThemeUI() {
   applyTheme(themeName);
-  themeToggle.textContent = themeName === "light" ? "Daylight" : "Night";
+  themeToggle.classList.toggle("on", themeName === "light");
   gridCache = null;                       // grid bitmap is theme-coloured
   auraCache.forEach(c => c.key = "");     // aura bitmaps bake the band colour
   retintGlobalKnobs();                    // globals captured their voice at build time
