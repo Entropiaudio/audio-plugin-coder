@@ -4,7 +4,7 @@ Spectral panner. Lift a band on the spectrum, give it a modulator, let it move.
 
 ## Install
 
-Run `Entropan-0.6.0.pkg`. It's signed and notarised by Apple, so it should open
+Run `Entropan-0.7.0.pkg`. It's signed and notarised by Apple, so it should open
 without a Gatekeeper warning. The installer lets you pick VST3, AU, or both:
 
 | Format | Installs to |
@@ -42,7 +42,7 @@ reopen.
 ## Reporting bugs
 
 Include: DAW + version, macOS version, Apple Silicon or Intel, and the build
-stamp shown under the Entropan logo (e.g. `V0.6.0 · B95`). Session/preset file
+stamp shown under the Entropan logo (e.g. `V0.7.0 · B106`). Session/preset file
 attached helps a lot.
 
 Known rough edges are listed with each beta build.
