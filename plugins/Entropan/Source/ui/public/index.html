@@ -887,7 +887,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B96";
+const ENTROPAN_BUILD = "B97";
 // single source for the UI version string — must match juce_add_plugin VERSION
 // in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
 const ENTROPAN_VERSION = "0.6.0";
@@ -3298,9 +3298,20 @@ document.getElementById("brightnessDown").addEventListener("click", () => nudgeB
 applyBrightness();
 
 /* window size presets → native editor resize */
+/* Window size is remembered TWICE, on purpose. The host session keeps this
+   instance's size (apvts editorWidth/Height), so reopening a project restores
+   what that instance looked like; rememberSize() additionally files it as the
+   user's global default, which is what a freshly inserted instance starts at.
+   Session wins when it exists — the preference only supplies the default. */
+function rememberSize(w, h) {
+  settings.sizeW = Math.round(w); settings.sizeH = Math.round(h);
+  saveSettings();
+}
 document.querySelectorAll(".settings-preset-btn").forEach(btn => {
   btn.addEventListener("click", () => {
-    if (EMBEDDED) setEditorSizeNative(parseInt(btn.dataset.w), parseInt(btn.dataset.h)).catch(() => {});
+    const w = parseInt(btn.dataset.w), h = parseInt(btn.dataset.h);
+    if (EMBEDDED) setEditorSizeNative(w, h).catch(() => {});
+    rememberSize(w, h);
   });
 });
 
@@ -3364,14 +3375,21 @@ const setEditorSizeNative = native("setEditorSize");
              h: document.documentElement.clientHeight };
     e.preventDefault(); e.stopPropagation();
   });
+  let last = null;
   window.addEventListener("mousemove", e => {
     if (!drag) return;
     const dw = e.screenX - drag.x;
     let w = clamp(drag.w + dw, 720, 1620);
     let h = Math.round(w * 560 / 900);          // aspect-locked
-    if (EMBEDDED) setEditorSizeNative(Math.round(w), h).catch(() => {});
+    last = [Math.round(w), h];
+    if (EMBEDDED) setEditorSizeNative(last[0], last[1]).catch(() => {});
   });
-  window.addEventListener("mouseup", () => drag = null);
+  // File the size once the drag ENDS — writing on every mousemove would hammer
+  // the shared preferences file for the whole gesture.
+  window.addEventListener("mouseup", () => {
+    if (drag && last) rememberSize(last[0], last[1]);
+    drag = null; last = null;
+  });
 })();
 
 /* ════════════════════════════════════════════════════════════════════

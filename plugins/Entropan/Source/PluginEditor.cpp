@@ -452,8 +452,25 @@ EntropanAudioProcessorEditor::EntropanAudioProcessorEditor (EntropanAudioProcess
     webView->goToURL (juce::WebBrowserComponent::getResourceProviderRoot());
 
     // Saved size (Chaosverb pattern) — read BEFORE setResizeLimits clamps.
-    const int savedW = audioProcessor.apvts.state.getProperty ("editorWidth",  900);
-    const int savedH = audioProcessor.apvts.state.getProperty ("editorHeight", 560);
+    // Two layers, deliberately: the host session carries THIS instance's size,
+    // so reopening a project restores what that instance looked like. The
+    // shared UI-preferences file only supplies the DEFAULT, which is what a
+    // freshly inserted instance opens at — the factory 900x560 otherwise.
+    int defW = 900, defH = 560;
+    {
+        const auto prefs = juce::JSON::parse (audioProcessor.getUiSettingsJson());
+        const int pw = (int) prefs.getProperty ("sizeW", 0);
+        const int ph = (int) prefs.getProperty ("sizeH", 0);
+        // Clamp to the same limits set below; a hand-edited file must not be
+        // able to open the editor at an unusable size.
+        if (pw >= 720 && pw <= 1620 && ph >= 448 && ph <= 1008)
+        {
+            defW = pw;
+            defH = ph;
+        }
+    }
+    const int savedW = audioProcessor.apvts.state.getProperty ("editorWidth",  defW);
+    const int savedH = audioProcessor.apvts.state.getProperty ("editorHeight", defH);
     setResizable (true, true);   // host edge-drag + corner resizer
     setResizeLimits (720, 448, 1620, 1008);
     constrainer.setFixedAspectRatio (900.0 / 560.0);
