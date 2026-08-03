@@ -273,6 +273,23 @@
     cursor: pointer;
   }
 
+  /* right-click menu on a band handle */
+  .ctx-menu {
+    position: absolute; z-index: 6; display: none;
+    padding: 3px; border-radius: 6px;
+    background: var(--floating-bg); border: 1px solid var(--border-bright);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.45);
+  }
+  .ctx-menu.visible { display: block; }
+  .ctx-item {
+    font-family: inherit; font-size: 8.5px; letter-spacing: 0.6px;
+    background: transparent; border: none; border-radius: 4px;
+    padding: 4px 10px; cursor: pointer; white-space: nowrap;
+    color: var(--text-secondary);
+  }
+  .ctx-item:hover { background: var(--accent-tint); color: var(--text-primary); }
+  .ctx-item.danger:hover { background: var(--danger-tint); color: var(--danger); }
+
   /* floating band quick-menu */
   .quick-menu {
     position: absolute; z-index: 4; display: none;
@@ -750,6 +767,10 @@
   <!-- SPECTRUM -->
   <div class="spectrum-wrap">
     <canvas id="spectrum"></canvas>
+    <!-- right-click a band's handle -->
+    <div class="ctx-menu" id="bandCtx">
+      <button class="ctx-item danger" id="bandCtxDelete">Delete band</button>
+    </div>
     <div class="quick-menu" id="quickMenu">
       <div class="qm-grip" id="qmGrip" data-tip="Drag to move"></div>
       <div class="qm-row" id="qm_rate">
@@ -932,7 +953,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B104";
+const ENTROPAN_BUILD = "B105";
 // single source for the UI version string — must match juce_add_plugin VERSION
 // in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
 const ENTROPAN_VERSION = "0.6.0";
@@ -2816,6 +2837,51 @@ function applyBandDrag() {
   pb.lift.set(clamp((1 - (e.clientY - r.top) / r.height) / 0.82 * 100, 0, 100));
   knobFreq.refresh(); knobLift.refresh();
 }
+/* Right-click a band's handle → delete it. Delete is not the same as the
+   BYPASS toggle: bypass keeps the band's settings and its bell on the
+   analyser, delete returns the slot to the pool — parameters back to their
+   defaults, any mod routes aimed at it dropped — so re-adding later starts
+   clean instead of inheriting a band you thought you had thrown away. */
+const bandCtx = document.getElementById("bandCtx");
+let ctxBand = -1;
+function hideBandCtx() { bandCtx.classList.remove("visible"); ctxBand = -1; }
+function deleteBand(i) {
+  const defs = bandIds(i), pb = P.bands[i];
+  for (const k in defs) if (pb[k] && defs[k].def !== undefined) pb[k].set(defs[k].def);
+  ui.bands[i].configured = false;
+  // Routes are addressed as band*10 + slot, so drop the whole decade.
+  const lo = i * 10, hi = lo + 10;
+  const before = modRoutes.length;
+  modRoutes = modRoutes.filter(r => !(r.dst >= lo && r.dst < hi));
+  if (modRoutes.length !== before) pushRoutes();
+  if (ui.selected === i) {
+    const nxt = ui.bands.findIndex(b => b.configured);
+    if (nxt >= 0) ui.selected = nxt;
+  }
+  refreshPanels();
+}
+spec.addEventListener("contextmenu", e => {
+  const hit = bandAt(e);
+  e.preventDefault();
+  if (hit < 0) { hideBandCtx(); return; }
+  ctxBand = hit;
+  const r = spec.parentElement.getBoundingClientRect();
+  bandCtx.classList.add("visible");
+  // clamp inside the analyser so the menu never hangs off the edge
+  const mw = bandCtx.offsetWidth, mh = bandCtx.offsetHeight;
+  bandCtx.style.left = clamp(e.clientX - r.left, 2, r.width  - mw - 2) + "px";
+  bandCtx.style.top  = clamp(e.clientY - r.top,  2, r.height - mh - 2) + "px";
+  document.getElementById("bandCtxDelete").textContent = "Delete band " + (hit + 1);
+  e.stopPropagation();
+});
+document.getElementById("bandCtxDelete").addEventListener("click", e => {
+  e.stopPropagation();
+  if (ctxBand >= 0) deleteBand(ctxBand);
+  hideBandCtx();
+});
+window.addEventListener("mousedown", e => { if (!e.target.closest("#bandCtx")) hideBandCtx(); });
+window.addEventListener("keydown", e => { if (e.key === "Escape") hideBandCtx(); });
+
 spec.addEventListener("dblclick", e => {
   const hit = bandAt(e);
   if (hit >= 0) { // double-click the tip = on/off toggle
