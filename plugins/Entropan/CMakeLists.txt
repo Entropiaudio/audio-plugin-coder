@@ -45,7 +45,13 @@ juce_add_binary_data(Entropan_WebUI
         Source/ui/public/js/juce/check_native_interop.js
         Source/ui/public/fonts/Fraunces-Variable.woff2
         Source/ui/public/fonts/Montserrat-Variable.woff2
-        Source/ui/public/fonts/JetBrainsMono-Variable.woff2
+        # Barlow Condensed is the UI face (SIL OFL). Static cuts — there is no
+        # variable version — so one file per weight. getResource() matches on
+        # basename, so these need no other plumbing.
+        Source/ui/public/fonts/BarlowCondensed-300.woff2
+        Source/ui/public/fonts/BarlowCondensed-400.woff2
+        Source/ui/public/fonts/BarlowCondensed-500.woff2
+        Source/ui/public/fonts/BarlowCondensed-600.woff2
 )
 
 # ============================================

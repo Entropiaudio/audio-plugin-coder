@@ -16,10 +16,30 @@
     src: url('/fonts/Fraunces-Variable.woff2') format('woff2-variations');
     font-weight: 100 900; font-style: normal; font-display: swap;
   }
+  /* Barlow Condensed is the house UI face (Entropia design system). It ships as
+     STATIC weights — there is no variable cut — so it needs one @font-face per
+     weight rather than a single range. 300-600 covers everything the UI asks
+     for; the few weight:100 rules resolve to 300, which is the nearest real cut
+     and far better than a synthesised one. */
   @font-face {
-    font-family: 'JetBrains Mono';
-    src: url('/fonts/JetBrainsMono-Variable.woff2') format('woff2-variations');
-    font-weight: 100 800; font-style: normal; font-display: swap;
+    font-family: 'Barlow Condensed';
+    src: url('/fonts/BarlowCondensed-300.woff2') format('woff2');
+    font-weight: 300; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Barlow Condensed';
+    src: url('/fonts/BarlowCondensed-400.woff2') format('woff2');
+    font-weight: 400; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Barlow Condensed';
+    src: url('/fonts/BarlowCondensed-500.woff2') format('woff2');
+    font-weight: 500; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Barlow Condensed';
+    src: url('/fonts/BarlowCondensed-600.woff2') format('woff2');
+    font-weight: 600; font-style: normal; font-display: swap;
   }
 
   /* ─── DESIGN TOKENS — cloned from Chaosverb v1.0.18 ─── */
@@ -127,7 +147,7 @@
     cursor: default; overflow: hidden;
     background: var(--bg-shell);
     color: var(--text-primary);
-    font-family: 'JetBrains Mono', ui-monospace, 'Courier New', monospace;
+    font-family: 'Barlow Condensed', 'Inter', ui-sans-serif, system-ui, sans-serif;
     font-size: 11px;
   }
 
@@ -945,7 +965,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B106";
+const ENTROPAN_BUILD = "B107";
 // single source for the UI version string — must match juce_add_plugin VERSION
 // in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
 const ENTROPAN_VERSION = "0.7.0";
@@ -2581,7 +2601,7 @@ function drawGridCached(ctx, W, H) {
     gridCacheInk = THEME.ink;
     const g = gridCache.getContext("2d");
     g.strokeStyle = `rgba(${THEME.ink},0.10)`; g.lineWidth = DPR;
-    g.fillStyle = `rgba(${THEME.ink},0.28)`; g.font = `${9 * DPR}px 'JetBrains Mono', ui-monospace, monospace`;
+    g.fillStyle = `rgba(${THEME.ink},0.28)`; g.font = `${9 * DPR}px 'Barlow Condensed', ui-sans-serif, system-ui, sans-serif`;
     [50, 100, 200, 500, 1000, 2000, 5000, 10000].forEach(f => {
       const x = fx(f) * W;
       g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke();
@@ -2603,7 +2623,7 @@ function drawSpectrum(t) {
 
   // grid (cached bitmap)
   drawGridCached(ctx, W, H);
-  ctx.font = `${9 * DPR}px 'JetBrains Mono', ui-monospace, monospace`;
+  ctx.font = `${9 * DPR}px 'Barlow Condensed', ui-sans-serif, system-ui, sans-serif`;
 
   // analyzer fill — quadratic midpoint curve through the bins (no stair edges)
   ctx.beginPath(); ctx.moveTo(0, H);
@@ -3058,7 +3078,7 @@ function drawScope() {
   const ctx = scopeCanvas.getContext("2d"), c = bandColor();
   const on = PB().on.get();
   ctx.clearRect(0, 0, W, H);
-  ctx.font = `${7.5 * DPR}px 'JetBrains Mono', ui-monospace, monospace`;
+  ctx.font = `${7.5 * DPR}px 'Barlow Condensed', ui-sans-serif, system-ui, sans-serif`;
 
   if (PB().mode.get() === 5) {
     // ── ENVELOPE scope: 0 at bottom → 1 at top, filled ──
