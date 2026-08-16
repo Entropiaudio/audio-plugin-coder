@@ -1514,6 +1514,129 @@ int main()
         ok &= check ("T42d flux costs no latency", p0.wfLatencySamples() == latNoFlux);
     }
 
+    // ── T43: band SHAPES. Each shape is a different unity-gain extraction fed
+    //         into the same out = in + B(in)*lift*(g-1), so two things must hold
+    //         for every one of them: at pan 0 the displacement vanishes and the
+    //         wire stays exact, and the shape actually selects the region it
+    //         claims. Probed with two tones — 200 Hz and 5 kHz — around a band
+    //         sitting at 1 kHz. ──
+    {
+        // energy at each tone, hard-panned left, for a given shape
+        auto probe = [] (int shape, double toneHz, double& l, double& r)
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (kSampleRate, kBlock);
+            setParam (p, "b1_on", 1.0f);
+            setParam (p, "b1_freq", 1000.0f);
+            setParam (p, "b1_width", 1.0f);
+            setParam (p, "b1_lift", 100.0f);
+            setParam (p, "b1_depth", 0.0f);
+            setParam (p, "b1_bias", -100.0f);      // static hard left
+            setParam (p, "b1_shape", (float) shape);
+            juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+            double ph = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*toneHz/kSampleRate;
+            double sl = 0.0, sr = 0.0; int n = 0;
+            for (int blk = 0; blk < kWarmBlocks + 80; ++blk)
+            {
+                for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(ph)*0.5f; ph+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+                p.processBlock (buf, midi);
+                if (blk < kWarmBlocks) continue;
+                for (int s = 0; s < kBlock; ++s)
+                { sl += (double) buf.getSample(0,s)*buf.getSample(0,s);
+                  sr += (double) buf.getSample(1,s)*buf.getSample(1,s); ++n; }
+            }
+            l = std::sqrt (sl/(double) n); r = std::sqrt (sr/(double) n);
+        };
+
+        // "moved" = how far left/right this tone got pushed. 1.0 = untouched.
+        auto ratio = [&] (int shape, double hz) { double l,r; probe (shape,hz,l,r); return r / juce::jmax (1.0e-9, l); };
+
+        const double bellLow  = ratio (0, 200.0),  bellHigh = ratio (0, 5000.0), bellMid = ratio (0, 1000.0);
+        // Probed DEEP in each passband. A minimum-phase LP/HP is only transparent
+        // well away from its corner: near the cutoff it still passes the tone at
+        // unity magnitude but with tens of degrees of phase, and in + B(g-1)
+        // cancels by vector sum, so the far channel keeps a residue there. Band-
+        // pass has no such problem because it is real-valued AT its centre,
+        // which is what makes the bell reach the rail exactly.
+        const double lowLow   = ratio (1, 50.0),   lowHigh  = ratio (1, 5000.0);
+        const double highLow  = ratio (2, 200.0),  highHigh = ratio (2, 15000.0);
+        const double notchMid = ratio (3, 1000.0), notchLow = ratio (3, 200.0);
+
+        // Diagnostic: SOLO outputs band*lift*g, so with bias 0 (g == 1) its RMS
+        // against the input's IS the extraction gain. The displacement only
+        // cancels cleanly where that gain is 1.
+        auto extractionGain = [] (int shape, double toneHz)
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (kSampleRate, kBlock);
+            setParam (p, "b1_on", 1.0f);
+            setParam (p, "b1_freq", 1000.0f);
+            setParam (p, "b1_width", 1.0f);
+            setParam (p, "b1_lift", 100.0f);
+            setParam (p, "b1_depth", 0.0f);
+            setParam (p, "b1_bias", 0.0f);
+            setParam (p, "b1_shape", (float) shape);
+            setParam (p, "b1_solo", 1.0f);
+            juce::AudioBuffer<float> buf (2, kBlock); juce::MidiBuffer midi;
+            double ph = 0.0; const double inc = 2.0*juce::MathConstants<double>::pi*toneHz/kSampleRate;
+            double acc = 0.0; int n = 0;
+            for (int blk = 0; blk < kWarmBlocks + 80; ++blk)
+            {
+                for (int s = 0; s < kBlock; ++s) { const float v=(float)std::sin(ph)*0.5f; ph+=inc; buf.setSample(0,s,v); buf.setSample(1,s,v); }
+                p.processBlock (buf, midi);
+                if (blk < kWarmBlocks) continue;
+                for (int s = 0; s < kBlock; ++s) { acc += (double) buf.getSample(0,s)*buf.getSample(0,s); ++n; }
+            }
+            return std::sqrt (acc/(double) n) / (0.5 / std::sqrt (2.0));   // vs the 0.5-amplitude input
+        };
+        std::printf ("    extraction gain (1.0 = unity passband, what the null needs)\n");
+        std::printf ("      low  @200Hz %.3f   high @5k %.3f   bell @1k %.3f\n",
+                     extractionGain (1, 200.0), extractionGain (2, 5000.0), extractionGain (0, 1000.0));
+        std::printf ("    R/L per shape (1.0 = untouched, <1 = pushed left)\n");
+        std::printf ("      bell : 200Hz %.3f  1k %.3f  5k %.3f\n", bellLow, bellMid, bellHigh);
+        std::printf ("      low  : 50Hz  %.3f          5k  %.3f\n", lowLow, lowHigh);
+        std::printf ("      high : 200Hz %.3f          15k %.3f\n", highLow, highHigh);
+        std::printf ("      notch: 200Hz %.3f  1k %.3f\n", notchLow, notchMid);
+
+        ok &= check ("T43a bell moves its centre, not the flanks", bellMid < 0.2 && bellLow > 0.7 && bellHigh > 0.7);
+        ok &= check ("T43b low moves the lows only",               lowLow  < 0.25 && lowHigh  > 0.7);
+        ok &= check ("T43c high moves the highs only",             highHigh< 0.25 && highLow  > 0.7);
+        ok &= check ("T43d notch moves everything BUT the centre", notchMid > 0.7 && notchLow < 0.2);
+
+        // Tilt: lows and highs must go OPPOSITE ways from the same pan.
+        {
+            double tl_l, tl_r, th_l, th_r;
+            probe (4, 200.0, tl_l, tl_r);
+            probe (4, 5000.0, th_l, th_r);
+            const bool lowsLeft  = tl_l > tl_r;
+            const bool highsRight = th_r > th_l;
+            ok &= check ("T43e tilt sends lows and highs opposite ways", lowsLeft && highsRight);
+            std::printf ("      tilt : 200Hz L %.3f R %.3f | 5k L %.3f R %.3f\n", tl_l, tl_r, th_l, th_r);
+        }
+
+        // Every shape must still leave the wire exact when nothing is panned.
+        for (int shape = 0; shape < 5; ++shape)
+        {
+            EntropanAudioProcessor p;
+            p.prepareToPlay (kSampleRate, kBlock);
+            setParam (p, "b1_on", 1.0f);
+            setParam (p, "b1_shape", (float) shape);
+            setParam (p, "b1_lift", 100.0f);
+            setParam (p, "b1_depth", 0.0f);
+            setParam (p, "b1_bias", 0.0f);        // centre ⇒ g == 1 ⇒ no displacement
+            setParam (p, "b1_gain", 0.0f);
+            double maxDiff = 0;
+            run (p, maxDiff);
+            static const char* kNames[] = { "T43f bell nulls at centre",
+                                            "T43g low nulls at centre",
+                                            "T43h high nulls at centre",
+                                            "T43i notch nulls at centre",
+                                            "T43j tilt nulls at centre" };
+            ok &= check (kNames[shape], maxDiff < 1.0e-5);
+            if (maxDiff >= 1.0e-5) std::printf ("      shape %d maxDiff %.3g\n", shape, maxDiff);
+        }
+    }
+
     std::printf ("\n%s\n", ok ? "ALL TESTS PASSED" : "TESTS FAILED");
     return ok ? 0 : 1;
 }

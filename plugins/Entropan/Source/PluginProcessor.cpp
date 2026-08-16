@@ -20,6 +20,8 @@ namespace
     }
 
     const juce::StringArray kModeChoices    { "Sine", "Triangle", "S&H", "Chaos", "Steps", "Env" };
+    // Order must match the BandShape enum.
+    const juce::StringArray kShapeChoices   { "Bell", "Low", "High", "Notch", "Tilt" };
     const juce::StringArray kRateModeChoices{ "Sync", "Free", "MIDI" };
     const juce::StringArray kDivChoices     { "1/16", "1/8", "1/4", "1/2", "1 Bar", "2 Bar", "4 Bar" };
     const juce::StringArray kSpeedChoices   { "/4", "/2", "x1", "x2", "x3", "x4" };
@@ -286,13 +288,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout EntropanAudioProcessor::crea
             juce::AudioParameterFloatAttributes().withLabel ("%")));   // 0=12, 50=24, 100=48 dB/oct (log morph)
     }
 
-    // Solo, appended AFTER every other parameter on purpose: adding these
+    // Shape + solo, appended AFTER every other parameter on purpose: adding these
     // inside the per-band block above would shift the index of every parameter
     // that follows, and hosts that automate by index would silently re-point.
     for (int i = 0; i < kNumBands; ++i)
         params.push_back (std::make_unique<juce::AudioParameterBool> (
             juce::ParameterID { "b" + juce::String (i + 1) + "_solo", 1 },
             "Band " + juce::String (i + 1) + " Solo", false));
+    for (int i = 0; i < kNumBands; ++i)
+        params.push_back (std::make_unique<juce::AudioParameterChoice> (
+            juce::ParameterID { "b" + juce::String (i + 1) + "_shape", 1 },
+            "Band " + juce::String (i + 1) + " Shape", kShapeChoices, 0));
 
     return { params.begin(), params.end() };
 }
@@ -372,7 +378,8 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
             apvts.getRawParameterValue (p + "override"),
             apvts.getRawParameterValue (p + "stepsmooth"),
             apvts.getRawParameterValue (p + "slope"),
-            apvts.getRawParameterValue (p + "solo")
+            apvts.getRawParameterValue (p + "solo"),
+            apvts.getRawParameterValue (p + "shape")
         };
     }
 
@@ -538,6 +545,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         juce::uint8 waves = 0;     // consumer mask: which waveforms tick this block
         int    zone = 0;           // slope blend pair: 0 = bell2↔bell4, 1 = bell4↔bell8
         bool   solo = false;       // monitor this band alone
+        int    shape = 0;          // BandShape
         const StepsData* steps = nullptr;   // RT snapshot, resolved once per block
     };
     std::array<BandBlock, kNumBands> bb;
@@ -559,6 +567,10 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // range with a guaranteed f_lo < f_hi ordering.
         const float freq  = mv[0];
         const float width = mv[1];
+        // Shape must be known BEFORE the coefficient push below, which depends
+        // on it — cfg is rebuilt every block, so reading it later left the push
+        // looking at a default-constructed 0.
+        cfg.shape = juce::jlimit (0, kNumShapes - 1, (int) pp.shape->load());
         // SLOPE morph: smoothed 0..1; zone picked at block rate (0 = 12↔24,
         // 1 = 24↔48). All three bell cascades stay warm all the time — a
         // cascade entering the blend cold would step the output.
@@ -567,8 +579,8 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // Hold the OUT-of-zone cascade at zero state so its next entry (weight
         // ramps from 0) is a clean ring-up from silence, not a stale-state
         // thump. bell4 is live in both zones and never reset here.
-        if (cfg.zone == 0) b.bell8.reset();
-        else               b.bell2.reset();
+        if (cfg.zone == 0) { b.bell8.reset(); b.hi8.reset(); }
+        else               { b.bell2.reset(); b.hi2.reset(); }
 
         const float fcT = juce::jlimit (20.0f, 20000.0f, freq);
         const float wT  = juce::jlimit (0.05f, 6.0f, width);
@@ -578,11 +590,13 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         b.fcCur += (fcT - b.fcCur) * ck;
         b.wCur  += (wT  - b.wCur)  * ck;
         // push coefficients only while actually gliding
-        if (std::abs (b.fcCur - b.fcApplied) > 0.01f || std::abs (b.wCur - b.wApplied) > 0.0005f)
+        if (std::abs (b.fcCur - b.fcApplied) > 0.01f || std::abs (b.wCur - b.wApplied) > 0.0005f
+            || cfg.shape != b.shapeApplied)
         {
-            b.pushBellParams (b.fcCur, b.wCur);
+            b.pushBellParams (b.fcCur, b.wCur, cfg.shape);
             b.fcApplied = b.fcCur;
             b.wApplied  = b.wCur;
+            b.shapeApplied = cfg.shape;
         }
 
         b.lift.setTargetValue (mv[2] * 0.01f);
@@ -924,6 +938,10 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 const float b8L = b.bell8.processSample (0, inL), b8R = b.bell8.processSample (1, inR);
                 bandL = wLo * b4L + wHi * b8L;  bandR = wLo * b4R + wHi * b8R;
             }
+            // The primary bank already carries the shape's own coefficients
+            // (band-pass / low-pass / high-pass). NOTCH is the one shape with no
+            // filter of its own: it is exactly what the bell leaves behind.
+            if (cfg.shape == ShapeNotch) { bandL = inL - bandL; bandR = inR - bandR; }
 
             // lift split + equal-power pan (balance law, ×√2 so centre = unity)
             const float theta = (panV + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
@@ -931,8 +949,34 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const float gR = std::sin (theta) * juce::MathConstants<float>::sqrt2 * gainV;
 
             // out = in + band·lift·(g−1): g = 1 (idle) ⇒ out ≡ in, bit-exact
-            const float outL = inL + bandL * liftV * (gL - 1.0f);
-            const float outR = inR + bandR * liftV * (gR - 1.0f);
+            float outL = inL + bandL * liftV * (gL - 1.0f);
+            float outR = inR + bandR * liftV * (gR - 1.0f);
+
+            // TILT is the one shape that is not a single extraction: the lows go
+            // one way and the highs the other. The primary bank is the low-pass
+            // above; this adds the high-pass half with the pan MIRRORED. Both
+            // halves still displace by (g−1), so pan 0 gives g = 1 on both and
+            // the whole thing collapses to out ≡ in — the idle wire survives.
+            if (cfg.shape == ShapeTilt)
+            {
+                const float h4L = b.hi4.processSample (0, inL), h4R = b.hi4.processSample (1, inR);
+                float hiL, hiR;
+                if (zone == 0)
+                {
+                    const float h2L = b.hi2.processSample (0, inL), h2R = b.hi2.processSample (1, inR);
+                    hiL = wLo * h2L + wHi * h4L;  hiR = wLo * h2R + wHi * h4R;
+                }
+                else
+                {
+                    const float h8L = b.hi8.processSample (0, inL), h8R = b.hi8.processSample (1, inR);
+                    hiL = wLo * h4L + wHi * h8L;  hiR = wLo * h4R + wHi * h8R;
+                }
+                const float thetaM = (-panV + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
+                const float mL = std::cos (thetaM) * juce::MathConstants<float>::sqrt2 * gainV;
+                const float mR = std::sin (thetaM) * juce::MathConstants<float>::sqrt2 * gainV;
+                outL += hiL * liftV * (mL - 1.0f);
+                outR += hiR * liftV * (mR - 1.0f);
+            }
 
             // Solo bus: the band's own content, panned — band·lift·g, NOT the
             // displacement band·lift·(g−1) that the mix path adds. The

@@ -202,10 +202,16 @@ private:
     // 12 / 24 / 48 dB per octave skirts); adjacent cascades crossfade. Every
     // cascade is 0° phase at fc, so blends can never null, and the idle path
     // does not involve the bells at all — null-exact at every morph position.
-    struct BellCascade
+    // One cascade serves every band shape. It was band-pass only, which let it
+    // store just b0/a1/a2 (BP has b1 = 0, b2 = −b0); carrying the full biquad
+    // costs two multiplies per section and means low-pass and high-pass need no
+    // second filter bank, only different coefficients.
+    struct FilterCascade
     {
+        enum Type { BandPass, LowPass, HighPass };
+
         static constexpr int kMaxSections = 8;
-        struct BQ { float b0 = 0, a1 = 0, a2 = 0; };   // BP: b1 = 0, b2 = −b0
+        struct BQ { float b0 = 0, b1 = 0, b2 = 0, a1 = 0, a2 = 0; };
         int    sections = 4;
         double sampleRate = 48000.0;
         BQ     c[kMaxSections];
@@ -215,19 +221,41 @@ private:
         void prepare (double sr)   { sampleRate = sr; reset(); }
         void reset()               { std::memset (st, 0, sizeof (st)); }
 
-        void setParams (float fc, float widthOct)
+        void setParams (float fc, float widthOct, Type type)
         {
-            // composite −3 dB width = the band's width; each of n identical
-            // sections must be wider: BWsec = BWtot / sqrt(2^(1/n) − 1)
             const double w  = juce::jlimit (0.05, 6.0, (double) widthOct);
-            const double qT = 1.0 / (std::pow (2.0, w * 0.5) - std::pow (2.0, -w * 0.5));
-            const double q  = juce::jmax (0.1, qT * std::sqrt (std::pow (2.0, 1.0 / sections) - 1.0));
+            double q;
+            if (type == BandPass)
+            {
+                // composite −3 dB width = the band's width; each of n identical
+                // sections must be wider: BWsec = BWtot / sqrt(2^(1/n) − 1)
+                const double qT = 1.0 / (std::pow (2.0, w * 0.5) - std::pow (2.0, -w * 0.5));
+                q = juce::jmax (0.1, qT * std::sqrt (std::pow (2.0, 1.0 / sections) - 1.0));
+            }
+            else
+            {
+                // Low/High have no bandwidth to speak of, so the same knob buys
+                // CORNER RESONANCE instead: wide = damped, narrow = a peak at
+                // the cutoff before the rolloff. Cascading n identical sections
+                // multiplies the peak in dB, so the per-section Q is pulled back
+                // by 1/n to keep the composite resonance roughly constant as
+                // SLOPE morphs the section count.
+                const double qTot = 0.7071 * std::pow (16.0, juce::jlimit (0.0, 1.0, (4.0 - w) / 3.9));
+                q = 0.7071 * std::pow (qTot / 0.7071, 1.0 / (double) sections);
+            }
             const double w0 = juce::MathConstants<double>::twoPi
                                 * juce::jlimit (10.0, sampleRate * 0.49, (double) fc) / sampleRate;
+            const double cs = std::cos (w0);
             const double alpha = std::sin (w0) / (2.0 * q);
             const double a0 = 1.0 + alpha;
+            BQ k {};
+            k.a1 = (float) (-2.0 * cs / a0);
+            k.a2 = (float) ((1.0 - alpha) / a0);
+            if (type == BandPass)      { k.b0 = (float) ( alpha / a0);          k.b1 = 0.0f;              k.b2 = -k.b0; }
+            else if (type == LowPass)  { k.b0 = (float) ((1.0 - cs) * 0.5 / a0); k.b1 = 2.0f * k.b0;      k.b2 = k.b0;  }
+            else                       { k.b0 = (float) ((1.0 + cs) * 0.5 / a0); k.b1 = -2.0f * k.b0;     k.b2 = k.b0;  }
             for (int s = 0; s < sections; ++s)
-                c[s] = { (float) (alpha / a0), (float) (-2.0 * std::cos (w0) / a0), (float) ((1.0 - alpha) / a0) };
+                c[s] = k;
         }
 
         float processSample (int ch, float x)
@@ -236,17 +264,27 @@ private:
             {
                 auto& k = c[s]; auto* z = st[ch][s];
                 const float y = k.b0 * x + z[0];
-                z[0] = -k.a1 * y + z[1];
-                z[1] = -k.b0 * x - k.a2 * y;
+                z[0] = k.b1 * x - k.a1 * y + z[1];
+                z[1] = k.b2 * x - k.a2 * y;
                 x = y;
             }
             return x;
         }
     };
+    using BellCascade = FilterCascade;   // the bell path still reads this name
+
+    // Band shapes. All but Tilt are a single unity-gain extraction, so they drop
+    // straight into out = in + B(in)·lift·(g−1). Notch needs no filter of its
+    // own — it is what the bell leaves behind.
+    enum BandShape { ShapeBell = 0, ShapeLow, ShapeHigh, ShapeNotch, ShapeTilt, kNumShapes };
 
     struct BandDSP
     {
         BellCascade bell2, bell4, bell8;      // ≈12 / 24 / 48 dB/oct skirts
+        // Second bank, only fed by Tilt: it needs a low-pass AND a high-pass at
+        // once so the two halves can be panned in opposite directions. Every
+        // other shape leaves these silent and pays nothing for them.
+        BellCascade hi2, hi4, hi8;
         juce::SmoothedValue<float> slope01;   // 0..1 (param /100), 30 ms
 
         juce::SmoothedValue<float> lift;      // 0..1
@@ -256,6 +294,7 @@ private:
         juce::SmoothedValue<float> bias;      // -1..1 static pan offset (resting position)
         float fcCur = 1000.0f, wCur = 1.0f;            // block-rate fc / width glide state
         float fcApplied = -1.0f, wApplied = -1.0f;     // last values pushed into the bells
+        int   shapeApplied = -1;                       // a shape change must re-push too
         bool  cutoffsInit = false;
 
         void prepare (const juce::dsp::ProcessSpec& spec)
@@ -263,6 +302,8 @@ private:
             const double sr = spec.sampleRate;
             bell2.configure (2); bell4.configure (4); bell8.configure (8);
             bell2.prepare (sr);  bell4.prepare (sr);  bell8.prepare (sr);
+            hi2.configure (2);   hi4.configure (4);   hi8.configure (8);
+            hi2.prepare (sr);    hi4.prepare (sr);    hi8.prepare (sr);
             slope01.reset (sr, 0.030);
             lift.reset    (sr, 0.005);
             gainLin.reset (sr, 0.005);
@@ -272,13 +313,29 @@ private:
             cutoffsInit = false;
         }
 
-        void resetState() { bell2.reset(); bell4.reset(); bell8.reset(); }
-
-        void pushBellParams (float fc, float widthOct)
+        void resetState()
         {
-            bell2.setParams (fc, widthOct);
-            bell4.setParams (fc, widthOct);
-            bell8.setParams (fc, widthOct);
+            bell2.reset(); bell4.reset(); bell8.reset();
+            hi2.reset();   hi4.reset();   hi8.reset();
+        }
+
+        void pushBellParams (float fc, float widthOct, int shape)
+        {
+            // The primary bank carries whatever the shape extracts; Notch reads
+            // the bell and subtracts, so it configures as band-pass too.
+            const auto tA = shape == ShapeLow  ? FilterCascade::LowPass
+                          : shape == ShapeHigh ? FilterCascade::HighPass
+                          : shape == ShapeTilt ? FilterCascade::LowPass
+                                               : FilterCascade::BandPass;
+            bell2.setParams (fc, widthOct, tA);
+            bell4.setParams (fc, widthOct, tA);
+            bell8.setParams (fc, widthOct, tA);
+            if (shape == ShapeTilt)
+            {
+                hi2.setParams (fc, widthOct, FilterCascade::HighPass);
+                hi4.setParams (fc, widthOct, FilterCascade::HighPass);
+                hi8.setParams (fc, widthOct, FilterCascade::HighPass);
+            }
         }
     };
 
@@ -336,6 +393,7 @@ private:
         std::atomic<float>* stepSmooth; // Steps mode: 0 = square, 100 = glide between steps
         std::atomic<float>* slope;      // 0..100 %, continuous log morph: 12 → 24 → 48 dB/oct
         std::atomic<float>* solo;       // monitor this band alone (its bell, panned)
+        std::atomic<float>* shape;      // Bell / Low / High / Notch / Tilt
     };
     std::array<BandParams, kNumBands> bandParams {};
     std::atomic<float>* pAmount = nullptr;
