@@ -340,7 +340,11 @@ private:
                                                : FilterCascade::BandPass;
             // Tilt pins both halves to Butterworth so they sum back to the
             // input; every other shape lets the width knob set resonance.
-            const double qT = 0.0;   // resonance from the width knob for every shape
+            // Tilt pins both halves to Q = 0.7071: two identical such sections are
+            // exactly a squared Butterworth — Linkwitz-Riley 4 — whose halves sum
+            // to a magnitude-flat allpass. Every other shape takes resonance from
+            // the width knob.
+            const double qT = shape == ShapeTilt ? 0.7071 : 0.0;
             bell2.setParams (fc, widthOct, tA, qT);
             bell4.setParams (fc, widthOct, tA, qT);
             bell8.setParams (fc, widthOct, tA, qT);

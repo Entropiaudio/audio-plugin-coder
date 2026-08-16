@@ -1007,7 +1007,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B111";
+const ENTROPAN_BUILD = "B112";
 // single source for the UI version string — must match juce_add_plugin VERSION
 // in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
 const ENTROPAN_VERSION = "0.7.0";
@@ -3079,13 +3079,17 @@ function updateQuickMenu() {
   const py = (1 - (pb.lift.get() / 100) * topH * 0.5) * rh;
   const half = (pb.width.get() / 2) / Math.log2(FMAX / FMIN) * rw;
   let mx = hx + half + 10, my = py - 24;
-  if (mx + 122 > rw) mx = hx - half - 130;
-  mx = clamp(mx, 4, rw - 122);
-  my = clamp(my, 4, rh - 86);
+  // MEASURED, not hardcoded: the old constants (122/86) froze the menu's
+  // original size, so every row added since let it hang below the analyser —
+  // over the modulator header, where the freeze ▶ painted through it.
+  const qmW = quickMenu.offsetWidth + 4, qmH = quickMenu.offsetHeight + 4;
+  if (mx + qmW > rw) mx = hx - half - qmW - 8;
+  mx = clamp(mx, 4, rw - qmW);
+  my = clamp(my, 4, rh - qmH);
   qmAnchor = { x: mx, y: my };
   if (qmOffset) {
-    mx = clamp(mx + qmOffset.dx, 0, rw - 122);
-    my = clamp(my + qmOffset.dy, 0, rh - 86);
+    mx = clamp(mx + qmOffset.dx, 0, rw - qmW);
+    my = clamp(my + qmOffset.dy, 0, rh - qmH);
   }
   quickMenu.style.left = mx + "px";
   quickMenu.style.top = my + "px";

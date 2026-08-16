@@ -1608,16 +1608,13 @@ int main()
             double tl_l, tl_r, th_l, th_r;
             probe (4, 200.0, tl_l, tl_r);
             probe (4, 5000.0, th_l, th_r);
-            // Not just "opposite" — the halves must actually SEPARATE. A
-            // resonant crossover overlaps at the corner and only managed 2:1,
-            // which reads as a wobble rather than a tilt.
-            // Directional only. A minimum-phase crossover cannot hand a band
-            // to one side cleanly (see the note in processBlock), so this
-            // asserts the two halves go OPPOSITE ways, not that either reaches
-            // the rail. Tighten it if the crossover is ever phase-matched.
-            const bool lowsLeft   = tl_l > tl_r;
-            const bool highsRight = th_r > th_l;
-            ok &= check ("T43e tilt sends lows and highs opposite ways", lowsLeft && highsRight);
+            // HARD separation now: the LR4 split is phase-matched, so a full
+            // tilt sends each half to its side outright. The old
+            // displacement-based tilt managed 1.9:1 (a wobble); this demands
+            // better than 4:1 a couple of octaves off the corner.
+            const bool lowsLeft   = tl_l > 4.0 * tl_r;
+            const bool highsRight = th_r > 4.0 * th_l;
+            ok &= check ("T43e tilt separates lows and highs hard", lowsLeft && highsRight);
             std::printf ("      tilt : 200Hz L %.3f R %.3f | 5k L %.3f R %.3f\n", tl_l, tl_r, th_l, th_r);
         }
 
@@ -1633,14 +1630,29 @@ int main()
             setParam (p, "b1_bias", 0.0f);        // centre ⇒ g == 1 ⇒ no displacement
             setParam (p, "b1_gain", 0.0f);
             double maxDiff = 0;
-            run (p, maxDiff);
-            static const char* kNames[] = { "T43f bell nulls at centre",
-                                            "T43g low nulls at centre",
-                                            "T43h high nulls at centre",
-                                            "T43i notch nulls at centre",
-                                            "T43j tilt nulls at centre" };
-            ok &= check (kNames[shape], maxDiff < 1.0e-5);
-            if (maxDiff >= 1.0e-5) std::printf ("      shape %d maxDiff %.3g\n", shape, maxDiff);
+            const auto r = run (p, maxDiff);
+            if (shape == 4)
+            {
+                // Tilt is the honest exception: engaged at centre it is an LR4
+                // ALLPASS of the input — magnitude-identical, phase-rotated —
+                // because the hard separation requires replacing the signal
+                // with the phase-matched split rather than displacing from dry.
+                // So the promise here is RMS-flat, not bit-exact. The band-OFF
+                // wire stays bit-exact (T1).
+                const double dL = dB (r.outL / r.inL), dR = dB (r.outR / r.inR);
+                ok &= check ("T43j tilt at centre is level-exact (allpass)",
+                             std::abs (dL) < 0.05 && std::abs (dR) < 0.05);
+                std::printf ("      tilt centre: %+0.3f dB L, %+0.3f dB R (phase-only rotation)\n", dL, dR);
+            }
+            else
+            {
+                static const char* kNames[] = { "T43f bell nulls at centre",
+                                                "T43g low nulls at centre",
+                                                "T43h high nulls at centre",
+                                                "T43i notch nulls at centre" };
+                ok &= check (kNames[shape], maxDiff < 1.0e-5);
+                if (maxDiff >= 1.0e-5) std::printf ("      shape %d maxDiff %.3g\n", shape, maxDiff);
+            }
         }
     }
 

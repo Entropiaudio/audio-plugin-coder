@@ -579,8 +579,14 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // Hold the OUT-of-zone cascade at zero state so its next entry (weight
         // ramps from 0) is a clean ring-up from silence, not a stale-state
         // thump. bell4 is live in both zones and never reset here.
-        if (cfg.zone == 0) { b.bell8.reset(); b.hi8.reset(); }
-        else               { b.bell2.reset(); b.hi2.reset(); }
+        if (cfg.shape == ShapeTilt)
+        {
+            // Tilt runs ONLY the 2-section banks (fixed LR4); everything else
+            // idles and is held reset so a shape change re-enters cleanly.
+            b.bell4.reset(); b.bell8.reset(); b.hi4.reset(); b.hi8.reset();
+        }
+        else if (cfg.zone == 0) { b.bell8.reset(); b.hi8.reset(); }
+        else                    { b.bell2.reset(); b.hi2.reset(); }
 
         const float fcT = juce::jlimit (20.0f, 20000.0f, freq);
         const float wT  = juce::jlimit (0.05f, 6.0f, width);
@@ -922,89 +928,83 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             // two in-zone cascades run; the dormant one is held reset (below)
             // so its next entry is a clean zero-state ramp, not a stale ring.
             const int   zone = cfg.zone;
-            const float s2 = b.slope01.getNextValue() * 2.0f;
-            const float t  = juce::jlimit (0.0f, 1.0f, s2 - (float) zone);
-            const float wLo = 1.0f - t, wHi = t;
+            const float s2 = b.slope01.getNextValue() * 2.0f;   // advance even when tilt ignores it
 
-            const float b4L = b.bell4.processSample (0, inL), b4R = b.bell4.processSample (1, inR);
-            float bandL, bandR;
-            if (zone == 0)
-            {
-                const float b2L = b.bell2.processSample (0, inL), b2R = b.bell2.processSample (1, inR);
-                bandL = wLo * b2L + wHi * b4L;  bandR = wLo * b2R + wHi * b4R;
-            }
-            else
-            {
-                const float b8L = b.bell8.processSample (0, inL), b8R = b.bell8.processSample (1, inR);
-                bandL = wLo * b4L + wHi * b8L;  bandR = wLo * b4R + wHi * b8R;
-            }
-            // The primary bank already carries the shape's own coefficients
-            // (band-pass / low-pass / high-pass). NOTCH is the one shape with no
-            // filter of its own: it is exactly what the bell leaves behind.
-            if (cfg.shape == ShapeNotch) { bandL = inL - bandL; bandR = inR - bandR; }
-
-            // lift split + equal-power pan (balance law, ×√2 so centre = unity)
+            // equal-power pan (balance law, ×√2 so centre = unity)
             const float theta = (panV + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
             const float gL = std::cos (theta) * juce::MathConstants<float>::sqrt2 * gainV;
             const float gR = std::sin (theta) * juce::MathConstants<float>::sqrt2 * gainV;
 
-            // out = in + band·lift·(g−1): g = 1 (idle) ⇒ out ≡ in, bit-exact
-            float outL = inL + bandL * liftV * (gL - 1.0f);
-            float outR = inR + bandR * liftV * (gR - 1.0f);
+            float outL, outR;
+            float sBandL = 0.0f, sBandR = 0.0f;   // this band's solo-bus contribution
 
-            // TILT is the one shape that is not a single extraction: the lows go
-            // one way and the highs the other. The primary bank is the low-pass
-            // above; this adds the high-pass half with the pan MIRRORED. Both
-            // halves still displace by (g−1), so pan 0 gives g = 1 on both and
-            // the whole thing collapses to out ≡ in — the idle wire survives.
             if (cfg.shape == ShapeTilt)
             {
-                // KNOWN LIMIT — the tilt separates, but not to the rail.
-                // Three constructions were measured for the high half:
-                //   resonant LP/HP pair   lows 1.9:1, highs 1.9:1  (this one)
-                //   Butterworth LP/HP     1.14:1 — the pair overlaps at the
-                //                         corner, so both halves keep the same
-                //                         content
-                //   in − LP               highs perfect, lows INVERTED: deep in
-                //                         the passband the LP is unity but
-                //                         phase-shifted (~65 deg at 200 Hz
-                //                         under a 1 kHz corner), so in − LP is
-                //                         1.08, not 0
-                // All three are the same underlying fact: a minimum-phase
-                // crossover cannot hand a band to one side cleanly, because the
-                // split is a vector sum and the halves are not phase-aligned.
-                // A hard tilt needs a phase-matched crossover — Linkwitz-Riley
-                // with a matching all-pass on the opposite leg, or a
-                // linear-phase split, which costs latency. Keeping the
-                // symmetric pair until that is a deliberate decision.
-                const float h4L = b.hi4.processSample (0, inL), h4R = b.hi4.processSample (1, inR);
-                float hiL, hiR;
-                if (zone == 0)
-                {
-                    const float h2L = b.hi2.processSample (0, inL), h2R = b.hi2.processSample (1, inR);
-                    hiL = wLo * h2L + wHi * h4L;  hiR = wLo * h2R + wHi * h4R;
-                }
-                else
-                {
-                    const float h8L = b.hi8.processSample (0, inL), h8R = b.hi8.processSample (1, inR);
-                    hiL = wLo * h4L + wHi * h8L;  hiR = wLo * h4R + wHi * h8R;
-                }
+                // TILT is a REAL Linkwitz-Riley LR4 split, taken fully wet.
+                // Earlier displacement-based attempts could not tilt hard —
+                // symmetric resonant pair 1.9:1, Butterworth pair 1.14:1,
+                // in−LP inverted the lows — all the same fact: adding a
+                // phase-shifted extraction to DRY signal cancels by vector sum.
+                // LR4's halves are phase-ALIGNED with each other and sum to a
+                // magnitude-flat allpass, so replacing the signal with
+                // low·g + high·gMirror separates completely. The cost, stated
+                // plainly: an ENGAGED tilt at centre is an allpass of the
+                // input — RMS-identical, not bit-identical (T43j asserts the
+                // RMS). The band-off wire stays exact via the enable fade.
+                // Slope is fixed at LR4 for tilt: complementarity requires the
+                // exact Butterworth Q split, which the identical-section 4/8
+                // cascades do not have.
+                const float loL = b.bell2.processSample (0, inL), loR = b.bell2.processSample (1, inR);
+                const float hiL = b.hi2.processSample (0, inL),  hiR = b.hi2.processSample (1, inR);
                 const float thetaM = (-panV + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
                 const float mL = std::cos (thetaM) * juce::MathConstants<float>::sqrt2 * gainV;
                 const float mR = std::sin (thetaM) * juce::MathConstants<float>::sqrt2 * gainV;
-                outL += hiL * liftV * (mL - 1.0f);
-                outR += hiR * liftV * (mR - 1.0f);
+                // LIFT scales the pan gains toward unity rather than blending
+                // wet against dry — in-vs-allpass blending combs at the corner
+                // (where the allpass sits at −1·in), and this way lift 0 is the
+                // flat allpass, full lift the full tilt, nothing in between dips.
+                const float gLp = 1.0f + liftV * (gL - 1.0f), gRp = 1.0f + liftV * (gR - 1.0f);
+                const float mLp = 1.0f + liftV * (mL - 1.0f), mRp = 1.0f + liftV * (mR - 1.0f);
+                outL = loL * gLp + hiL * mLp;
+                outR = loR * gRp + hiR * mRp;
+                sBandL = outL; sBandR = outR;     // solo = the tilted split itself
+            }
+            else
+            {
+                const float t  = juce::jlimit (0.0f, 1.0f, s2 - (float) zone);
+                const float wLo = 1.0f - t, wHi = t;
+
+                const float b4L = b.bell4.processSample (0, inL), b4R = b.bell4.processSample (1, inR);
+                float bandL, bandR;
+                if (zone == 0)
+                {
+                    const float b2L = b.bell2.processSample (0, inL), b2R = b.bell2.processSample (1, inR);
+                    bandL = wLo * b2L + wHi * b4L;  bandR = wLo * b2R + wHi * b4R;
+                }
+                else
+                {
+                    const float b8L = b.bell8.processSample (0, inL), b8R = b.bell8.processSample (1, inR);
+                    bandL = wLo * b4L + wHi * b8L;  bandR = wLo * b4R + wHi * b8R;
+                }
+                // The primary bank already carries the shape's own coefficients
+                // (band-pass / low-pass / high-pass). NOTCH is the one shape
+                // with no filter of its own — it is what the bell leaves behind.
+                if (cfg.shape == ShapeNotch) { bandL = inL - bandL; bandR = inR - bandR; }
+
+                // out = in + band·lift·(g−1): g = 1 (idle) ⇒ out ≡ in, bit-exact
+                outL = inL + bandL * liftV * (gL - 1.0f);
+                outR = inR + bandR * liftV * (gR - 1.0f);
+                // Solo bus: the band's own content, panned — band·lift·g, NOT
+                // the displacement band·lift·(g−1) the mix path adds (that
+                // inverts and nulls at centre).
+                sBandL = bandL * liftV * gL;
+                sBandR = bandR * liftV * gR;
             }
 
-            // Solo bus: the band's own content, panned — band·lift·g, NOT the
-            // displacement band·lift·(g−1) that the mix path adds. The
-            // displacement is the difference the band makes to the mix, so on
-            // its own it inverts and nulls at centre; what you want to audition
-            // is the bell itself moving through the field.
             if (cfg.solo)
             {
-                soloL += bandL * liftV * gL * e;
-                soloR += bandR * liftV * gR * e;
+                soloL += sBandL * e;
+                soloR += sBandR * e;
             }
 
             // Parallel side: add only the pan/gain DISPLACEMENT — overlapping
