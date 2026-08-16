@@ -543,6 +543,20 @@
   }
   .qm-shape:hover { color: var(--accent); border-color: var(--accent); }
   .qm-shape .shape-ico { width: 18px; height: 10px; margin: 0; }
+  /* Per-band freeze, same param as the MODULATOR header's ⏸ — the row shows
+     ⏸ while running and ▶ while held, mirroring that button exactly. */
+  .qm-freeze {
+    flex: 0 0 20px; height: 15px; padding: 0; box-sizing: border-box;
+    font-family: inherit; font-size: 8.5px; line-height: 1;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 4px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .qm-freeze:hover { color: var(--accent); border-color: var(--accent); }
+  .qm-freeze.frozen {
+    color: var(--freeze-on); border-color: var(--freeze-on);
+    box-shadow: 0 0 5px var(--freeze-glow);
+  }
   .qm-del {
     flex: 0 0 14px; height: 15px; padding: 0; line-height: 1;
     font-family: inherit; font-size: 11px; box-sizing: border-box;
@@ -844,6 +858,7 @@
       </div>
       <div class="qm-btn-row">
         <button class="qm-shape" id="qmShape" data-tip="Band shape — click to choose"></button>
+        <button class="qm-freeze" id="qmFreeze" data-tip="Pause this band's modulation — all waveforms hold their value">⏸</button>
         <button class="qm-solo" id="qmSolo" data-tip="Solo — monitor this band's bell on its own, panned. Arm several to hear them together">SOLO</button>
         <button class="qm-del" id="qmDelete" data-tip="Delete this band — frees the slot and resets it. BYPASS only mutes it and keeps the settings">×</button>
       </div>
@@ -1009,7 +1024,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B113";
+const ENTROPAN_BUILD = "B114";
 // single source for the UI version string — must match juce_add_plugin VERSION
 // in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
 const ENTROPAN_VERSION = "0.7.0";
@@ -2209,6 +2224,11 @@ document.getElementById("qmSolo").onclick = e => {
   PB().solo.set(!PB().solo.get());
   refreshPanels(); updateQuickMenu();
 };
+document.getElementById("qmFreeze").onclick = e => {
+  e.stopPropagation();
+  PB().freeze.set(!PB().freeze.get());      // same param as the MODULATOR ⏸
+  refreshPanels(); updateQuickMenu();
+};
 {
   const st = document.getElementById("slopeToggle");
   let drag = null;
@@ -3054,6 +3074,7 @@ const qmGain = document.getElementById("qm_gain");
 const qmBias = document.getElementById("qm_bias");
 const qmSolo = document.getElementById("qmSolo");
 const qmShape = document.getElementById("qmShape");
+const qmFreeze = document.getElementById("qmFreeze");
 let qmOffset = null;
 let qmAnchor = { x: 0, y: 0 };
 (() => {
@@ -3134,6 +3155,13 @@ function updateQuickMenu() {
       qmShape.dataset.tip = "Band shape: " + sh.name + " — click to choose";
     }
   }
+  // Freeze mirrors the MODULATOR header's button exactly: ⏸ while running,
+  // ▶ while held, lit in the freeze colour when engaged.
+  const qmFrozen = pb.freeze.get();
+  qmFreeze.textContent = qmFrozen ? "▶" : "⏸";
+  qmFreeze.classList.toggle("frozen", qmFrozen);
+  qmFreeze.dataset.tip = qmFrozen ? "Resume this band's modulation"
+                                  : "Pause this band's modulation — all waveforms hold their value";
   const soloOn = pb.solo.get();
   const soloElsewhere = P.bands.some((b, i) => i !== ui.selected && b.solo.get());
   qmSolo.classList.toggle("active", soloOn);
