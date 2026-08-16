@@ -1,7 +1,4 @@
-{
-  const st = document.getElementById("slopeToggle");{
-  const st = document.getElementById("slopeToggle");
-  let drag = null;<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -651,7 +648,27 @@
      text centred, single line */
   /* Sits left of the slope dial in the band header. Compound selector so it
      beats .routing-toggle regardless of source order. */
-  .sec-band .mode-toggle.shape-toggle { right: 92px; width: 52px; }
+  .sec-band .mode-toggle.shape-toggle { right: 92px; width: 40px; padding: 2px 0; }
+  .shape-ico { width: 24px; height: 12px; display: block; margin: 0 auto; overflow: visible; }
+  .shape-ico path { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+  /* Pro-Q-style shape picker: the icon IS the label, so the curve you are
+     choosing is the thing you look at. */
+  .shape-menu {
+    position: absolute; top: 26px; right: 92px; z-index: 20; display: none;
+    padding: 3px; border-radius: 7px; min-width: 104px;
+    background: var(--floating-bg); border: 1px solid var(--border-bright);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.40);
+  }
+  .shape-menu.visible { display: block; }
+  .shape-item {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    font-family: inherit; font-size: 8.5px; letter-spacing: 0.8px;
+    background: transparent; border: none; border-radius: 4px;
+    padding: 4px 7px; cursor: pointer; color: var(--text-dim);
+  }
+  .shape-item:hover { background: var(--accent-tint); color: var(--text-primary); }
+  .shape-item.on { color: var(--accent); }
+  .shape-item .shape-ico { margin: 0; flex: 0 0 24px; }
   .routing-toggle { position: absolute; top: 6px; right: 14px; z-index: 5;
     width: 64px; padding: 2px 0; font-size: 8px; letter-spacing: 1px;
     text-align: center; white-space: nowrap; }
@@ -818,7 +835,8 @@
     <div class="section-col sec-band">
       <div class="section-label" id="bandSecLabel">Band 1</div>
       <button class="toggle-btn bypass-btn band-bypass-btn" id="bandBypassBtn" data-tip="Bypass this band — its bell stays placed but stops processing">BYPASS</button>
-      <button class="mode-toggle routing-toggle shape-toggle" id="shapeToggle" data-tip="Band shape — what this band grabs. Bell: a region. Low/High: everything under/over the handle. Notch: everything except the region. Tilt: lows and highs pan opposite ways">BELL</button>
+      <button class="mode-toggle routing-toggle shape-toggle" id="shapeToggle" data-tip="Band shape — what this band grabs"></button>
+      <div class="shape-menu" id="shapeMenu"></div>
       <button class="mode-toggle routing-toggle" id="slopeToggle" data-tip="Crossover slope — drag ↑↓, continuous 12…48 dB/oct. Soft wide grab … surgical edges. Double-click: 24" style="cursor: ns-resize;"><canvas id="slopeDial"></canvas><span id="slopeDbText">24 dB</span></button>
       <div class="knob-row">
         <div class="knob-wrap" id="knob_freq"></div>
@@ -972,7 +990,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B108";
+const ENTROPAN_BUILD = "B109";
 // single source for the UI version string — must match juce_add_plugin VERSION
 // in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
 const ENTROPAN_VERSION = "0.7.0";
@@ -2108,12 +2126,44 @@ function drawSlopeDial(v, col) {
 // band bypass: flips the selected band's ON param (the bell ghosts, audio
 // passes clean through this band; the 30 ms enable crossfade makes it pop-free)
 document.getElementById("bandBypassBtn").onclick = () => { PB().on.set(!PB().on.get()); refreshPanels(); };
-const SHAPE_NAMES = ["BELL", "LOW", "HIGH", "NOTCH", "TILT"];
-document.getElementById("shapeToggle").onclick = () => {
-  const pb = PB();
-  pb.shape.set((pb.shape.get() + 1) % SHAPE_NAMES.length);
-  refreshPanels();
+/* Band shapes. The icon is drawn from the same idea the DSP implements, so the
+   picture and the filter agree: bell humps at the handle, low/high hold a
+   plateau on their side, notch dips, tilt see-saws across it. */
+const SHAPES = [
+  { name: "BELL",  d: "M1 9 C7 9 7 3 12 3 C17 3 17 9 23 9" },
+  { name: "LOW",   d: "M1 3 L8 3 C12 3 12 9 16 9 L23 9" },
+  { name: "HIGH",  d: "M1 9 L8 9 C12 9 12 3 16 3 L23 3" },
+  { name: "NOTCH", d: "M1 3 C7 3 7 9 12 9 C17 9 17 3 23 3" },
+  { name: "TILT",  d: "M1 9 L23 3" },
+];
+const SHAPE_NAMES = SHAPES.map(s => s.name);
+const shapeIcon = d => `<svg class="shape-ico" viewBox="0 0 24 12"><path d="${d}"/></svg>`;
+const shapeMenu = document.getElementById("shapeMenu");
+const shapeToggle = document.getElementById("shapeToggle");
+SHAPES.forEach((s, i) => {
+  const b = div_("shape-item");
+  b.innerHTML = shapeIcon(s.d) + "<span>" + s.name + "</span>";
+  b.addEventListener("click", e => {
+    e.stopPropagation();
+    PB().shape.set(i);
+    shapeMenu.classList.remove("visible");
+    refreshPanels();
+  });
+  shapeMenu.appendChild(b);
+});
+shapeToggle.onclick = e => {
+  e.stopPropagation();
+  shapeMenu.classList.toggle("visible");
+  refreshShapeMenu();
 };
+function refreshShapeMenu() {
+  const cur = PB().shape.get();
+  [...shapeMenu.children].forEach((el, i) => el.classList.toggle("on", i === cur));
+}
+window.addEventListener("mousedown", e => {
+  if (! e.target.closest("#shapeMenu") && ! e.target.closest("#shapeToggle"))
+    shapeMenu.classList.remove("visible");
+});
 document.getElementById("qmDelete").onclick = e => {
   e.stopPropagation();                      // the menu body is a drag surface
   deleteBand(ui.selected);
@@ -2305,7 +2355,11 @@ function refreshPanels() {
   bb.style.color = bb.style.borderColor = ""; bb.style.boxShadow = "";   // same neutral look as the global bypass
   document.querySelector(".sec-band").classList.toggle("bypassed", bandBypassed);
   const st = document.getElementById("slopeToggle");
-  document.getElementById("shapeToggle").textContent = SHAPE_NAMES[pb.shape.get()] || "BELL";
+  const shp = SHAPES[pb.shape.get()] || SHAPES[0];
+  shapeToggle.innerHTML = shapeIcon(shp.d);
+  shapeToggle.dataset.tip = "Band shape: " + shp.name
+    + " — what this band grabs. Click to choose.";
+  refreshShapeMenu();
   document.getElementById("slopeDbText").textContent = slopeDb(pb.slope.get()) + " dB";
   drawSlopeDial(pb.slope.get(), c);
   tintToggle(st, c);   // selected band's colour — it is a per-band setting
