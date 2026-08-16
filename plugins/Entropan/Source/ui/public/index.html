@@ -663,6 +663,8 @@
   .shape-ico path { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
   /* Pro-Q-style shape picker: the icon IS the label, so the curve you are
      choosing is the thing you look at. */
+  /* controls a shape ignores: tilt is pinned to LR4, so Q and SLOPE do nothing */
+  .ctl-off { opacity: 0.35; pointer-events: none; }
   .shape-menu {
     position: absolute; z-index: 20; display: none;   /* placed by openShapeMenu */
     padding: 3px; border-radius: 7px; min-width: 104px;
@@ -1007,7 +1009,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B112";
+const ENTROPAN_BUILD = "B113";
 // single source for the UI version string — must match juce_add_plugin VERSION
 // in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
 const ENTROPAN_VERSION = "0.7.0";
@@ -2394,6 +2396,10 @@ function refreshPanels() {
   shapeToggle.dataset.tip = "Band shape: " + shp.name
     + " — what this band grabs. Click to choose.";
   refreshShapeMenu();
+  // Tilt is pinned to LR4 — Q and SLOPE do nothing there, so show that.
+  const tiltOn = pb.shape.get() === 4;
+  document.getElementById("knob_bwidth").classList.toggle("ctl-off", tiltOn);
+  document.getElementById("slopeToggle").classList.toggle("ctl-off", tiltOn);
   document.getElementById("slopeDbText").textContent = slopeDb(pb.slope.get()) + " dB";
   drawSlopeDial(pb.slope.get(), c);
   tintToggle(st, c);   // selected band's colour — it is a per-band setting
@@ -2698,11 +2704,18 @@ function bellY(i, x) {
     case 1:  v = 1 / (1 + Math.exp(s * 4 * p)); break;   // Low  — shelf, open below
     case 2:  v = 1 / (1 + Math.exp(-s * 4 * p)); break;  // High — shelf, open above
     case 3:  v = 1 - bell; break;                        // Notch — everything but
-    case 4:  v = 0.5 * (1 - Math.tanh(s * 0.8)); break;  // Tilt — a see-saw pivoting
-                                                         // at the handle (it drew
-                                                         // 1-bell before, which was
-                                                         // indistinguishable from
-                                                         // Notch)
+    case 4: {                                            // Tilt — a see-saw that
+      // ROCKS with the band's live pan. It was drawn static, lows always up,
+      // which read as "the tilt is stuck pointing at the lows" no matter what
+      // the audio did. Height here = pushed toward the pan side: pan R lifts
+      // the highs (EQ tilt-plus), pan L lifts the lows, centre is flat.
+      // The transition is FIXED at the LR4 width — the DSP pins tilt to LR4,
+      // so the drawing must not pretend the Q knob changes it.
+      const p = clamp(ui.bands[i].pan || 0, -1, 1);
+      const sF = (x - d.freqN) / 0.08;
+      v = 0.5 * (1 + Math.tanh(sF) * p);
+      break;
+    }
     default: v = bell;                                   // Bell
   }
   return v * (d.lift / 100);
@@ -2832,7 +2845,12 @@ function drawSpectrum(t) {
       const cache = auraCache[bi];
       // bellP (slope morph) shapes the traced bell — without it in the key a
       // slope change kept stamping the stale aura bitmap (user report)
-      const key = [W, H, gainV.toFixed(2), freqV.toFixed(1), widthV.toFixed(3), liftV.toFixed(1), dd.bellP.toFixed(2), dd.shape, c].join("|");
+      // Tilt's curve rocks with the live pan, so its aura must re-render as it
+      // moves — but the blur render is the expensive thing this cache exists
+      // to avoid, so the pan is bucketed to quarter steps: the aura rocks in
+      // 9 coarse positions while the traced outline stays perfectly smooth.
+      const panBucket = dd.shape === 4 ? Math.round(clamp(ui.bands[bi].pan || 0, -1, 1) * 4) : 0;
+      const key = [W, H, gainV.toFixed(2), freqV.toFixed(1), widthV.toFixed(3), liftV.toFixed(1), dd.bellP.toFixed(2), dd.shape, panBucket, c].join("|");
       if (cache.key !== key) {
         cache.key = key;
         cache.canvas.width = W; cache.canvas.height = H;
