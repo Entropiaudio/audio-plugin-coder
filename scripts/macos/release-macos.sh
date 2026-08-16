@@ -61,6 +61,11 @@ done
 # --timestamp binds a trusted timestamp so the signature outlives the cert.
 step "Signing bundles with Developer ID Application"
 for b in "$VST3" "$AU"; do
+    # macOS stamps com.apple.provenance (and Finder detritus) on files written
+    # by quarantined-origin tooling, and codesign hard-fails on any xattr
+    # ("resource fork, Finder information, or similar detritus not allowed").
+    # Strip before every sign — first hit on the Mac mini's fresh build tree.
+    xattr -cr "$b"
     codesign --force --options runtime --timestamp --sign "$APP_CERT" "$b"
     codesign --verify --strict --verbose=2 "$b" 2>&1 | sed 's/^/  /'
 done
