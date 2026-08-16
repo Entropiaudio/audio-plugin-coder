@@ -21,7 +21,7 @@ namespace
 
     const juce::StringArray kModeChoices    { "Sine", "Triangle", "S&H", "Chaos", "Steps", "Env" };
     // Order must match the BandShape enum.
-    const juce::StringArray kShapeChoices   { "Bell", "Low", "High", "Notch", "Tilt" };
+    const juce::StringArray kShapeChoices   { "Bell", "Low Shelf", "High Shelf", "Notch", "Tilt" };
     const juce::StringArray kRateModeChoices{ "Sync", "Free", "MIDI" };
     const juce::StringArray kDivChoices     { "1/16", "1/8", "1/4", "1/2", "1 Bar", "2 Bar", "4 Bar" };
     const juce::StringArray kSpeedChoices   { "/4", "/2", "x1", "x2", "x3", "x4" };
@@ -959,6 +959,24 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             // the whole thing collapses to out ≡ in — the idle wire survives.
             if (cfg.shape == ShapeTilt)
             {
+                // KNOWN LIMIT — the tilt separates, but not to the rail.
+                // Three constructions were measured for the high half:
+                //   resonant LP/HP pair   lows 1.9:1, highs 1.9:1  (this one)
+                //   Butterworth LP/HP     1.14:1 — the pair overlaps at the
+                //                         corner, so both halves keep the same
+                //                         content
+                //   in − LP               highs perfect, lows INVERTED: deep in
+                //                         the passband the LP is unity but
+                //                         phase-shifted (~65 deg at 200 Hz
+                //                         under a 1 kHz corner), so in − LP is
+                //                         1.08, not 0
+                // All three are the same underlying fact: a minimum-phase
+                // crossover cannot hand a band to one side cleanly, because the
+                // split is a vector sum and the halves are not phase-aligned.
+                // A hard tilt needs a phase-matched crossover — Linkwitz-Riley
+                // with a matching all-pass on the opposite leg, or a
+                // linear-phase split, which costs latency. Keeping the
+                // symmetric pair until that is a deliberate decision.
                 const float h4L = b.hi4.processSample (0, inL), h4R = b.hi4.processSample (1, inR);
                 float hiL, hiR;
                 if (zone == 0)

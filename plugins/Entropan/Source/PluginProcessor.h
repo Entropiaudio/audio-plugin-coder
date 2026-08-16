@@ -221,7 +221,13 @@ private:
         void prepare (double sr)   { sampleRate = sr; reset(); }
         void reset()               { std::memset (st, 0, sizeof (st)); }
 
-        void setParams (float fc, float widthOct, Type type)
+        // forceQ > 0 pins the per-section Q instead of deriving it from the
+        // width knob. TILT needs that: its low-pass and high-pass have to SUM
+        // back to the input, and a resonant pair does not — each one peaks at
+        // the crossover, so the two halves overlap there and neither reaches
+        // its side of the field. Butterworth-ish sections sum flat, which is
+        // what makes the tilt actually tilt.
+        void setParams (float fc, float widthOct, Type type, double forceQ = 0.0)
         {
             const double w  = juce::jlimit (0.05, 6.0, (double) widthOct);
             double q;
@@ -240,8 +246,13 @@ private:
                 // multiplies the peak in dB, so the per-section Q is pulled back
                 // by 1/n to keep the composite resonance roughly constant as
                 // SLOPE morphs the section count.
-                const double qTot = 0.7071 * std::pow (16.0, juce::jlimit (0.0, 1.0, (4.0 - w) / 3.9));
-                q = 0.7071 * std::pow (qTot / 0.7071, 1.0 / (double) sections);
+                if (forceQ > 0.0)
+                    q = forceQ;
+                else
+                {
+                    const double qTot = 0.7071 * std::pow (16.0, juce::jlimit (0.0, 1.0, (4.0 - w) / 3.9));
+                    q = 0.7071 * std::pow (qTot / 0.7071, 1.0 / (double) sections);
+                }
             }
             const double w0 = juce::MathConstants<double>::twoPi
                                 * juce::jlimit (10.0, sampleRate * 0.49, (double) fc) / sampleRate;
@@ -327,14 +338,17 @@ private:
                           : shape == ShapeHigh ? FilterCascade::HighPass
                           : shape == ShapeTilt ? FilterCascade::LowPass
                                                : FilterCascade::BandPass;
-            bell2.setParams (fc, widthOct, tA);
-            bell4.setParams (fc, widthOct, tA);
-            bell8.setParams (fc, widthOct, tA);
+            // Tilt pins both halves to Butterworth so they sum back to the
+            // input; every other shape lets the width knob set resonance.
+            const double qT = 0.0;   // resonance from the width knob for every shape
+            bell2.setParams (fc, widthOct, tA, qT);
+            bell4.setParams (fc, widthOct, tA, qT);
+            bell8.setParams (fc, widthOct, tA, qT);
             if (shape == ShapeTilt)
             {
-                hi2.setParams (fc, widthOct, FilterCascade::HighPass);
-                hi4.setParams (fc, widthOct, FilterCascade::HighPass);
-                hi8.setParams (fc, widthOct, FilterCascade::HighPass);
+                hi2.setParams (fc, widthOct, FilterCascade::HighPass, qT);
+                hi4.setParams (fc, widthOct, FilterCascade::HighPass, qT);
+                hi8.setParams (fc, widthOct, FilterCascade::HighPass, qT);
             }
         }
     };

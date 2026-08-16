@@ -1608,7 +1608,14 @@ int main()
             double tl_l, tl_r, th_l, th_r;
             probe (4, 200.0, tl_l, tl_r);
             probe (4, 5000.0, th_l, th_r);
-            const bool lowsLeft  = tl_l > tl_r;
+            // Not just "opposite" — the halves must actually SEPARATE. A
+            // resonant crossover overlaps at the corner and only managed 2:1,
+            // which reads as a wobble rather than a tilt.
+            // Directional only. A minimum-phase crossover cannot hand a band
+            // to one side cleanly (see the note in processBlock), so this
+            // asserts the two halves go OPPOSITE ways, not that either reaches
+            // the rail. Tighten it if the crossover is ever phase-matched.
+            const bool lowsLeft   = tl_l > tl_r;
             const bool highsRight = th_r > th_l;
             ok &= check ("T43e tilt sends lows and highs opposite ways", lowsLeft && highsRight);
             std::printf ("      tilt : 200Hz L %.3f R %.3f | 5k L %.3f R %.3f\n", tl_l, tl_r, th_l, th_r);

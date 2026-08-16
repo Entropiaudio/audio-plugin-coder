@@ -533,6 +533,14 @@
   /* Delete sits BESIDE solo rather than in the panel's top corner: an X in the
      corner of a floating panel reads as "close this", which is the last thing a
      destructive control should look like. */
+  .qm-shape {
+    flex: 0 0 30px; height: 15px; padding: 0; box-sizing: border-box;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 4px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .qm-shape:hover { color: var(--accent); border-color: var(--accent); }
+  .qm-shape .shape-ico { width: 22px; height: 11px; margin: 0; }
   .qm-del {
     flex: 0 0 16px; height: 15px; padding: 0; line-height: 1;
     font-family: inherit; font-size: 11px; box-sizing: border-box;
@@ -824,6 +832,7 @@
         <div class="qm-track"><div class="qm-fill"></div></div>
       </div>
       <div class="qm-btn-row">
+        <button class="qm-shape" id="qmShape" data-tip="Band shape — click to choose"></button>
         <button class="qm-solo" id="qmSolo" data-tip="Solo — monitor this band's bell on its own, panned. Arm several to hear them together">SOLO</button>
         <button class="qm-del" id="qmDelete" data-tip="Delete this band — frees the slot and resets it. BYPASS only mutes it and keeps the settings">×</button>
       </div>
@@ -990,7 +999,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B109";
+const ENTROPAN_BUILD = "B110";
 // single source for the UI version string — must match juce_add_plugin VERSION
 // in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
 const ENTROPAN_VERSION = "0.7.0";
@@ -2131,8 +2140,8 @@ document.getElementById("bandBypassBtn").onclick = () => { PB().on.set(!PB().on.
    plateau on their side, notch dips, tilt see-saws across it. */
 const SHAPES = [
   { name: "BELL",  d: "M1 9 C7 9 7 3 12 3 C17 3 17 9 23 9" },
-  { name: "LOW",   d: "M1 3 L8 3 C12 3 12 9 16 9 L23 9" },
-  { name: "HIGH",  d: "M1 9 L8 9 C12 9 12 3 16 3 L23 3" },
+  { name: "LOW SHELF",  d: "M1 3 L8 3 C12 3 12 9 16 9 L23 9" },
+  { name: "HIGH SHELF", d: "M1 9 L8 9 C12 9 12 3 16 3 L23 3" },
   { name: "NOTCH", d: "M1 3 C7 3 7 9 12 9 C17 9 17 3 23 3" },
   { name: "TILT",  d: "M1 9 L23 3" },
 ];
@@ -2153,6 +2162,8 @@ SHAPES.forEach((s, i) => {
 });
 shapeToggle.onclick = e => {
   e.stopPropagation();
+  // restore the header anchoring — the quick-menu opener re-points it
+  shapeMenu.style.left = "auto"; shapeMenu.style.right = "92px"; shapeMenu.style.top = "26px";
   shapeMenu.classList.toggle("visible");
   refreshShapeMenu();
 };
@@ -2161,9 +2172,19 @@ function refreshShapeMenu() {
   [...shapeMenu.children].forEach((el, i) => el.classList.toggle("on", i === cur));
 }
 window.addEventListener("mousedown", e => {
-  if (! e.target.closest("#shapeMenu") && ! e.target.closest("#shapeToggle"))
+  if (! e.target.closest("#shapeMenu") && ! e.target.closest("#shapeToggle") && ! e.target.closest("#qmShape"))
     shapeMenu.classList.remove("visible");
 });
+document.getElementById("qmShape").onclick = e => {
+  e.stopPropagation();                      // the menu body is a drag surface
+  // Reuse the same picker; anchor it beside the floating window.
+  const r = qmShape.getBoundingClientRect(), pr = spec.parentElement.getBoundingClientRect();
+  shapeMenu.style.top = (r.bottom - pr.top + 4) + "px";
+  shapeMenu.style.right = "auto";
+  shapeMenu.style.left = Math.max(2, r.left - pr.left) + "px";
+  shapeMenu.classList.toggle("visible");
+  refreshShapeMenu();
+};
 document.getElementById("qmDelete").onclick = e => {
   e.stopPropagation();                      // the menu body is a drag surface
   deleteBand(ui.selected);
@@ -2999,6 +3020,7 @@ const qmDepth = document.getElementById("qm_depth");
 const qmGain = document.getElementById("qm_gain");
 const qmBias = document.getElementById("qm_bias");
 const qmSolo = document.getElementById("qmSolo");
+const qmShape = document.getElementById("qmShape");
 let qmOffset = null;
 let qmAnchor = { x: 0, y: 0 };
 (() => {
@@ -3063,6 +3085,12 @@ function updateQuickMenu() {
   // Solo is global in effect, so the button also has to report when SOME OTHER
   // band holds the bus — otherwise you sit on a silent band with an unlit
   // button and no clue why you are hearing something else.
+  // The floating window is the band's own panel, so the shape belongs here too.
+  {
+    const sh = SHAPES[pb.shape.get()] || SHAPES[0];
+    qmShape.innerHTML = shapeIcon(sh.d);
+    qmShape.dataset.tip = "Band shape: " + sh.name + " — click to choose";
+  }
   const soloOn = pb.solo.get();
   const soloElsewhere = P.bands.some((b, i) => i !== ui.selected && b.solo.get());
   qmSolo.classList.toggle("active", soloOn);
