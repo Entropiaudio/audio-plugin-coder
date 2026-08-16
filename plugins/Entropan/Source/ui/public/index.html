@@ -529,20 +529,22 @@
      analyser, so the control sits where you are looking while you place it.
      Armed it takes the accent, not the warning colour — bypass is a
      subtraction, solo is a monitor state. */
-  .qm-btn-row { margin-top: 4px; display: flex; gap: 3px; }
+  /* Sized with slack: the row measured 133px of content against 134px of inner
+     width, so any DPI rounding pushed the last button through the window edge. */
+  .qm-btn-row { margin-top: 4px; display: flex; gap: 2px; }
   /* Delete sits BESIDE solo rather than in the panel's top corner: an X in the
      corner of a floating panel reads as "close this", which is the last thing a
      destructive control should look like. */
   .qm-shape {
-    flex: 0 0 30px; height: 15px; padding: 0; box-sizing: border-box;
+    flex: 0 0 24px; height: 15px; padding: 0; box-sizing: border-box;
     background: transparent; color: var(--text-dim);
     border: 1px solid var(--border-subtle); border-radius: 4px; cursor: pointer;
     display: inline-flex; align-items: center; justify-content: center;
   }
   .qm-shape:hover { color: var(--accent); border-color: var(--accent); }
-  .qm-shape .shape-ico { width: 22px; height: 11px; margin: 0; }
+  .qm-shape .shape-ico { width: 18px; height: 10px; margin: 0; }
   .qm-del {
-    flex: 0 0 16px; height: 15px; padding: 0; line-height: 1;
+    flex: 0 0 14px; height: 15px; padding: 0; line-height: 1;
     font-family: inherit; font-size: 11px; box-sizing: border-box;
     background: transparent; color: var(--text-dim);
     border: 1px solid var(--border-subtle); border-radius: 4px; cursor: pointer;
@@ -551,8 +553,8 @@
   }
   .qm-del:hover { color: var(--danger); border-color: var(--danger); }
   .qm-solo {
-    flex: 1; height: 15px; font-family: inherit; font-size: 8px;
-    letter-spacing: 1px; box-sizing: border-box;
+    flex: 1 1 0; min-width: 0; height: 15px; font-family: inherit; font-size: 8px;
+    letter-spacing: 0.6px; box-sizing: border-box; padding: 0;
     background: transparent; color: var(--text-dim);
     border: 1px solid var(--border-subtle); border-radius: 4px; cursor: pointer;
     transition: color var(--t-fast) var(--ease-editorial),
@@ -662,7 +664,7 @@
   /* Pro-Q-style shape picker: the icon IS the label, so the curve you are
      choosing is the thing you look at. */
   .shape-menu {
-    position: absolute; top: 26px; right: 92px; z-index: 20; display: none;
+    position: absolute; z-index: 20; display: none;   /* placed by openShapeMenu */
     padding: 3px; border-radius: 7px; min-width: 104px;
     background: var(--floating-bg); border: 1px solid var(--border-bright);
     box-shadow: 0 4px 14px rgba(0,0,0,0.40);
@@ -785,6 +787,13 @@
 <div class="plugin-shell" id="pluginShell">
   <div class="mutation-flash" id="mutationFlash"></div>
   <div class="bypass-dim" id="bypassDim"></div>
+  <!-- Shape picker popup. SHELL-level on purpose: it opens from two anchors
+       (band header + floating band window), and inside a .section-col it was
+       clipped by that card's overflow:hidden the moment the anchor maths put
+       it outside the card — which is exactly what happened from the floating
+       window. The shell clips nothing and both anchors share one coordinate
+       space. -->
+  <div class="shape-menu" id="shapeMenu"></div>
 
   <!-- HEADER -->
   <div class="header">
@@ -845,7 +854,6 @@
       <div class="section-label" id="bandSecLabel">Band 1</div>
       <button class="toggle-btn bypass-btn band-bypass-btn" id="bandBypassBtn" data-tip="Bypass this band — its bell stays placed but stops processing">BYPASS</button>
       <button class="mode-toggle routing-toggle shape-toggle" id="shapeToggle" data-tip="Band shape — what this band grabs"></button>
-      <div class="shape-menu" id="shapeMenu"></div>
       <button class="mode-toggle routing-toggle" id="slopeToggle" data-tip="Crossover slope — drag ↑↓, continuous 12…48 dB/oct. Soft wide grab … surgical edges. Double-click: 24" style="cursor: ns-resize;"><canvas id="slopeDial"></canvas><span id="slopeDbText">24 dB</span></button>
       <div class="knob-row">
         <div class="knob-wrap" id="knob_freq"></div>
@@ -999,7 +1007,7 @@
 import * as Juce from "./js/juce/index.js";
 
 /* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
-const ENTROPAN_BUILD = "B110";
+const ENTROPAN_BUILD = "B111";
 // single source for the UI version string — must match juce_add_plugin VERSION
 // in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
 const ENTROPAN_VERSION = "0.7.0";
@@ -2160,13 +2168,24 @@ SHAPES.forEach((s, i) => {
   });
   shapeMenu.appendChild(b);
 });
-shapeToggle.onclick = e => {
-  e.stopPropagation();
-  // restore the header anchoring — the quick-menu opener re-points it
-  shapeMenu.style.left = "auto"; shapeMenu.style.right = "92px"; shapeMenu.style.top = "26px";
+/* One opener for both anchors. Shell-relative coordinates, clamped inside the
+   shell; opens above the anchor when below would run off the bottom (the band
+   header sits low, so that is its normal case). */
+function openShapeMenu(anchorEl) {
+  const shell = document.getElementById("pluginShell").getBoundingClientRect();
+  const a = anchorEl.getBoundingClientRect();
   shapeMenu.classList.toggle("visible");
+  if (! shapeMenu.classList.contains("visible")) return;
   refreshShapeMenu();
-};
+  const mw = shapeMenu.offsetWidth, mh = shapeMenu.offsetHeight;
+  let left = a.left - shell.left;
+  let top  = a.bottom - shell.top + 4;
+  if (top + mh > shell.height - 4) top = a.top - shell.top - mh - 4;   // flip above
+  shapeMenu.style.right = "auto";
+  shapeMenu.style.left = clamp(left, 4, shell.width - mw - 4) + "px";
+  shapeMenu.style.top  = clamp(top, 4, shell.height - mh - 4) + "px";
+}
+shapeToggle.onclick = e => { e.stopPropagation(); openShapeMenu(shapeToggle); };
 function refreshShapeMenu() {
   const cur = PB().shape.get();
   [...shapeMenu.children].forEach((el, i) => el.classList.toggle("on", i === cur));
@@ -2177,13 +2196,7 @@ window.addEventListener("mousedown", e => {
 });
 document.getElementById("qmShape").onclick = e => {
   e.stopPropagation();                      // the menu body is a drag surface
-  // Reuse the same picker; anchor it beside the floating window.
-  const r = qmShape.getBoundingClientRect(), pr = spec.parentElement.getBoundingClientRect();
-  shapeMenu.style.top = (r.bottom - pr.top + 4) + "px";
-  shapeMenu.style.right = "auto";
-  shapeMenu.style.left = Math.max(2, r.left - pr.left) + "px";
-  shapeMenu.classList.toggle("visible");
-  refreshShapeMenu();
+  openShapeMenu(e.currentTarget);
 };
 document.getElementById("qmDelete").onclick = e => {
   e.stopPropagation();                      // the menu body is a drag surface
@@ -2685,9 +2698,11 @@ function bellY(i, x) {
     case 1:  v = 1 / (1 + Math.exp(s * 4 * p)); break;   // Low  — shelf, open below
     case 2:  v = 1 / (1 + Math.exp(-s * 4 * p)); break;  // High — shelf, open above
     case 3:  v = 1 - bell; break;                        // Notch — everything but
-    case 4:  v = 1 - bell; break;                        // Tilt — both halves move,
-                                                         // opposite ways (see the
-                                                         // split pan bar)
+    case 4:  v = 0.5 * (1 - Math.tanh(s * 0.8)); break;  // Tilt — a see-saw pivoting
+                                                         // at the handle (it drew
+                                                         // 1-bell before, which was
+                                                         // indistinguishable from
+                                                         // Notch)
     default: v = bell;                                   // Bell
   }
   return v * (d.lift / 100);
@@ -3086,10 +3101,16 @@ function updateQuickMenu() {
   // band holds the bus — otherwise you sit on a silent band with an unlit
   // button and no clue why you are hearing something else.
   // The floating window is the band's own panel, so the shape belongs here too.
+  // updateQuickMenu runs EVERY FRAME — rewrite the icon only when the shape
+  // actually changes, or the SVG is torn down and rebuilt 60 times a second.
   {
-    const sh = SHAPES[pb.shape.get()] || SHAPES[0];
-    qmShape.innerHTML = shapeIcon(sh.d);
-    qmShape.dataset.tip = "Band shape: " + sh.name + " — click to choose";
+    const si = pb.shape.get();
+    if (qmShape._shape !== si) {
+      qmShape._shape = si;
+      const sh = SHAPES[si] || SHAPES[0];
+      qmShape.innerHTML = shapeIcon(sh.d);
+      qmShape.dataset.tip = "Band shape: " + sh.name + " — click to choose";
+    }
   }
   const soloOn = pb.solo.get();
   const soloElsewhere = P.bands.some((b, i) => i !== ui.selected && b.solo.get());
