@@ -121,8 +121,8 @@ int EntropanAudioProcessor::wfLatencySamples() const noexcept
 {
     if (currentSampleRate <= 0.0)
         return 0;
-    const bool on = (pWow != nullptr && pWow->load() > 0.1f)
-                 || (pFlutter != nullptr && pFlutter->load() > 0.1f);
+    const bool on = (gp.wow != nullptr && gp.wow->load() > 0.1f)
+                 || (gp.flutter != nullptr && gp.flutter->load() > 0.1f);
     return on ? (int) std::lround (kBaseDelayS * currentSampleRate) : 0;
 }
 
@@ -323,7 +323,7 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     bypassSm.reset  (sampleRate, 0.030);
     amountSm.reset  (sampleRate, 0.020);
     routingSm.reset (sampleRate, 0.060);   // serial↔parallel crossfade (~60 ms)
-    routingSm.setCurrentAndTargetValue (pRouting != nullptr && pRouting->load() > 0.5f ? 1.0f : 0.0f);
+    routingSm.setCurrentAndTargetValue (gp.routing != nullptr && gp.routing->load() > 0.5f ? 1.0f : 0.0f);
 
     dryBuffer.setSize (2, juce::jmax (samplesPerBlock * 2, 8192));   // headroom for hosts that exceed the prepared block
     analyzerStore.resize ((size_t) analyzerFifo.getTotalSize(), 0.0f);
@@ -332,30 +332,30 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     for (auto& m : mods)
         m = Modulator {};
 
-    wfDelay.prepare (spec);
-    wfDelay.reset();
-    wfEngage.reset (sampleRate, kEngageS);
+    wf.delay.prepare (spec);
+    wf.delay.reset();
+    wf.engage.reset (sampleRate, kEngageS);
     soloSm.reset (sampleRate, 0.020);
-    wowDepthSm.reset (sampleRate, 0.080);
-    flutDepthSm.reset (sampleRate, 0.080);
-    wowPhase = flutPhase = 0.0;
-    envScLp = envState = globalEnv = 0.0f;
+    wf.wowDepthSm.reset (sampleRate, 0.080);
+    wf.flutDepthSm.reset (sampleRate, 0.080);
+    wf.wowPhase = wf.flutPhase = 0.0;
+    env.scLp = env.state = env.out = 0.0f;
 
     // Cache raw parameter pointers once (RT-safe reads afterwards).
-    pAmount = apvts.getRawParameterValue ("amount");
-    pOutput = apvts.getRawParameterValue ("output");
-    pBypass = apvts.getRawParameterValue ("bypass");
-    pSeed   = apvts.getRawParameterValue ("seed");
-    pSpeed  = apvts.getRawParameterValue ("speed");
-    pRouting = apvts.getRawParameterValue ("routing");
-    pWow     = apvts.getRawParameterValue ("wow");
-    pFlutter = apvts.getRawParameterValue ("flutter");
-    pFlux    = apvts.getRawParameterValue ("flux");
-    pEnvAtk  = apvts.getRawParameterValue ("env_atk");
-    pEnvRel  = apvts.getRawParameterValue ("env_rel");
-    pEnvScf  = apvts.getRawParameterValue ("env_scf");
-    pEnvRms  = apvts.getRawParameterValue ("env_rms");
-    pEnvGain = apvts.getRawParameterValue ("env_gain");
+    gp.amount = apvts.getRawParameterValue ("amount");
+    gp.output = apvts.getRawParameterValue ("output");
+    gp.bypass = apvts.getRawParameterValue ("bypass");
+    gp.seed   = apvts.getRawParameterValue ("seed");
+    gp.speed  = apvts.getRawParameterValue ("speed");
+    gp.routing = apvts.getRawParameterValue ("routing");
+    gp.wow     = apvts.getRawParameterValue ("wow");
+    gp.flutter = apvts.getRawParameterValue ("flutter");
+    gp.flux    = apvts.getRawParameterValue ("flux");
+    gp.envAtk  = apvts.getRawParameterValue ("env_atk");
+    gp.envRel  = apvts.getRawParameterValue ("env_rel");
+    gp.envScf  = apvts.getRawParameterValue ("env_scf");
+    gp.envRms  = apvts.getRawParameterValue ("env_rms");
+    gp.envGain = apvts.getRawParameterValue ("env_gain");
     for (int i = 0; i < kNumBands; ++i)
     {
         const juce::String p = "b" + juce::String (i + 1) + "_";
@@ -439,7 +439,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         for (int i = 0; i < kNumBands; ++i)   // kick the Lorenz attractors
         {
             auto& m = mods[(size_t) i];
-            m.lx = 0.1 + 0.2 * (double) cellNoise (rerollOffset, i, (int) pSeed->load(), 0);
+            m.lx = 0.1 + 0.2 * (double) cellNoise (rerollOffset, i, (int) gp.seed->load(), 0);
             m.ly = 0.0; m.lz = 0.0;
         }
     }
@@ -478,8 +478,8 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         dryBuffer.copyFrom (ch, 0, buffer, ch, 0, numSamples);
 
     // ── per-block parameter targets ──
-    const int   seedV    = (int) pSeed->load();
-    const float speedV   = kSpeedFactors[juce::jlimit (0, 5, (int) pSpeed->load())];
+    const int   seedV    = (int) gp.seed->load();
+    const float speedV   = kSpeedFactors[juce::jlimit (0, 5, (int) gp.speed->load())];
 
     // ── mod matrix: offset destinations in the NORMALIZED domain (block rate).
     // Source = each band's post-slew modulator (last block's value: mods tick
@@ -701,7 +701,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     outGainSm.setTargetValue (juce::Decibels::decibelsToGain (globMod[3]));
-    bypassSm.setTargetValue (pBypass->load() > 0.5f ? 1.0f : 0.0f);
+    bypassSm.setTargetValue (gp.bypass->load() > 0.5f ? 1.0f : 0.0f);
     // Any band armed puts the whole plugin in solo; a soloed band that is
     // switched off contributes silence, which is the useful answer (you hear
     // that you soloed nothing) rather than falling back to the mix.
@@ -715,20 +715,20 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // CONTINUOUS in rx = routingSm (0..1): band input lerps chain→dry and both
     // recombination laws blend, so flipping the switch never steps the filter
     // inputs (a hard swap popped). Settled endpoints are bit-exact serial/parallel.
-    routingSm.setTargetValue (pRouting->load() > 0.5f ? 1.0f : 0.0f);
+    routingSm.setTargetValue (gp.routing->load() > 0.5f ? 1.0f : 0.0f);
 
     // ── envelope-follower coefficients (global detection circuit) ──
-    const bool  envRms  = pEnvRms->load() > 0.5f;
-    const float envAtkC = onePoleCoeff (juce::jmax (1.0f, pEnvAtk->load()) * 0.001, currentSampleRate);
-    const float envRelC = onePoleCoeff (juce::jmax (1.0f, pEnvRel->load()) * 0.001, currentSampleRate);
-    const float envScC  = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * pEnvScf->load() / (float) currentSampleRate);
-    const float envGainLin = juce::Decibels::decibelsToGain (pEnvGain->load());   // detector drive
+    const bool  envRms  = gp.envRms->load() > 0.5f;
+    const float envAtkC = onePoleCoeff (juce::jmax (1.0f, gp.envAtk->load()) * 0.001, currentSampleRate);
+    const float envRelC = onePoleCoeff (juce::jmax (1.0f, gp.envRel->load()) * 0.001, currentSampleRate);
+    const float envScC  = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * gp.envScf->load() / (float) currentSampleRate);
+    const float envGainLin = juce::Decibels::decibelsToGain (gp.envGain->load());   // detector drive
 
     // ── wow & flutter setup ──
     const float wowAmt  = globMod[1] * 0.01f;
     const float flutAmt = globMod[2] * 0.01f;
     const bool  wfOn    = (wowAmt > 0.001f || flutAmt > 0.001f);
-    wfEngage.setTargetValue (wfOn ? 1.0f : 0.0f);
+    wf.engage.setTargetValue (wfOn ? 1.0f : 0.0f);
     const double wowInc  = kWowRate  / currentSampleRate;
     const double flutInc = kFlutRate / currentSampleRate;
     const float  fluxAmt = juce::jlimit (0.0f, 1.0f, globMod[4] * 0.01f);
@@ -739,8 +739,8 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const float  baseDelay = (float) (kBaseDelayS * currentSampleRate);
     // tap depths are SMOOTHED per sample — a block-rate depth change jumps the
     // delay read position (up to ms) and clicks while the knobs move (T35)
-    wowDepthSm.setTargetValue  (wowAmt  * (float) (kWowPeakS  * currentSampleRate));
-    flutDepthSm.setTargetValue (flutAmt * (float) (kFlutPeakS * currentSampleRate));
+    wf.wowDepthSm.setTargetValue  (wowAmt  * (float) (kWowPeakS  * currentSampleRate));
+    wf.flutDepthSm.setTargetValue (flutAmt * (float) (kFlutPeakS * currentSampleRate));
 
     // Host PDC. The wet path reads the line baseDelay behind, so engaging adds
     // exactly that many samples and idling adds none. Decided from the RAW
@@ -764,7 +764,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // the fade runs 20 ms, so the first engaged blocks mixed in silence and
     // thumped (T35 argmax landed exactly on the engage block). Only the TAP
     // and the mix are gated now; pushing two samples is negligible.
-    const bool wfActive = wfOn || wfEngage.getCurrentValue() > 1.0e-4f;
+    const bool wfActive = wfOn || wf.engage.getCurrentValue() > 1.0e-4f;
 
     // ── per-sample cascade ──
     auto* left  = buffer.getWritePointer (0);
@@ -783,16 +783,16 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const float sxw = 1.0f - rx;                     // serial-side weight
 
         // envelope detector (from the pre-process input copy) — only while some
-        // band is in Env mode; otherwise globalEnv holds its last value (unseen)
+        // band is in Env mode; otherwise env.out holds its last value (unseen)
         if (anyEnv)
         {
             const float inMono = 0.5f * (dryL[s] + dryR[s]) * envGainLin;
-            envScLp += envScC * (inMono - envScLp);      // one-pole LP …
-            const float hp = inMono - envScLp;           // … input minus LP = SC high-pass
+            env.scLp += envScC * (inMono - env.scLp);      // one-pole LP …
+            const float hp = inMono - env.scLp;           // … input minus LP = SC high-pass
             const float det = envRms ? hp * hp : std::abs (hp);
-            envState += (det > envState ? envAtkC : envRelC) * (det - envState);
-            const float e = envRms ? std::sqrt (juce::jmax (0.0f, envState)) : envState;
-            globalEnv = juce::jlimit (0.0f, 1.0f, e * 2.0f);
+            env.state += (det > env.state ? envAtkC : envRelC) * (det - env.state);
+            const float e = envRms ? std::sqrt (juce::jmax (0.0f, env.state)) : env.state;
+            env.out = juce::jlimit (0.0f, 1.0f, e * 2.0f);
         }
 
         for (int i = 0; i < kNumBands; ++i)
@@ -890,7 +890,7 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
             // Env: global envelope follower
             if (wm & (1u << 5))
-                m.target[5] = juce::jlimit (-1.0f, 1.0f, globalEnv * 2.0f - 1.0f);
+                m.target[5] = juce::jlimit (-1.0f, 1.0f, env.out * 2.0f - 1.0f);
 
             // each consumed waveform slews independently (its own coefficient)
             for (int t = 0; t < kNumWaves; ++t)
@@ -1042,45 +1042,45 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             for (int i = 0; i < kNumBands; ++i)
                 scopeRing[(size_t) i][(size_t) (w & (kScopeRingSize - 1))] =
                     mods[(size_t) i].panOut;   // already the final pan (bias + depth·amount)
-            envScopeRing[(size_t) (w & (kScopeRingSize - 1))] = globalEnv;
+            envScopeRing[(size_t) (w & (kScopeRingSize - 1))] = env.out;
             scopeWrite.store (w + 1, std::memory_order_release);
         }
 
         // global wow & flutter (wet-only modulated delay, engage-crossfaded).
         // The line is fed EVERY sample so engaging never reads an empty buffer.
-        wfDelay.pushSample (0, xl);
-        wfDelay.pushSample (1, xr);
+        wf.delay.pushSample (0, xl);
+        wf.delay.pushSample (1, xr);
         if (wfActive)
         {
-            const float eng = wfEngage.getNextValue();
+            const float eng = wf.engage.getNextValue();
             // FLUX: jitter the rate and morph the shape toward a random walk,
             // re-dealt once per revolution — no two turns of the capstan alike.
             // At flux = 0 both reduce to exactly the old pure sine.
-            wowPhase += wowInc * wowJit;
-            if (wowPhase >= 1.0)
+            wf.wowPhase += wowInc * wf.wowJit;
+            if (wf.wowPhase >= 1.0)
             {
-                wowPhase -= 1.0;
-                wowWalkT = fluxRng.nextDouble() * 2.0 - 1.0;
-                wowJit   = 1.0 + fluxAmt * kFluxJitter * (fluxRng.nextDouble() * 2.0 - 1.0);
+                wf.wowPhase -= 1.0;
+                wf.wowWalkT = wf.rng.nextDouble() * 2.0 - 1.0;
+                wf.wowJit   = 1.0 + fluxAmt * kFluxJitter * (wf.rng.nextDouble() * 2.0 - 1.0);
             }
-            flutPhase += flutInc * flutJit;
-            if (flutPhase >= 1.0)
+            wf.flutPhase += flutInc * wf.flutJit;
+            if (wf.flutPhase >= 1.0)
             {
-                flutPhase -= 1.0;
-                flutWalkT = fluxRng.nextDouble() * 2.0 - 1.0;
-                flutJit   = 1.0 + fluxAmt * kFluxJitter * (fluxRng.nextDouble() * 2.0 - 1.0);
+                wf.flutPhase -= 1.0;
+                wf.flutWalkT = wf.rng.nextDouble() * 2.0 - 1.0;
+                wf.flutJit   = 1.0 + fluxAmt * kFluxJitter * (wf.rng.nextDouble() * 2.0 - 1.0);
             }
-            wowWalk  += (wowWalkT  - wowWalk)  * wowWalkC;
-            flutWalk += (flutWalkT - flutWalk) * flutWalkC;
+            wf.wowWalk  += (wf.wowWalkT  - wf.wowWalk)  * wowWalkC;
+            wf.flutWalk += (wf.flutWalkT - wf.flutWalk) * flutWalkC;
 
-            const float wowSin  = std::sin ((float) wowPhase  * juce::MathConstants<float>::twoPi);
-            const float flutSin = std::sin ((float) flutPhase * juce::MathConstants<float>::twoPi);
+            const float wowSin  = std::sin ((float) wf.wowPhase  * juce::MathConstants<float>::twoPi);
+            const float flutSin = std::sin ((float) wf.flutPhase * juce::MathConstants<float>::twoPi);
             // Crossfade, so |shape| never exceeds the sine's own 1 and the tap
             // headroom (and the reported latency) is unaffected by FLUX.
-            const float wowShape  = wowSin  + (float) (wowWalk  - (double) wowSin)  * fluxAmt;
-            const float flutShape = flutSin + (float) (flutWalk - (double) flutSin) * fluxAmt;
-            const float wowMod  = wowShape  * wowDepthSm.getNextValue();
-            const float flutMod = flutShape * flutDepthSm.getNextValue();
+            const float wowShape  = wowSin  + (float) (wf.wowWalk  - (double) wowSin)  * fluxAmt;
+            const float flutShape = flutSin + (float) (wf.flutWalk - (double) flutSin) * fluxAmt;
+            const float wowMod  = wowShape  * wf.wowDepthSm.getNextValue();
+            const float flutMod = flutShape * wf.flutDepthSm.getNextValue();
             // Engage by GLIDING THE TAP from ~0 up to the base, and take the
             // tap as the output. The old scheme crossfaded dry against the
             // delayed copy, which is a comb: the first null sits at
@@ -1091,10 +1091,10 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             // Slight L/R divergence on wow for width; flutter stays common-mode.
             const float dTargetL = baseDelay + wowMod + flutMod;
             const float dTargetR = baseDelay - wowMod + flutMod;
-            wfDelay.setDelay (juce::jlimit (1.0f, 4000.0f, 1.0f + eng * (dTargetL - 1.0f)));
-            const float dl = wfDelay.popSample (0);
-            wfDelay.setDelay (juce::jlimit (1.0f, 4000.0f, 1.0f + eng * (dTargetR - 1.0f)));
-            const float dr = wfDelay.popSample (1);
+            wf.delay.setDelay (juce::jlimit (1.0f, 4000.0f, 1.0f + eng * (dTargetL - 1.0f)));
+            const float dl = wf.delay.popSample (0);
+            wf.delay.setDelay (juce::jlimit (1.0f, 4000.0f, 1.0f + eng * (dTargetR - 1.0f)));
+            const float dr = wf.delay.popSample (1);
             xl = dl;
             xr = dr;
         }
@@ -1102,8 +1102,8 @@ void EntropanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         {
             // keep read/write pointers in lockstep while idle — DelayLine's
             // tap desyncs if samples are pushed without matching pops
-            wfDelay.popSample (0, baseDelay, true);
-            wfDelay.popSample (1, baseDelay, true);
+            wf.delay.popSample (0, baseDelay, true);
+            wf.delay.popSample (1, baseDelay, true);
         }
 
         const float og = outGainSm.getNextValue();

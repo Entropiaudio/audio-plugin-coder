@@ -14,6 +14,8 @@
 #include "dsp/Steps.h"
 #include "dsp/ModRouting.h"
 #include "dsp/BandParams.h"
+#include "dsp/WowFlutter.h"
+#include "dsp/EnvFollower.h"
 
 // Moonbase licensing is compiled in unless a tool build opts out with
 // -DENTROPAN_MOONBASE=0. The null-test harness compiles these same sources, and
@@ -193,36 +195,13 @@ private:
     // Cached raw parameter pointers — see dsp/BandParams.h.
     using BandParams = entropan::BandParams;
     std::array<BandParams, kNumBands> bandParams {};
-    std::atomic<float>* pAmount = nullptr;
-    std::atomic<float>* pOutput = nullptr;
-    std::atomic<float>* pBypass = nullptr;
-    std::atomic<float>* pSeed   = nullptr;
-    std::atomic<float>* pSpeed  = nullptr;
-    std::atomic<float>* pRouting = nullptr;   // 0 = Serial, 1 = Parallel
-    std::atomic<float>* pWow     = nullptr;
-    std::atomic<float>* pFlutter = nullptr;
-    std::atomic<float>* pFlux    = nullptr;
-    std::atomic<float>* pEnvAtk  = nullptr;
-    std::atomic<float>* pEnvRel  = nullptr;
-    std::atomic<float>* pEnvScf  = nullptr;
-    std::atomic<float>* pEnvRms  = nullptr;
-    std::atomic<float>* pEnvGain = nullptr;
+    entropan::GlobalParams gp;
 
-    // Envelope follower (global detection circuit — feeds every Env-mode band).
-    float envScLp = 0.0f;   // sidechain HPF one-pole state
-    float envState = 0.0f;  // ballistics state
-    float globalEnv = 0.0f; // 0..1, updated per sample from the input copy
+    // Envelope follower state — see dsp/EnvFollower.h.
+    entropan::EnvFollowerState env;
 
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Lagrange3rd> wfDelay { 4096 };
-    double wowPhase = 0.0, flutPhase = 0.0;
-    // FLUX state: per-revolution random walk + rate jitter for each modulator.
-    double wowWalk = 0.0, flutWalk = 0.0;      // smoothed value, bounded -1..1
-    double wowWalkT = 0.0, flutWalkT = 0.0;    // target dealt on each wrap
-    double wowJit = 1.0, flutJit = 1.0;        // rate multiplier for this revolution
-    juce::Random fluxRng { 0x656E7472 };       // fixed seed: same tape every session
-    juce::SmoothedValue<float> wfEngage;
-    // tap-depth smoothing: block-rate depth jumps clicked while turning the knobs
-    juce::SmoothedValue<float> wowDepthSm, flutDepthSm;
+    // Wow & flutter transport state — see dsp/WowFlutter.h.
+    entropan::WowFlutterState wf;
 
     // Host PDC. setLatencySamples() reaches the host through listener callbacks,
     // so the audio thread only publishes the wanted value and the message thread

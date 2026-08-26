@@ -28,4 +28,23 @@ namespace entropan
         std::atomic<float>* solo;       // monitor this band alone (its bell, panned)
         std::atomic<float>* shape;      // Bell / Low / High / Notch / Tilt
     };
+
+    // Same idea for the non-band parameters, owned by the processor as `gp`.
+    struct GlobalParams
+    {
+        std::atomic<float>* amount  = nullptr;
+        std::atomic<float>* output  = nullptr;
+        std::atomic<float>* bypass  = nullptr;
+        std::atomic<float>* seed    = nullptr;
+        std::atomic<float>* speed   = nullptr;
+        std::atomic<float>* routing = nullptr;   // 0 = Serial, 1 = Parallel
+        std::atomic<float>* wow     = nullptr;
+        std::atomic<float>* flutter = nullptr;
+        std::atomic<float>* flux    = nullptr;
+        std::atomic<float>* envAtk  = nullptr;
+        std::atomic<float>* envRel  = nullptr;
+        std::atomic<float>* envScf  = nullptr;
+        std::atomic<float>* envRms  = nullptr;
+        std::atomic<float>* envGain = nullptr;
+    };
 }
