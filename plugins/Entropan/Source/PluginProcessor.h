@@ -4,6 +4,17 @@
 #include <juce_dsp/juce_dsp.h>
 #include <limits>
 
+// The DSP building blocks live in Source/dsp/ (one concern per header); this
+// class keeps access-identical aliases for every relocated name, so call sites
+// still read EntropanAudioProcessor::FilterCascade, ::kNumBands, ShapeTilt…
+#include "dsp/EntropanSpec.h"
+#include "dsp/FilterCascade.h"
+#include "dsp/BandDSP.h"
+#include "dsp/Modulator.h"
+#include "dsp/Steps.h"
+#include "dsp/ModRouting.h"
+#include "dsp/BandParams.h"
+
 // Moonbase licensing is compiled in unless a tool build opts out with
 // -DENTROPAN_MOONBASE=0. The null-test harness compiles these same sources, and
 // on an unactivated machine the lapsed-trial gate periodically silences the
@@ -34,49 +45,23 @@ class EntropanAudioProcessor : public juce::AudioProcessor,
                                private juce::AsyncUpdater
 {
 public:
-    static constexpr int kNumBands = 6;
-    static constexpr int kMaxSteps = 16;
+    static constexpr int kNumBands = entropan::kNumBands;
+    static constexpr int kMaxSteps = entropan::kMaxSteps;
 
-    // ── Wow & flutter spec ────────────────────────────────────────────────
-    // Depth is stated as PEAK PITCH DEVIATION, not as a delay time, because
-    // that is what the ear judges and what tape decks are specced by. A sine
-    // modulating a delay swings pitch by 2*pi*rate*peakDelay, so the peak delay
-    // each one needs is kWowPitch / (2*pi*kWowRate) — which means the rates can
-    // be retuned without the depth character drifting with them.
-    //   0.80% ~ 13.8 cents, 0.60% ~ 10.4 cents at 100%: roughly twice a badly
-    //   worn cassette (0.15-0.35%), so 100% is openly an effect while ordinary
-    //   tape still lands around a third of the way up the knob.
-    static constexpr double kWowRate    = 0.5;      // Hz — capstan drift
-    static constexpr double kFlutRate   = 6.3;      // Hz — pinch-roller flutter
-    static constexpr double kWowPitch   = 0.0080;   // peak dp/p at 100%
-    static constexpr double kFlutPitch  = 0.0060;
-    static constexpr double kWowPeakS   = kWowPitch  / (2.0 * juce::MathConstants<double>::pi * kWowRate);
-    static constexpr double kFlutPeakS  = kFlutPitch / (2.0 * juce::MathConstants<double>::pi * kFlutRate);
-    // The read tap sits kBaseDelayS behind and swings +/-(wow+flutter); the base
-    // only has to keep it positive, and every extra millisecond is latency the
-    // host has to compensate. 1.5x the worst-case swing still leaves ~40 samples
-    // of margin under the tap, twenty times what Lagrange3rd needs.
-    static constexpr double kBaseDelayS = 1.5 * (kWowPeakS + kFlutPeakS);
-    // Engage GLIDE, not crossfade — see the tap ramp in processBlock. The dip
-    // this costs is kBaseDelayS / kEngageS in pitch, so 4.0 ms over 300 ms is
-    // ~1.3%: the same order as the wow itself, which is why it reads as the
-    // machine spinning up rather than as an edit.
-    static constexpr double kEngageS    = 0.30;
-    // FLUX — a real transport is not two sine waves. The capstan speeds and
-    // slows, flutter drifts with tape tension, and no two revolutions match.
-    // FLUX morphs each modulator from a pure periodic sine toward a random
-    // walk and jitters its rate, re-dealt once per revolution.
-    //
-    // It is a CROSSFADE toward the walk, never an addition, and the walk is
-    // bounded to the same +/-1 the sine occupies — so the worst-case delay
-    // excursion, and therefore the reported latency, does not grow with FLUX.
-    // The extra intensity comes from the rate jitter instead: pitch swing is
-    // 2*pi*rate*peak, so a faster revolution swings harder for free.
-    static constexpr double kFluxJitter = 0.6;   // rate wander, +/-60% at 100%
+    // Wow & flutter spec — rationale and derivations in dsp/EntropanSpec.h.
+    static constexpr double kWowRate    = entropan::kWowRate;
+    static constexpr double kFlutRate   = entropan::kFlutRate;
+    static constexpr double kWowPitch   = entropan::kWowPitch;
+    static constexpr double kFlutPitch  = entropan::kFlutPitch;
+    static constexpr double kWowPeakS   = entropan::kWowPeakS;
+    static constexpr double kFlutPeakS  = entropan::kFlutPeakS;
+    static constexpr double kBaseDelayS = entropan::kBaseDelayS;
+    static constexpr double kEngageS    = entropan::kEngageS;
+    static constexpr double kFluxJitter = entropan::kFluxJitter;
 
     // Samples the wet path adds when engaged; 0 when both knobs are down.
     int wfLatencySamples() const noexcept;
-    static constexpr int kNumWaves = 6;   // Sine, Tri, S&H, Chaos, Steps, Env
+    static constexpr int kNumWaves = entropan::kNumWaves;   // Sine, Tri, S&H, Chaos, Steps, Env
 
     EntropanAudioProcessor();
     // Defined in the .cpp: the Moonbase client is held by unique_ptr to an
@@ -147,21 +132,12 @@ public:
     void setUiSettingsJson (const juce::String& json);
 
     // ── Mod matrix: band modulators → any continuous parameter ──
-    // Routes live as JSON in apvts.state ("modRoutes") → undoable + persisted.
-    // Applied at block rate in the NORMALIZED param domain (skew-aware), as an
-    // offset AFTER the atomic read — host automation and the UI stay untouched.
-    // dst index = band·10 + slot (freq,width,lift,depth,gain,rate,inertia,
-    // phase,bias,stepsmooth) or 60+ (amount,wow,flutter,output).
-    static constexpr int kMaxRoutes = 16;
-    static constexpr int kDestSlotsPerBand = 10;
-    // +5: amount, wow, flutter, output, flux. Flux is APPENDED so every saved
-    // route keeps its dst index.
-    static constexpr int kNumDests = kNumBands * kDestSlotsPerBand + 5;
-    // stype: which of the source band's six waveforms drives the route
-    // (0..5 explicit; −1 = follow the band's selected MODE — the pre-B68
-    // behaviour, kept so old sessions load identically).
-    struct ModRoute  { int src = 0; int stype = -1; int dst = -1; float depth = 0.0f; };  // depth −100..+100
-    struct RoutesData { int count = 0; ModRoute routes[kMaxRoutes]; };
+    // Route structs + dst-index layout in dsp/ModRouting.h / dsp/EntropanSpec.h.
+    static constexpr int kMaxRoutes = entropan::kMaxRoutes;
+    static constexpr int kDestSlotsPerBand = entropan::kDestSlotsPerBand;
+    static constexpr int kNumDests = entropan::kNumDests;
+    using ModRoute   = entropan::ModRoute;
+    using RoutesData = entropan::RoutesData;
     juce::String getRoutesJson() const;
     void setRoutesJson (const juce::String& json);
 
@@ -187,199 +163,24 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     //==============================================================================
-    // SUBTRACTIVE DISPLACEMENT topology (the dynamic-EQ construction).
-    // The band is a UNITY-PEAK resonant bell B(x); the "residual" is literally
-    // input − band, so:
-    //     out = in + B(in)·lift·(g − 1)
-    // Idle (g = 1) is a BIT-EXACT WIRE at every setting — stronger than the
-    // old crossover-split's allpass guarantee — and the bell's centre is
-    // captured at UNITY for ANY width. The previous LR crossover-split product
-    // (HP@fLo · LP@fHi) attenuated its own centre as the band narrowed
-    // (skirts overlap: a Q≈7 band lost ~4 dB of its own fc), which capped a
-    // narrow bell's pan at ±0.5 — the "never hard pans" report. Here a hard
-    // pan removes fc content COMPLETELY on the emptied side at any Q.
-    // SLOPE morph: three warm cascades (2 / 4 / 8 unity-peak sections ≈
-    // 12 / 24 / 48 dB per octave skirts); adjacent cascades crossfade. Every
-    // cascade is 0° phase at fc, so blends can never null, and the idle path
-    // does not involve the bells at all — null-exact at every morph position.
-    // One cascade serves every band shape. It was band-pass only, which let it
-    // store just b0/a1/a2 (BP has b1 = 0, b2 = −b0); carrying the full biquad
-    // costs two multiplies per section and means low-pass and high-pass need no
-    // second filter bank, only different coefficients.
-    struct FilterCascade
-    {
-        enum Type { BandPass, LowPass, HighPass };
-
-        static constexpr int kMaxSections = 8;
-        struct BQ { float b0 = 0, b1 = 0, b2 = 0, a1 = 0, a2 = 0; };
-        int    sections = 4;
-        double sampleRate = 48000.0;
-        BQ     c[kMaxSections];
-        float  st[2][kMaxSections][2] {};
-
-        void configure (int n)     { sections = juce::jlimit (1, kMaxSections, n); }
-        void prepare (double sr)   { sampleRate = sr; reset(); }
-        void reset()               { std::memset (st, 0, sizeof (st)); }
-
-        // forceQ > 0 pins the per-section Q instead of deriving it from the
-        // width knob. TILT needs that: its low-pass and high-pass have to SUM
-        // back to the input, and a resonant pair does not — each one peaks at
-        // the crossover, so the two halves overlap there and neither reaches
-        // its side of the field. Butterworth-ish sections sum flat, which is
-        // what makes the tilt actually tilt.
-        void setParams (float fc, float widthOct, Type type, double forceQ = 0.0)
-        {
-            const double w  = juce::jlimit (0.05, 6.0, (double) widthOct);
-            double q;
-            if (type == BandPass)
-            {
-                // composite −3 dB width = the band's width; each of n identical
-                // sections must be wider: BWsec = BWtot / sqrt(2^(1/n) − 1)
-                const double qT = 1.0 / (std::pow (2.0, w * 0.5) - std::pow (2.0, -w * 0.5));
-                q = juce::jmax (0.1, qT * std::sqrt (std::pow (2.0, 1.0 / sections) - 1.0));
-            }
-            else
-            {
-                // Low/High have no bandwidth to speak of, so the same knob buys
-                // CORNER RESONANCE instead: wide = damped, narrow = a peak at
-                // the cutoff before the rolloff. Cascading n identical sections
-                // multiplies the peak in dB, so the per-section Q is pulled back
-                // by 1/n to keep the composite resonance roughly constant as
-                // SLOPE morphs the section count.
-                if (forceQ > 0.0)
-                    q = forceQ;
-                else
-                {
-                    const double qTot = 0.7071 * std::pow (16.0, juce::jlimit (0.0, 1.0, (4.0 - w) / 3.9));
-                    q = 0.7071 * std::pow (qTot / 0.7071, 1.0 / (double) sections);
-                }
-            }
-            const double w0 = juce::MathConstants<double>::twoPi
-                                * juce::jlimit (10.0, sampleRate * 0.49, (double) fc) / sampleRate;
-            const double cs = std::cos (w0);
-            const double alpha = std::sin (w0) / (2.0 * q);
-            const double a0 = 1.0 + alpha;
-            BQ k {};
-            k.a1 = (float) (-2.0 * cs / a0);
-            k.a2 = (float) ((1.0 - alpha) / a0);
-            if (type == BandPass)      { k.b0 = (float) ( alpha / a0);          k.b1 = 0.0f;              k.b2 = -k.b0; }
-            else if (type == LowPass)  { k.b0 = (float) ((1.0 - cs) * 0.5 / a0); k.b1 = 2.0f * k.b0;      k.b2 = k.b0;  }
-            else                       { k.b0 = (float) ((1.0 + cs) * 0.5 / a0); k.b1 = -2.0f * k.b0;     k.b2 = k.b0;  }
-            for (int s = 0; s < sections; ++s)
-                c[s] = k;
-        }
-
-        float processSample (int ch, float x)
-        {
-            for (int s = 0; s < sections; ++s)
-            {
-                auto& k = c[s]; auto* z = st[ch][s];
-                const float y = k.b0 * x + z[0];
-                z[0] = k.b1 * x - k.a1 * y + z[1];
-                z[1] = k.b2 * x - k.a2 * y;
-                x = y;
-            }
-            return x;
-        }
-    };
-    using BellCascade = FilterCascade;   // the bell path still reads this name
-
-    // Band shapes. All but Tilt are a single unity-gain extraction, so they drop
-    // straight into out = in + B(in)·lift·(g−1). Notch needs no filter of its
-    // own — it is what the bell leaves behind.
-    enum BandShape { ShapeBell = 0, ShapeLow, ShapeHigh, ShapeNotch, ShapeTilt, kNumShapes };
-
-    struct BandDSP
-    {
-        BellCascade bell2, bell4, bell8;      // ≈12 / 24 / 48 dB/oct skirts
-        // Second bank, only fed by Tilt: it needs a low-pass AND a high-pass at
-        // once so the two halves can be panned in opposite directions. Every
-        // other shape leaves these silent and pays nothing for them.
-        BellCascade hi2, hi4, hi8;
-        juce::SmoothedValue<float> slope01;   // 0..1 (param /100), 30 ms
-
-        juce::SmoothedValue<float> lift;      // 0..1
-        juce::SmoothedValue<float> gainLin;   // linear, from ±6 dB
-        juce::SmoothedValue<float> enable;    // 0..1 engage crossfade (~30 ms)
-        juce::SmoothedValue<float> depth;     // 0..1, per-sample (automation-safe)
-        juce::SmoothedValue<float> bias;      // -1..1 static pan offset (resting position)
-        float fcCur = 1000.0f, wCur = 1.0f;            // block-rate fc / width glide state
-        float fcApplied = -1.0f, wApplied = -1.0f;     // last values pushed into the bells
-        int   shapeApplied = -1;                       // a shape change must re-push too
-        bool  cutoffsInit = false;
-
-        void prepare (const juce::dsp::ProcessSpec& spec)
-        {
-            const double sr = spec.sampleRate;
-            bell2.configure (2); bell4.configure (4); bell8.configure (8);
-            bell2.prepare (sr);  bell4.prepare (sr);  bell8.prepare (sr);
-            hi2.configure (2);   hi4.configure (4);   hi8.configure (8);
-            hi2.prepare (sr);    hi4.prepare (sr);    hi8.prepare (sr);
-            slope01.reset (sr, 0.030);
-            lift.reset    (sr, 0.005);
-            gainLin.reset (sr, 0.005);
-            enable.reset  (sr, 0.030);
-            depth.reset   (sr, 0.020);
-            bias.reset    (sr, 0.020);
-            cutoffsInit = false;
-        }
-
-        void resetState()
-        {
-            bell2.reset(); bell4.reset(); bell8.reset();
-            hi2.reset();   hi4.reset();   hi8.reset();
-        }
-
-        void pushBellParams (float fc, float widthOct, int shape)
-        {
-            // The primary bank carries whatever the shape extracts; Notch reads
-            // the bell and subtracts, so it configures as band-pass too.
-            const auto tA = shape == ShapeLow  ? FilterCascade::LowPass
-                          : shape == ShapeHigh ? FilterCascade::HighPass
-                          : shape == ShapeTilt ? FilterCascade::LowPass
-                                               : FilterCascade::BandPass;
-            // Tilt pins both halves to Butterworth so they sum back to the
-            // input; every other shape lets the width knob set resonance.
-            // Tilt pins both halves to Q = 0.7071: two identical such sections are
-            // exactly a squared Butterworth — Linkwitz-Riley 4 — whose halves sum
-            // to a magnitude-flat allpass. Every other shape takes resonance from
-            // the width knob.
-            const double qT = shape == ShapeTilt ? 0.7071 : 0.0;
-            bell2.setParams (fc, widthOct, tA, qT);
-            bell4.setParams (fc, widthOct, tA, qT);
-            bell8.setParams (fc, widthOct, tA, qT);
-            if (shape == ShapeTilt)
-            {
-                hi2.setParams (fc, widthOct, FilterCascade::HighPass, qT);
-                hi4.setParams (fc, widthOct, FilterCascade::HighPass, qT);
-                hi8.setParams (fc, widthOct, FilterCascade::HighPass, qT);
-            }
-        }
-    };
+    // Band extraction + shapes — topology rationale in dsp/FilterCascade.h and
+    // dsp/BandDSP.h. Aliased so the .cpp keeps its unqualified names.
+    using FilterCascade = entropan::FilterCascade;
+    using BellCascade   = entropan::BellCascade;
+    using BandShape     = entropan::BandShape;
+    static constexpr auto ShapeBell  = entropan::ShapeBell;
+    static constexpr auto ShapeLow   = entropan::ShapeLow;
+    static constexpr auto ShapeHigh  = entropan::ShapeHigh;
+    static constexpr auto ShapeNotch = entropan::ShapeNotch;
+    static constexpr auto ShapeTilt  = entropan::ShapeTilt;
+    static constexpr auto kNumShapes = entropan::kNumShapes;
+    using BandDSP = entropan::BandDSP;
 
     std::array<BandDSP, kNumBands> bands;
 
     //==============================================================================
-    // Per-band modulation engine (Phase 4.2). Evaluated PER SAMPLE — free mode
-    // reaches audio rate with no control-grid artifacts. Random modes use
-    // stateless cell hashes → loop-safe, reproducible per seed, re-rollable.
-    struct Modulator
-    {
-        double phase   = 0.0;    // cycle position 0..1 (free/MIDI accumulate; sync derives from PPQ)
-        // ALL six waveforms run off this one clock, each with its own slew —
-        // the pan uses value[mode], the mod matrix can tap any of them
-        // independently (S&H on freq while Sine drives gain, etc.).
-        float  value[kNumWaves] {};      // post-slew outputs (-1..1), one per waveform
-        float  target[kNumWaves] {};
-        float  slewCoeff[kNumWaves] {};  // per-sample one-pole coefficients
-        double lx = 0.1, ly = 0.0, lz = 0.0;   // Lorenz state (one stream per band)
-        float  panOut  = 0.0f;   // final pan (post bias + depth·amount) for scope/telemetry
-        // S&H cell-hash cache — the hashed value is constant for a whole cell,
-        // so rehash only when (cell, seed, reroll) changes.
-        juce::int64 lastCell = std::numeric_limits<juce::int64>::min();
-        int    lastSeed = -1, lastReroll = -1;
-        float  cellA = 0.0f;
-    };
+    // Per-band modulation engine — see dsp/Modulator.h.
+    using Modulator = entropan::Modulator;
     std::array<Modulator, kNumBands> mods;
 
     juce::SmoothedValue<float> outGainSm;    // linear
@@ -389,30 +190,8 @@ private:
     juce::SmoothedValue<float> routingSm;    // 0 = serial, 1 = parallel — crossfaded so the flip never pops
     juce::AudioBuffer<float> dryBuffer;
 
-    // Cached raw parameter pointers (hot path — no string lookups per block)
-    struct BandParams
-    {
-        std::atomic<float>* on;
-        std::atomic<float>* freq;
-        std::atomic<float>* width;
-        std::atomic<float>* lift;
-        std::atomic<float>* depth;
-        std::atomic<float>* gain;
-        std::atomic<float>* mode;
-        std::atomic<float>* rate;
-        std::atomic<float>* ratemode;
-        std::atomic<float>* div;
-        std::atomic<float>* inertia;
-        std::atomic<float>* phase;
-        std::atomic<float>* uni;
-        std::atomic<float>* freeze;     // pause the band's modulators (all six hold their value)
-        std::atomic<float>* bias;
-        std::atomic<float>* biasFree;   // override: drop the bias headroom clamp (pan may hit the rail)
-        std::atomic<float>* stepSmooth; // Steps mode: 0 = square, 100 = glide between steps
-        std::atomic<float>* slope;      // 0..100 %, continuous log morph: 12 → 24 → 48 dB/oct
-        std::atomic<float>* solo;       // monitor this band alone (its bell, panned)
-        std::atomic<float>* shape;      // Bell / Low / High / Notch / Tilt
-    };
+    // Cached raw parameter pointers — see dsp/BandParams.h.
+    using BandParams = entropan::BandParams;
     std::array<BandParams, kNumBands> bandParams {};
     std::atomic<float>* pAmount = nullptr;
     std::atomic<float>* pOutput = nullptr;
@@ -464,19 +243,9 @@ private:
 
 public:
     //==============================================================================
-    // ── Steps engine (Phase 4.3) ──
-    // Slot-stable ratchets parsed from the per-band JSON into RT-safe snapshots
-    // (double-buffered, atomic index swap — message thread writes, audio reads).
-    struct StepSlot  { int subdiv = 1; float vals[4] { 0, 0, 0, 0 }; bool tie = false; };  // tie = glued to the run on its left
-    struct StepsData
-    {
-        int count = 0;
-        StepSlot slots[kMaxSteps];
-        // precomputed glue runs (message thread): for each cell, the run's leader
-        // index and length. A glued step holds the leader's value across the run.
-        int runStart[kMaxSteps] {};
-        int runLen[kMaxSteps] {};
-    };
+    // ── Steps engine (Phase 4.3) — structs in dsp/Steps.h ──
+    using StepSlot  = entropan::StepSlot;
+    using StepsData = entropan::StepsData;
 
     // ── UI telemetry (Phase 4.3) ──
     std::atomic<int>   lastMidiNote { -1 };
@@ -513,7 +282,7 @@ private:
     std::array<float, kNumDests> modVal {};   // per-block post-modulation values (natural units)
     int scopePhase = 0;
 
-                juce::AbstractFifo analyzerFifo { 1 << 17 };
+    juce::AbstractFifo analyzerFifo { 1 << 17 };
     std::vector<float> analyzerStore;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EntropanAudioProcessor)
