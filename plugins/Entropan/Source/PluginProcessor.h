@@ -2,7 +2,6 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
-#include <limits>
 
 // The DSP building blocks live in Source/dsp/ (one concern per header); this
 // class keeps access-identical aliases for every relocated name, so call sites
@@ -51,10 +50,10 @@ public:
     static constexpr int kMaxSteps = entropan::kMaxSteps;
 
     // Wow & flutter spec — rationale and derivations in dsp/EntropanSpec.h.
+    // (Only the constants the .cpp / NullTest actually reach through the class
+    // are aliased; the pitch depths live solely in entropan::.)
     static constexpr double kWowRate    = entropan::kWowRate;
     static constexpr double kFlutRate   = entropan::kFlutRate;
-    static constexpr double kWowPitch   = entropan::kWowPitch;
-    static constexpr double kFlutPitch  = entropan::kFlutPitch;
     static constexpr double kWowPeakS   = entropan::kWowPeakS;
     static constexpr double kFlutPeakS  = entropan::kFlutPeakS;
     static constexpr double kBaseDelayS = entropan::kBaseDelayS;
@@ -138,7 +137,6 @@ public:
     static constexpr int kMaxRoutes = entropan::kMaxRoutes;
     static constexpr int kDestSlotsPerBand = entropan::kDestSlotsPerBand;
     static constexpr int kNumDests = entropan::kNumDests;
-    using ModRoute   = entropan::ModRoute;
     using RoutesData = entropan::RoutesData;
     juce::String getRoutesJson() const;
     void setRoutesJson (const juce::String& json);
@@ -166,13 +164,7 @@ private:
 
     //==============================================================================
     // Band extraction + shapes — topology rationale in dsp/FilterCascade.h and
-    // dsp/BandDSP.h. Aliased so the .cpp keeps its unqualified names.
-    using FilterCascade = entropan::FilterCascade;
-    using BellCascade   = entropan::BellCascade;
-    using BandShape     = entropan::BandShape;
-    static constexpr auto ShapeBell  = entropan::ShapeBell;
-    static constexpr auto ShapeLow   = entropan::ShapeLow;
-    static constexpr auto ShapeHigh  = entropan::ShapeHigh;
+    // dsp/BandDSP.h. Only the names the .cpp reaches unqualified are aliased.
     static constexpr auto ShapeNotch = entropan::ShapeNotch;
     static constexpr auto ShapeTilt  = entropan::ShapeTilt;
     static constexpr auto kNumShapes = entropan::kNumShapes;
@@ -223,7 +215,6 @@ private:
 public:
     //==============================================================================
     // ── Steps engine (Phase 4.3) — structs in dsp/Steps.h ──
-    using StepSlot  = entropan::StepSlot;
     using StepsData = entropan::StepsData;
 
     // ── UI telemetry (Phase 4.3) ──

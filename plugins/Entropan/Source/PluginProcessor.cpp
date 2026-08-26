@@ -341,16 +341,15 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     wf.wowPhase = wf.flutPhase = 0.0;
     env.scLp = env.state = env.out = 0.0f;
 
-    // Cache raw parameter pointers once (RT-safe reads afterwards).
-    gp.amount = apvts.getRawParameterValue ("amount");
-    gp.output = apvts.getRawParameterValue ("output");
+    // Cache raw parameter pointers once (RT-safe reads afterwards). amount /
+    // output / flux are mod-matrix destinations — processBlock reads them via
+    // modDests / modVal[], so they are not cached here.
     gp.bypass = apvts.getRawParameterValue ("bypass");
     gp.seed   = apvts.getRawParameterValue ("seed");
     gp.speed  = apvts.getRawParameterValue ("speed");
     gp.routing = apvts.getRawParameterValue ("routing");
     gp.wow     = apvts.getRawParameterValue ("wow");
     gp.flutter = apvts.getRawParameterValue ("flutter");
-    gp.flux    = apvts.getRawParameterValue ("flux");
     gp.envAtk  = apvts.getRawParameterValue ("env_atk");
     gp.envRel  = apvts.getRawParameterValue ("env_rel");
     gp.envScf  = apvts.getRawParameterValue ("env_scf");
@@ -361,22 +360,12 @@ void EntropanAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
         const juce::String p = "b" + juce::String (i + 1) + "_";
         bandParams[(size_t) i] = {
             apvts.getRawParameterValue (p + "on"),
-            apvts.getRawParameterValue (p + "freq"),
-            apvts.getRawParameterValue (p + "width"),
-            apvts.getRawParameterValue (p + "lift"),
-            apvts.getRawParameterValue (p + "depth"),
-            apvts.getRawParameterValue (p + "gain"),
             apvts.getRawParameterValue (p + "mode"),
-            apvts.getRawParameterValue (p + "rate"),
             apvts.getRawParameterValue (p + "ratemode"),
             apvts.getRawParameterValue (p + "div"),
-            apvts.getRawParameterValue (p + "inertia"),
-            apvts.getRawParameterValue (p + "phase"),
             apvts.getRawParameterValue (p + "uni"),
             apvts.getRawParameterValue (p + "freeze"),
-            apvts.getRawParameterValue (p + "bias"),
             apvts.getRawParameterValue (p + "override"),
-            apvts.getRawParameterValue (p + "stepsmooth"),
             apvts.getRawParameterValue (p + "slope"),
             apvts.getRawParameterValue (p + "solo"),
             apvts.getRawParameterValue (p + "shape")
