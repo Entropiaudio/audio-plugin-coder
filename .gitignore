@@ -60,3 +60,7 @@ cloudwash_crash_log.txt
 _backups/
 dist/
 build-debug/
+
+# Local tool output (knowledge-graph builds, Browser-pane launch config)
+graphify-out/
+.claude/launch.json
