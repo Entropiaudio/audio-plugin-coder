@@ -496,38 +496,49 @@ SNIPBridgeAudioProcessor::FeedbackScores SNIPBridgeAudioProcessor::computeFeedba
     const auto& gp = genreProfiles[genreIndex];
 
     // --- DYNAMICS SCORE + DIRECTION ---
-    auto rangeScore = [](float val, float lo, float hi) -> float
+    // Reference profiles use integrated LUFS across full songs, but we're scoring
+    // against short-term (3s) LUFS which swings much wider. Use generous tolerance:
+    // widen the target range by the genre's own stddev on each side, and allow
+    // a gentle falloff beyond that (6 dB grace before hitting 0%).
+    auto rangeScore = [](float val, float lo, float hi, float extraMargin) -> float
     {
-        if (val >= lo && val <= hi)
+        float wideLo = lo - extraMargin;
+        float wideHi = hi + extraMargin;
+        if (val >= wideLo && val <= wideHi)
             return 100.0f;
 
-        float dist = (val < lo) ? (lo - val) : (val - hi);
-        float range = hi - lo;
-        float tolerance = range * 0.5f;
-        return juce::jlimit (0.0f, 100.0f, 100.0f * (1.0f - dist / (tolerance + 1.0f)));
+        float dist = (val < wideLo) ? (wideLo - val) : (val - wideHi);
+        // Gentle falloff: 6 dB grace outside the widened range
+        return juce::jlimit (0.0f, 100.0f, 100.0f * (1.0f - dist / 6.0f));
     };
 
-    float lufsScore = rangeScore (currentLufs, gp.lufsLo, gp.lufsHi);
-    float rmsScore  = rangeScore (currentRms, gp.rmsLo, gp.rmsHi);
+    // Use genre stddev as extra margin to account for short-term vs integrated
+    float lufsStdDev = (gp.lufsHi - gp.lufsLo) * 0.5f;  // approximate stddev from range
+    float rmsStdDev  = (gp.rmsHi - gp.rmsLo) * 0.5f;
+
+    float lufsScore = rangeScore (currentLufs, gp.lufsLo, gp.lufsHi, lufsStdDev);
+    float rmsScore  = rangeScore (currentRms, gp.rmsLo, gp.rmsHi, rmsStdDev);
 
     if (currentLufs <= -55.0f) lufsScore = 0.0f;
     if (currentRms <= -55.0f) rmsScore = 0.0f;
 
     scores.dynamics = (lufsScore + rmsScore) * 0.5f;
 
-    // Direction: based on LUFS position relative to genre range
+    // Direction: use the widened range for direction too
     if (currentLufs > -55.0f)
     {
-        if (currentLufs > gp.lufsHi)
+        if (currentLufs > gp.lufsHi + lufsStdDev)
             scores.dynamicsDir = 1;   // too loud
-        else if (currentLufs < gp.lufsLo)
+        else if (currentLufs < gp.lufsLo - lufsStdDev)
             scores.dynamicsDir = -1;  // too quiet
         else
             scores.dynamicsDir = 0;   // on target
     }
 
-    // --- TONALITY SCORE + DIRECTION (genre-comparative) ---
-    // Compare 6 spectral bands against genre bandMeans/bandStdDevs
+    // --- TONALITY SCORE + DIRECTION (genre-comparative, shape-based) ---
+    // Compare spectral SHAPE, not absolute levels. Normalize both current
+    // spectrum and genre target to their averages, then compare the relative
+    // balance between bands. This way a quiet mix with perfect shape scores 100%.
     {
         float bandScoreSum = 0.0f;
         float worstDeviation = 0.0f;
@@ -551,14 +562,33 @@ SNIPBridgeAudioProcessor::FeedbackScores SNIPBridgeAudioProcessor::computeFeedba
 
         if (hasBandData)
         {
+            // Compute average level for both current and genre target
+            float currentAvg = 0.0f, genreAvg = 0.0f;
             for (int b = 0; b < 6; ++b)
             {
-                float delta = currentBands[b] - gp.bandMeans[b];
-                float stdDev = gp.bandStdDevs[b];
-                float deviation = std::abs (delta) / (stdDev + 0.01f);
+                currentAvg += currentBands[b];
+                genreAvg += gp.bandMeans[b];
+            }
+            currentAvg /= 6.0f;
+            genreAvg /= 6.0f;
 
-                // Score: within 1 stddev = 67-100%, within 2 = 33-67%, beyond 3 = 0%
-                float bandScore = juce::jlimit (0.0f, 100.0f, 100.0f * (1.0f - deviation / 3.0f));
+            // Compare shape: how each band deviates from its own average.
+            // The reference stddevs represent inter-song variation, but real-time
+            // FFT snapshots vary much more within a single song. Use 2x stddev
+            // as the baseline tolerance, and score gently (within 2x = 100%,
+            // needs 6x stddev to hit 0%).
+            for (int b = 0; b < 6; ++b)
+            {
+                float currentShape = currentBands[b] - currentAvg;
+                float genreShape = gp.bandMeans[b] - genreAvg;
+                float delta = currentShape - genreShape;
+                float stdDev = gp.bandStdDevs[b];
+
+                // Normalize deviation: 2x stddev is "on target", 6x is "way off"
+                float deviation = std::abs (delta) / (stdDev * 2.0f + 0.01f);
+
+                // Forgiving: within 1 (= 2 raw stddevs) = 100%, within 2 (= 4 raw) = 50%, etc.
+                float bandScore = juce::jlimit (0.0f, 100.0f, 100.0f * (1.0f - deviation / 2.0f));
                 bandScoreSum += bandScore;
 
                 if (deviation > worstDeviation)
@@ -599,29 +629,30 @@ SNIPBridgeAudioProcessor::FeedbackScores SNIPBridgeAudioProcessor::computeFeedba
     }
 
     // --- WIDTH SCORE + DIRECTION ---
-    scores.width = rangeScore (currentWidth, gp.widthLo, gp.widthHi);
+    float widthMargin = (gp.widthHi - gp.widthLo) * 0.5f;
+    scores.width = rangeScore (currentWidth, gp.widthLo, gp.widthHi, widthMargin);
 
-    if (currentWidth > gp.widthHi)
+    if (currentWidth > gp.widthHi + widthMargin)
         scores.widthDir = 1;   // too wide
-    else if (currentWidth < gp.widthLo)
+    else if (currentWidth < std::max (0.0f, gp.widthLo - widthMargin))
         scores.widthDir = -1;  // too narrow
     else
         scores.widthDir = 0;   // on target
 
     // --- CORRELATION SCORE + DIRECTION ---
-    if (currentCorr >= gp.corrMin)
-        scores.correlation = juce::jlimit (50.0f, 100.0f, 50.0f + 50.0f * ((currentCorr - gp.corrMin) / (1.0f - gp.corrMin + 0.01f)));
-    else
-        scores.correlation = juce::jlimit (0.0f, 50.0f, 50.0f * (currentCorr / (gp.corrMin + 0.01f)));
-
+    // Simple 3-zone mapping (genre-independent, forgiving):
+    //   corr < 0    → 0-33%  (out of phase)
+    //   corr 0-0.3  → 33-67% (lots of stereo info)
+    //   corr > 0.3  → 67-100% (looking good)
     if (currentCorr < 0.0f)
-        scores.correlation = juce::jlimit (0.0f, 20.0f, 20.0f * (1.0f + currentCorr));
-
-    // Direction: low correlation or negative = phase issues
-    if (currentCorr < gp.corrMin)
-        scores.correlationDir = -1;
+        scores.correlation = juce::jlimit (0.0f, 33.0f, 33.0f * (1.0f + currentCorr));
+    else if (currentCorr < 0.3f)
+        scores.correlation = 33.0f + 34.0f * (currentCorr / 0.3f);
     else
-        scores.correlationDir = 0;
+        scores.correlation = 67.0f + 33.0f * juce::jlimit (0.0f, 1.0f, (currentCorr - 0.3f) / 0.7f);
+
+    // Direction: only flag issues when actually negative
+    scores.correlationDir = (currentCorr < 0.0f) ? -1 : 0;
 
     return scores;
 }

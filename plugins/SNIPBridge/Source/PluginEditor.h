@@ -38,12 +38,14 @@ private:
 
     // 1. PARAMETER RELAYS (Destroyed last)
     juce::WebSliderRelay genreRelay { "target_genre" };
+    juce::WebSliderRelay reactionRelay { "analysis_window" };
 
     // 2. WEBBROWSERCOMPONENT (Destroyed middle)
     std::unique_ptr<juce::WebBrowserComponent> webView;
 
     // 3. PARAMETER ATTACHMENTS (Destroyed first)
     std::unique_ptr<juce::WebSliderParameterAttachment> genreAttachment;
+    std::unique_ptr<juce::WebSliderParameterAttachment> reactionAttachment;
 
     //==============================================================================
     // Resource provider for embedded web files

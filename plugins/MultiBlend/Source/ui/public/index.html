@@ -1,0 +1,3179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MultiBlend</title>
+  <script type="module">
+    // ─── Mock bridge for browser/localhost preview (no JUCE backend) ───
+    function installMock() {
+      function mockState() {
+        let v = 0.5; const ls = [];
+        return {
+          getNormalisedValue: () => v,
+          setNormalisedValue: (x) => { v = x; ls.forEach(l => l()); },
+          getScaledValue: () => v,
+          valueChangedEvent: { addListener: (l) => ls.push(l) },
+          getValue: () => v > 0.5,
+          setValue: (b) => { v = b ? 1 : 0; ls.forEach(l => l()); },
+        };
+      }
+      window.J = {
+        getNativeFunction: () => (() => Promise.resolve(null)),
+        getSliderState: mockState,
+        getToggleState: mockState,
+      };
+      window.__juceLoadStatus = 'MOCK (preview)';
+      window.dispatchEvent(new Event('juce-ready'));
+    }
+
+    if (typeof window.__JUCE__ === 'undefined') {
+      // Running in a plain browser → preview mode, use mock immediately.
+      installMock();
+    } else {
+      try {
+        const mod = await import('./js/juce/index.js');
+        window.J = { getNativeFunction: mod.getNativeFunction, getSliderState: mod.getSliderState, getToggleState: mod.getToggleState };
+        window.__juceLoadStatus = 'OK';
+        window.dispatchEvent(new Event('juce-ready'));
+      } catch (e) {
+        window.__juceLoadStatus = 'FAIL: ' + e.message;
+        console.error('JUCE module load failed, falling back to mock:', e);
+        installMock();
+      }
+    }
+  </script>
+  <!-- Entropia plugin template (loaded BEFORE inline so MBE-specific rules win) -->
+  <link rel="stylesheet" href="design-tokens.css">
+  <link rel="stylesheet" href="entropia-header.css">
+  <link rel="stylesheet" href="entropia-buttons.css">
+  <link rel="stylesheet" href="knob.css">
+  <script src="knob-renderer.js"></script>
+  <style>
+    /* ─── INTER VARIABLE FONT (bundled, served from BinaryData) ─── */
+    @font-face {
+      font-family: 'Inter';
+      src: url('fonts/Inter-Variable.woff2') format('woff2-variations');
+      font-weight: 100 900;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    /* ─── DESIGN TOKENS (Entropia Audio brand) ─── */
+    /* MultiBlend band-specific accents (template provides everything else
+       via design-tokens.css — copper brand + warm earth palette). */
+    :root {
+      --band-low:  var(--section-space);   /* cyan        */
+      --band-mid:  var(--section-tone);    /* mint green  */
+      --band-high: var(--section-duck);    /* warm amber  */
+    }
+
+    /* ─── Chaosverb pill-glow button (use on save/mutate/create actions) ───
+       Class: .btn-pill-glow — transparent until hover, then cyan halo. */
+    .btn-pill-glow {
+      background: transparent;
+      border: 1px solid #444;
+      color: #888;
+      font-family: inherit;
+      font-size: 8px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-indent: 0.14em;
+      text-transform: uppercase;
+      padding: 0 16px;
+      height: 22px;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: all var(--t-fast) ease;
+      box-shadow: 0 0 6px var(--action-create-glow),
+                  inset 0 0 4px rgba(0, 212, 255, 0.05);
+    }
+    .btn-pill-glow:hover {
+      border-color: var(--action-create);
+      color: var(--action-create);
+      box-shadow: 0 0 10px var(--action-create-glow);
+    }
+    .btn-pill-glow:active {
+      background: rgba(0, 212, 255, 0.08);
+    }
+    .btn-pill-glow.firing {
+      border-color: #fff;
+      color: #fff;
+      box-shadow: 0 0 20px rgba(255, 255, 255, 0.4);
+    }
+
+    /* ─── CHAOS button (Chaosverb .mutate-btn clone) ─── */
+    .mutate-btn {
+      background: transparent;
+      border: 1px solid #444444;
+      color: #888888;
+      font-family: inherit;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-indent: 0.14em;
+      text-transform: uppercase;
+      padding: 0;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 0 6px rgba(212, 165, 116, 0.15), inset 0 0 4px rgba(212, 165, 116, 0.05);
+      width: 130px;
+      height: 20px;
+      line-height: 18px;
+      font-size: 7px;
+      text-align: center;
+      box-sizing: border-box;
+    }
+    .mutate-btn:hover {
+      border-color: #D4A574;
+      color: #D4A574;
+      box-shadow: 0 0 10px rgba(212, 165, 116, 0.2);
+    }
+    .mutate-btn:active { background: rgba(212, 165, 116, 0.08); }
+    .mutate-btn.firing {
+      border-color: #ffffff;
+      color: #ffffff;
+      box-shadow: 0 0 20px rgba(255, 255, 255, 0.4);
+    }
+
+    /* ─── Chaos timer cluster (header-right, before knobs) ─── */
+    .chaos-timer-cluster {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-right: 8px;
+    }
+
+    /* ─── STOP/START timer toggle — visual clone of .mutate-btn (narrower) ─── */
+    .timer-toggle {
+      background: transparent;
+      border: 1px solid #444444;
+      color: #888888;
+      font-family: inherit;
+      font-size: 7px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-indent: 0.14em;
+      text-transform: uppercase;
+      padding: 0;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      box-shadow: 0 0 6px rgba(212, 165, 116, 0.15), inset 0 0 4px rgba(212, 165, 116, 0.05);
+      width: 56px;
+      height: 20px;
+      line-height: 18px;
+      text-align: center;
+      box-sizing: border-box;
+      user-select: none;
+    }
+    .timer-toggle:hover {
+      border-color: #D4A574;
+      color: #D4A574;
+      box-shadow: 0 0 10px rgba(212, 165, 116, 0.2);
+    }
+    .timer-toggle.is-stopped {
+      border-color: rgba(212, 165, 116, 0.55);
+      color: #D4A574;
+      box-shadow: 0 0 10px rgba(212, 165, 116, 0.25),
+                  inset 0 0 4px rgba(212, 165, 116, 0.08);
+    }
+    .timer-toggle.is-stopped:hover {
+      border-color: #D4A574;
+      box-shadow: 0 0 14px rgba(212, 165, 116, 0.3);
+    }
+
+    /* Two-row timer layout: [START][MODE][value]  +  [slider] */
+    .chaos-timer-col {
+      display: flex; flex-direction: column;
+      align-items: stretch;
+      gap: 8px;                  /* bigger gap → slider sits lower */
+      margin-right: 8px;
+      min-width: 170px;
+      padding-bottom: 4px;
+    }
+    .chaos-timer-row {
+      display: flex; align-items: center; gap: 4px;
+    }
+    .timer-value-label {
+      flex: 1; min-width: 44px;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: var(--accent);
+      text-align: center;
+      user-select: none;
+    }
+    .timer-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 4px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: 2px;
+      outline: none;
+      cursor: ew-resize;
+      padding: 0;
+      margin: 0;
+    }
+    .timer-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 4px var(--accent-glow);
+      cursor: ew-resize;
+      border: none;
+    }
+    .timer-slider::-moz-range-thumb {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 4px var(--accent-glow);
+      cursor: ew-resize;
+      border: none;
+    }
+
+    /* [undo] [CHAOS] [redo] row — Chaosverb layout. CHAOS flanked by undo/redo. */
+    .chaos-row {
+      display: flex; align-items: center; gap: 4px;
+      width: 160px;
+    }
+    .chaos-row > .undo-btn  { flex: 0 0 30px; width: 30px; }
+    .chaos-row > .mutate-btn { flex: 1 1 0; width: auto; min-width: 0; }
+    .undo-btn {
+      height: 20px;
+      background: transparent;
+      border: 1px solid #444444;
+      color: #888888;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1;
+      padding: 0;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex; align-items: center; justify-content: center;
+      user-select: none;
+      box-sizing: border-box;
+    }
+    .undo-btn:hover:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .undo-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    /* Timer mode toggle — MS = brown/copper, SYNC = Chaosverb purple */
+    .timer-mode-btn {
+      background: transparent;
+      border: 1px solid #8c6f4d;
+      color: #d4a574;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-indent: 0.18em;          /* compensate trailing letter-space → optical center */
+      padding: 0 10px;
+      height: 20px;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      min-width: 50px;
+      text-align: center;
+      box-sizing: border-box;
+      user-select: none;
+      box-shadow: 0 0 6px rgba(212, 165, 116, 0.20),
+                  inset 0 0 4px rgba(212, 165, 116, 0.06);
+    }
+    .timer-mode-btn:hover {
+      filter: brightness(1.15);
+    }
+    .timer-mode-btn.sync-mode {
+      border-color: #c77dff;
+      color: #d8b0ff;
+      box-shadow: 0 0 10px rgba(199, 125, 255, 0.35),
+                  inset 0 0 4px rgba(199, 125, 255, 0.10);
+    }
+
+    /* Timer interval cycle button (sits between START/STOP + countdown) */
+    .timer-interval-btn {
+      background: transparent;
+      border: 1px solid var(--border-bright);
+      color: var(--text-secondary);
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-indent: 0.05em;
+      padding: 0 8px;
+      height: 20px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      min-width: 50px;
+      text-align: center;
+      box-sizing: border-box;
+      user-select: none;
+    }
+    .timer-interval-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .timer-interval-btn.sync-mode {
+      background: rgba(212,165,116,0.10);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* ─── Countdown — Entropia copper ─── */
+    .countdown {
+      font-family: 'JetBrains Mono', ui-monospace, 'Courier New', monospace;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: var(--accent);
+      line-height: 1;
+      opacity: 0.85;
+      transition: color 0.3s ease, opacity 0.3s ease;
+      text-shadow: 0 0 8px var(--accent-glow);
+      font-variant-numeric: tabular-nums;
+      width: 80px;
+      text-align: right;
+    }
+    .countdown.stopped { opacity: 0.6; }
+
+    /* ─── Knob LOCK state (right-click any knob to exclude from chaos) ─── */
+    /* Legacy .knob locked state (global header + slot D/W) — dim + white halo */
+    .knob.chaos-locked {
+      opacity: 0.55;
+      filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.18));
+    }
+    .knob.chaos-locked .knob-indicator {
+      background: #cfcfcf;
+      box-shadow: 0 0 3px rgba(255, 255, 255, 0.35);
+    }
+    /* CVKnob locked state — Chaosverb pattern: dim ring + faint white halo */
+    .knob-wrap.chaos-locked { position: relative; }
+    .knob-wrap.chaos-locked .knob-body {
+      opacity: 0.55;
+      filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.18));
+    }
+    .knob-wrap.chaos-locked .knob-body .knob-indicator {
+      background: #cfcfcf !important;
+      box-shadow: 0 0 3px rgba(255, 255, 255, 0.35) !important;
+      opacity: 0.85;
+    }
+    .knob-wrap.chaos-locked .knob-label,
+    .knob-wrap.chaos-locked .knob-value {
+      opacity: 0.55;
+    }
+
+    button:focus-visible, input:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    html, body { height: 100%; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      user-select: none; -webkit-user-select: none;
+      cursor: default; overflow: hidden;
+      background: #060608;
+      color: var(--text-primary);
+      font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+      font-size: 11px;
+    }
+
+    /* ─── PLUGIN SHELL ─── */
+    .plugin-shell {
+      width: 1400px; height: 800px;
+      background: radial-gradient(ellipse at 50% 30%, #1a1a22 0%, #0e0e12 45%, #060608 100%);
+      position: relative;
+      display: flex; flex-direction: column;
+    }
+    .plugin-shell::before {
+      content: ''; position: absolute; inset: 0; z-index: 0;
+      opacity: 0.14; pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-size: 200px 200px; mix-blend-mode: overlay;
+    }
+    .plugin-shell > * { position: relative; z-index: 1; }
+
+    /* ─── HEADER ─── */
+    .header {
+      width: 100%; height: 88px;
+      background: var(--bg-shell);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex; align-items: center; padding: 0 20px;
+      flex-shrink: 0; position: relative; z-index: 100;
+      /* No overflow: hidden — would clip preset dropdown that drops below header */
+    }
+    .header-left {
+      display: flex; flex-direction: column; justify-content: center; gap: 3px;
+    }
+    /* Match Chaosverb editorial title — Montserrat light 26px, mixed case,
+       tight tracking, neg margin to align 'M' left edge with eyebrow 'E'. */
+    .plugin-title {
+      font-family: 'Montserrat', system-ui, sans-serif;
+      font-size: 26px;
+      font-weight: 300;
+      letter-spacing: -0.02em;
+      text-transform: none;
+      color: var(--text-primary);
+      line-height: 0.95;
+      margin: 0 0 0 -2px;
+      padding: 0;
+      text-indent: 0;
+      font-kerning: none;
+      font-feature-settings: "kern" 0;
+      text-rendering: geometricPrecision;
+    }
+    /* Eyebrow — copper accent BELOW title, JBM mono uppercase. */
+    .plugin-eyebrow {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+      line-height: 1;
+      margin: 6px 0 0 0;
+      padding: 0;
+      text-indent: 0;
+      font-kerning: none;
+      font-feature-settings: "kern" 0;
+      text-rendering: geometricPrecision;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .header-center {
+      position: absolute; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      pointer-events: none;
+    }
+    .header-center > * { pointer-events: auto; }
+
+    /* Linear Phase toggle pill */
+    .pill-toggle {
+      padding: 4px 14px; border-radius: 14px;
+      background: rgba(22,22,26,0.6); border: 1px solid var(--border-bright);
+      color: var(--text-secondary);
+      font-family: inherit; font-size: 9px; font-weight: 600;
+      letter-spacing: 0.14em; text-indent: 0.14em; text-transform: uppercase;
+      cursor: pointer; transition: all var(--t-fast) ease;
+    }
+    .pill-toggle:hover { border-color: var(--accent); color: var(--accent); }
+    .pill-toggle.active {
+      background: rgba(199,125,255,0.12); border-color: var(--accent);
+      color: var(--accent-bright);
+      box-shadow: 0 0 8px rgba(199,125,255,0.2);
+    }
+
+    /* Preset dropdown */
+    .header-preset-bar { position: relative; width: 160px; }
+    .preset-dropdown-btn {
+      width: 100%; height: 22px;
+      background: rgba(22,22,26,0.5);
+      border: 1px solid rgba(58,58,62,0.6);
+      color: var(--text-dim); font-family: inherit;
+      font-size: 8px; letter-spacing: 0.08em; text-transform: uppercase;
+      padding: 0 10px; border-radius: 11px; cursor: pointer;
+      display: flex; align-items: center; justify-content: space-between; gap: 4px;
+      opacity: 0.8; transition: all var(--t-fast) ease;
+    }
+    .preset-dropdown-btn:hover {
+      opacity: 1; border-color: rgba(199,125,255,0.4); color: var(--text-secondary);
+    }
+    .preset-dropdown-btn.has-preset {
+      color: var(--accent); border-color: rgba(199,125,255,0.5); opacity: 1;
+    }
+    .preset-current {
+      flex: 1; text-align: left; white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; text-transform: none;
+      letter-spacing: 0.03em; font-size: 9px;
+    }
+    .preset-current.placeholder {
+      text-transform: uppercase; letter-spacing: 0.08em; font-size: 8px;
+    }
+    .preset-arrow {
+      font-size: 10px; color: var(--text-dim); flex-shrink: 0;
+      transition: transform var(--t-fast) ease;
+    }
+    .preset-dropdown-btn.open .preset-arrow { transform: rotate(180deg); }
+
+    .preset-dropdown-menu {
+      position: absolute; top: 26px; left: 0; right: 0;
+      max-height: 280px; overflow-y: auto;
+      background: linear-gradient(180deg, #1c1c20 0%, #16161a 100%);
+      border: 1px solid var(--border-bright);
+      border-radius: 12px;
+      box-shadow: 0 10px 28px rgba(0,0,0,0.75);
+      z-index: 9000; opacity: 0; pointer-events: none;
+      transform: translateY(-4px);
+      transition: opacity var(--t-fast) ease, transform var(--t-fast) ease;
+      padding: 5px; display: flex; flex-direction: column; gap: 2px;
+    }
+    .preset-dropdown-menu.visible {
+      opacity: 1; pointer-events: auto; transform: translateY(0);
+    }
+    .preset-row {
+      display: flex; align-items: center; width: 100%; height: 18px;
+      padding: 0 8px; background: transparent;
+      border: 1px solid #2e2e32; border-radius: 8px; cursor: pointer;
+      font-family: inherit; font-size: 8px; font-weight: 600;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--text-secondary); text-align: left;
+      transition: all var(--t-fast) ease;
+    }
+    .preset-row:hover {
+      background: rgba(199,125,255,0.08);
+      border-color: rgba(199,125,255,0.4); color: var(--accent);
+    }
+    .preset-row.preset-action { color: var(--accent); border-color: rgba(199,125,255,0.35); }
+    .preset-row .preset-action-icon {
+      width: 10px; height: 10px; margin-right: 6px;
+      font-size: 9px; line-height: 1; display: inline-flex;
+      align-items: center; justify-content: center; opacity: 0.85;
+    }
+    .preset-divider { height: 1px; background: var(--border-subtle); margin: 3px 4px; }
+    .preset-section-label {
+      padding: 4px 8px 2px 10px; font-size: 7px;
+      letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--text-dim);
+    }
+    .preset-dropdown-menu .preset-item-name {
+      flex: 1; text-transform: none !important;
+      letter-spacing: 0.03em; font-weight: 500;
+      font-size: 9px; color: var(--text-primary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .preset-item-delete {
+      background: transparent; border: none; color: var(--text-dim);
+      cursor: pointer; font-size: 12px; line-height: 1; padding: 0 0 0 6px;
+    }
+    .preset-item-delete:hover { color: var(--state-error); }
+
+    /* Right-side mini knobs (global In/Out/D/W) */
+    .header-right {
+      margin-left: auto; display: flex; align-items: center; gap: 14px;
+    }
+
+    /* ─── SPECTRUM ─── */
+    .spectrum-container {
+      position: relative; overflow: hidden;
+      transition: height 300ms ease-in-out, min-height 300ms ease-in-out;
+      height: 200px; min-height: 200px;
+      background: var(--bg-shell);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .spectrum-container.collapsed { height: 0; min-height: 0; border-bottom: none; }
+    .spectrum-canvas { width: 100%; height: 100%; display: block; }
+    .collapse-bar {
+      height: 22px; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; background: var(--bg-shell);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .collapse-bar.hidden { display: none; }
+    .collapse-bar span {
+      font-size: 9px; color: var(--text-dim);
+      letter-spacing: 0.14em; text-transform: uppercase;
+      transition: color 150ms;
+    }
+    .collapse-bar:hover span { color: var(--accent); }
+    .spectrum-toggle-btn {
+      position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
+      background: rgba(22,22,26,0.8); border: 1px solid var(--border-bright);
+      border-radius: 9px; width: 32px; height: 16px;
+      cursor: pointer; font-size: 8px; color: var(--text-dim);
+      z-index: 5; display: flex; align-items: center; justify-content: center;
+      transition: all var(--t-fast) ease;
+    }
+    .spectrum-toggle-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+    /* ─── BANDS ─── */
+    .bands-container { display: flex; flex: 1; overflow: hidden; }
+    .band-column {
+      flex: 1; display: flex; flex-direction: column;
+      padding: 5px; gap: 3px;
+      background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.15) 100%);
+    }
+    .band-column:not(:last-child) { border-right: 1px solid var(--border-divider); }
+    .band-column[data-band="low"]  { background-color: rgba(58, 184, 212, 0.04); }
+    .band-column[data-band="mid"]  { background-color: rgba(95, 200, 138, 0.04); }
+    .band-column[data-band="high"] { background-color: rgba(214, 136, 74, 0.04); }
+    /* Bypassed band: dim the SLOTS + band knobs to show inactive, but keep the
+       S/M/B button row fully lit + clickable so B reads as a re-enable toggle. */
+    .band-column.bypassed .slot-card,
+    .band-column.bypassed .cv-knob-slot,
+    .band-column.bypassed .knob-sep { opacity: 0.32; }
+    .band-column.bypassed .band-label { opacity: 0.45; }
+
+    /* BAND STRIP */
+    .band-strip {
+      background: linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg-card) 100%);
+      border-radius: 6px;
+      padding: 6px 10px 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04);
+      display: flex; flex-direction: column; gap: 6px;
+      border: 1px solid var(--border-bright);
+    }
+    .band-strip-row { display: flex; align-items: center; gap: 4px; }
+    .band-strip-row.centered { justify-content: center; gap: 8px; }
+    .band-label {
+      font-size: 10px; font-weight: 700; flex: 1;
+      letter-spacing: 0.22em; text-transform: uppercase;
+    }
+    .band-label[data-band="low"]  { color: var(--band-low); }
+    .band-label[data-band="mid"]  { color: var(--band-mid); }
+    .band-label[data-band="high"] { color: var(--band-high); }
+    .band-freq {
+      font-size: 9px; color: var(--text-dim);
+      letter-spacing: 0.06em; font-variant-numeric: tabular-nums;
+    }
+    .band-btn {
+      width: 22px; height: 18px;
+      border: 1px solid var(--border-bright);
+      border-radius: 9px; background: var(--bg-shell);
+      font-size: 8px; font-weight: 700;
+      letter-spacing: 0;          /* single-char button — no spacing, perfect center */
+      padding: 0;
+      color: var(--text-secondary);
+      cursor: pointer; transition: all var(--t-fast) ease;
+      display: flex; align-items: center; justify-content: center;
+      font-family: inherit;
+    }
+    .band-btn:hover { border-color: var(--text-secondary); color: var(--text-primary); }
+    .band-btn.solo-active { background: #FFD60A; color: #000; border-color: #FFD60A; }
+    .band-btn.mute-active { background: var(--state-error); color: #fff; border-color: var(--state-error); }
+    /* Bypass ON — lit amber, glowing, clearly an active toggle (click to re-enable) */
+    .band-btn.bypass-active {
+      background: var(--accent);
+      color: #14110f;
+      border-color: var(--accent);
+      box-shadow: 0 0 8px var(--accent-glow);
+    }
+    /* keep button row fully opaque even when the band column is dimmed */
+    .band-column.bypassed .band-strip-row:last-child { opacity: 1; }
+
+    .knob-sep {
+      width: 1px; height: 16px; background: var(--border-divider); margin: 0 2px;
+      flex-shrink: 0;
+    }
+
+    /* Link button between IN and OUT gain knobs (inverse-mirror) */
+    .link-btn {
+      width: 14px; height: 14px;
+      align-self: center;
+      margin: 0 -2px;                  /* nestle between knobs */
+      border: 1px solid #444;
+      border-radius: 50%;
+      background: transparent;
+      color: #888;
+      font-size: 9px;
+      line-height: 1;
+      padding: 0;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all var(--t-fast) ease;
+      font-family: inherit;
+      flex-shrink: 0;
+      user-select: none;
+    }
+    .link-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .link-btn.is-linked {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(212,165,116,0.12);
+      box-shadow: 0 0 6px var(--accent-glow), inset 0 0 4px rgba(212,165,116,0.18);
+    }
+
+    /* KNOB COMPONENT */
+    .knob-group {
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+    }
+    .knob {
+      position: relative; cursor: ns-resize;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    /* Canvas extends past body for glow rendering (small for slot knobs) */
+    .knob canvas {
+      display: block;
+      position: absolute;
+      top: -6px; left: -6px;
+      width: calc(100% + 12px);
+      height: calc(100% + 12px);
+      pointer-events: none;
+    }
+    /* Inner dark face disc — Chaosverb LED-ring style */
+    .knob-face {
+      position: absolute;
+      top: 14%; left: 14%;
+      width: 72%; height: 72%;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #1f1f24 0%, #15151a 55%, #0e0e12 100%);
+      border: 1px solid #3a3a3e;
+      box-shadow: inset 0 1px 1px rgba(255,255,255,0.05),
+                  inset 0 -1px 2px rgba(0,0,0,0.7);
+      z-index: 2;
+      pointer-events: none;
+    }
+    /* White indicator dot — placed via JS in container coords */
+    .knob-indicator {
+      position: absolute;
+      width: 3px; height: 3px;
+      margin: -1.5px 0 0 -1.5px;
+      background: #ffffff;
+      border-radius: 50%;
+      z-index: 4;
+      pointer-events: none;
+      box-shadow: 0 0 4px rgba(255,255,255,0.7);
+    }
+    .knob-pct {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      font-weight: 700; color: var(--text-primary);
+      pointer-events: none; white-space: nowrap;
+      z-index: 3;
+    }
+    .knob-label {
+      font-size: 9px; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 0.16em;
+      line-height: 1; font-weight: 600;
+      margin-top: 3px;
+    }
+    .knob-value {
+      font-size: 9px; font-weight: 500; color: var(--text-secondary);
+      line-height: 1; font-variant-numeric: tabular-nums;
+      margin-top: 2px;
+    }
+
+    /* Slot lock — right-click slot card to freeze plugin position in chaos */
+    .slot-card.chaos-locked-slot {
+      border-color: var(--accent);
+      box-shadow: 0 0 6px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,0.03);
+    }
+    .slot-card.chaos-locked-slot::after {
+      content: '🔒';
+      position: absolute;
+      right: 4px; top: 50%; transform: translateY(-50%);
+      font-size: 9px;
+      opacity: 0.7;
+      pointer-events: none;
+    }
+    /* Band lock — Chaosverb pattern: title glows bright white */
+    .band-column.chaos-locked-band .band-label {
+      color: #ffffff !important;
+      text-shadow: 0 0 8px rgba(255, 255, 255, 0.85),
+                   0 0 16px rgba(255, 255, 255, 0.45),
+                   0 0 24px rgba(255, 255, 255, 0.25);
+      transition: text-shadow 0.2s ease, color 0.2s ease;
+    }
+
+    /* SLOT CARD — grows to fill remaining column space evenly */
+    .slot-card {
+      background: linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg-card) 100%);
+      border-radius: 5px;
+      padding: 3px 8px 3px 10px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.03);
+      border: 1px solid var(--border-bright);
+      display: flex; align-items: center; gap: 6px;
+      flex: 1 1 0; min-height: 26px;
+      cursor: pointer; transition: all var(--t-fast) ease;
+      position: relative;
+    }
+    .slot-card:hover {
+      box-shadow: 0 2px 10px rgba(199,125,255,0.15), inset 0 1px 0 rgba(255,255,255,0.05);
+      border-color: rgba(199,125,255,0.3);
+    }
+    .slot-card.empty { border-style: dashed; opacity: 0.7; }
+    .slot-card.bypassed { opacity: 0.4; }
+    .slot-card.bypassed .slot-plugin-name { text-decoration: line-through; }
+    .slot-color-bar {
+      position: absolute; left: 0; top: 3px; bottom: 3px; width: 3px;
+      border-radius: 0 2px 2px 0;
+    }
+    .band-column[data-band="low"]  .slot-color-bar { background: var(--band-low); }
+    .band-column[data-band="mid"]  .slot-color-bar { background: var(--band-mid); }
+    .band-column[data-band="high"] .slot-color-bar { background: var(--band-high); }
+    .slot-card.empty .slot-color-bar { opacity: 0.3; }
+    .slot-number {
+      width: 14px; height: 14px; border-radius: 50%;
+      background: var(--bg-shell); border: 1px solid var(--border-bright);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 8px; font-weight: 700;
+      color: var(--text-secondary); flex-shrink: 0;
+    }
+    .slot-info { flex: 1; min-width: 0; padding-left: 4px; }
+    .slot-plugin-name {
+      font-size: 10px; font-weight: 500;
+      color: var(--text-primary);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      letter-spacing: 0.02em;
+    }
+    .slot-card.empty .slot-plugin-name {
+      font-weight: 400; font-style: italic;
+      color: var(--text-dim); font-size: 8px;
+      text-transform: uppercase; letter-spacing: 0.08em;
+    }
+    .slot-controls { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .slot-knob-stack {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 2px;
+    }
+    .slot-knob-pct {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--accent);
+      line-height: 1;
+      user-select: none;
+      font-variant-numeric: tabular-nums;
+      text-shadow: 0 0 4px var(--accent-glow);
+    }
+    .slot-btn {
+      width: 16px; height: 16px; border: 1px solid var(--border-bright);
+      border-radius: 50%; background: var(--bg-shell);
+      font-size: 8px; font-weight: 700; letter-spacing: 0; color: var(--text-secondary);
+      cursor: pointer; transition: all var(--t-fast) ease;
+      display: flex; align-items: center; justify-content: center;
+      font-family: inherit; padding: 0;
+    }
+    .slot-btn:hover { border-color: var(--text-secondary); color: var(--text-primary); }
+    .slot-btn.bypass-active { background: var(--text-dim); color: #fff; border-color: var(--text-dim); }
+    .slot-delete-btn {
+      width: 16px; height: 16px; border: 1px solid var(--border-bright);
+      border-radius: 50%; background: var(--bg-shell);
+      font-size: 11px; font-weight: 400; color: var(--text-dim);
+      cursor: pointer; transition: all var(--t-fast) ease;
+      display: flex; align-items: center; justify-content: center;
+      font-family: inherit; line-height: 1; padding: 0;
+    }
+    .slot-delete-btn:hover {
+      background: rgba(255,107,107,0.15);
+      border-color: var(--state-error);
+      color: var(--state-error);
+    }
+
+    /* ─── SETTINGS GEAR (bottom-right) ─── */
+    .settings-btn {
+      background: transparent; border: none;
+      color: var(--text-dim); padding: 0;
+      width: 18px; height: 18px; cursor: pointer;
+      transition: color 0.15s ease, transform 0.3s ease;
+      z-index: 95; margin-left: 14px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .settings-btn svg { width: 100%; height: 100%; display: block; }
+    .settings-btn:hover { color: var(--text-secondary); transform: rotate(45deg); }
+    .settings-btn.open { color: var(--accent); transform: rotate(90deg); }
+
+    /* ─── SETTINGS POPOVER ─── */
+    .settings-popover {
+      position: absolute; top: 72px; right: 14px;
+      width: 260px;
+      background: linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg-card) 50%, var(--bg-shell) 100%);
+      border: 1px solid var(--border-bright);
+      border-top: 1px solid rgba(199,125,255,0.4);
+      border-radius: 10px;
+      padding: 14px 16px;
+      box-shadow:
+        0 12px 32px rgba(0,0,0,0.6),
+        0 0 14px rgba(199,125,255,0.15),
+        inset 0 1px 0 rgba(199,125,255,0.1);
+      z-index: 200; opacity: 0; pointer-events: none;
+      transform: translateY(-6px) scale(0.97);
+      transform-origin: top right;
+      transition: opacity var(--t-base) ease, transform var(--t-base) var(--ease-out);
+      font-family: inherit; color: var(--text-primary); overflow: hidden;
+    }
+    .settings-popover::before {
+      content: ''; position: absolute; inset: 0;
+      opacity: 0.08; pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      mix-blend-mode: overlay; z-index: 0;
+    }
+    .settings-popover > * { position: relative; z-index: 1; }
+    .settings-popover.visible {
+      opacity: 1; pointer-events: auto; transform: translateY(0) scale(1);
+    }
+    .settings-popover h3 {
+      margin: 0 0 12px 0;
+      font-size: 9px; font-weight: 700;
+      letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--accent); opacity: 0.6;
+    }
+    .settings-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border-divider);
+      font-size: 11px;
+    }
+    .settings-row:last-of-type { border-bottom: none; }
+    .settings-row-label {
+      color: var(--text-secondary); font-size: 10px;
+      letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .settings-row-value {
+      color: var(--text-primary); font-size: 11px;
+      font-variant-numeric: tabular-nums; min-width: 40px; text-align: center;
+    }
+    .settings-toggle {
+      width: 32px; height: 18px;
+      background: var(--bg-shell); border: 1px solid var(--border-bright);
+      border-radius: 10px; position: relative;
+      cursor: pointer; transition: all var(--t-fast) ease;
+    }
+    .settings-toggle::after {
+      content: ''; position: absolute; top: 2px; left: 2px;
+      width: 12px; height: 12px; background: var(--text-secondary);
+      border-radius: 50%; transition: all var(--t-fast) ease;
+    }
+    .settings-toggle.on {
+      background: rgba(199,125,255,0.15);
+      border-color: rgba(199,125,255,0.5);
+    }
+    .settings-toggle.on::after {
+      left: 17px; background: var(--accent);
+      box-shadow: 0 0 4px rgba(199,125,255,0.4);
+    }
+    .settings-mini-btn {
+      width: 24px; height: 22px;
+      background: var(--bg-shell); border: 1px solid var(--border-bright);
+      color: rgba(199,125,255,0.7);
+      font-size: 13px; font-weight: 700; border-radius: 4px;
+      cursor: pointer; padding: 0;
+      transition: all var(--t-fast) ease; font-family: inherit;
+    }
+    .settings-mini-btn:hover {
+      background: rgba(199,125,255,0.1);
+      border-color: rgba(199,125,255,0.5);
+      color: var(--accent);
+    }
+    .settings-preset-btn {
+      flex: 1; padding: 7px 0;
+      background: var(--bg-shell); border: 1px solid var(--border-bright);
+      color: var(--text-secondary);
+      font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
+      border-radius: 5px; cursor: pointer;
+      transition: all var(--t-fast) ease; font-family: inherit;
+    }
+    .settings-preset-btn:hover {
+      background: rgba(199,125,255,0.08);
+      border-color: rgba(199,125,255,0.4);
+      color: var(--text-primary);
+    }
+    .settings-preset-btn.active {
+      background: rgba(199,125,255,0.12);
+      border-color: rgba(199,125,255,0.6);
+      color: var(--accent);
+      box-shadow: inset 0 0 4px rgba(199,125,255,0.2);
+    }
+    /* Format scan toggles (own class — DO NOT add .settings-preset-btn to these
+       or they'll inherit size-preset click handler and break editor size) */
+    .fmt-toggle {
+      flex: 1 1 0;
+      min-width: 40px;
+      padding: 5px 4px;
+      background: rgba(28,25,22,0.6);
+      border: 1px solid var(--border-bright);
+      border-radius: 5px;
+      color: var(--text-secondary);
+      font-family: inherit;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+      transition: all var(--t-fast) ease;
+    }
+    .fmt-toggle:hover {
+      border-color: var(--accent);
+      color: var(--text-primary);
+    }
+    .fmt-toggle.is-active {
+      background: rgba(212,165,116,0.12);
+      border-color: var(--accent);
+      color: var(--accent);
+      box-shadow: inset 0 0 4px rgba(212,165,116,0.2);
+    }
+
+    /* Crossover-mode 3-way selector */
+    .xover-mode-btn {
+      flex: 1 1 0;
+      min-width: 40px;
+      padding: 5px 3px;
+      background: rgba(28,25,22,0.6);
+      border: 1px solid var(--border-bright);
+      border-radius: 5px;
+      color: var(--text-secondary);
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      transition: all var(--t-fast) ease;
+    }
+    .xover-mode-btn:hover { border-color: var(--accent); color: var(--text-primary); }
+    .xover-mode-btn.is-active {
+      background: rgba(212,165,116,0.14);
+      border-color: var(--accent);
+      color: var(--accent);
+      box-shadow: inset 0 0 4px rgba(212,165,116,0.22);
+    }
+
+    /* ─── PLUGIN BROWSER MODAL ─── */
+    .browser-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7); backdrop-filter: blur(8px);
+      z-index: 9500; display: none;
+      align-items: center; justify-content: center;
+      animation: fadeIn 0.15s ease;
+    }
+    .browser-overlay.visible { display: flex; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .browser-card {
+      width: 600px; max-height: 80vh;
+      background: linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg-card) 100%);
+      border: 1px solid var(--border-bright);
+      border-top: 1px solid rgba(199,125,255,0.4);
+      border-radius: 12px;
+      box-shadow: 0 14px 38px rgba(0,0,0,0.8), 0 0 18px rgba(199,125,255,0.15);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .browser-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .browser-title {
+      font-size: 10px; font-weight: 700;
+      letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--accent); opacity: 0.7; flex: 1;
+    }
+    .browser-close {
+      background: transparent; border: none;
+      color: var(--text-dim); cursor: pointer;
+      font-size: 18px; line-height: 1; padding: 0 4px;
+    }
+    .browser-close:hover { color: var(--text-primary); }
+
+    .browser-search-row {
+      padding: 10px 18px;
+      border-bottom: 1px solid var(--border-divider);
+      display: flex; gap: 8px;
+    }
+    .browser-search {
+      flex: 1; height: 28px;
+      background: var(--bg-shell);
+      border: 1px solid var(--border-bright);
+      color: var(--text-primary); font-family: inherit;
+      font-size: 11px; padding: 0 10px; border-radius: 5px;
+      outline: none;
+    }
+    .browser-search::placeholder { color: var(--text-dim); }
+    .browser-search:focus { border-color: rgba(199,125,255,0.5); }
+
+    .browser-filter {
+      display: flex; gap: 2px;
+      background: var(--bg-shell);
+      border: 1px solid var(--border-bright);
+      border-radius: 5px; padding: 2px;
+    }
+    .browser-filter-btn {
+      background: transparent; border: none;
+      color: var(--text-dim); font-family: inherit;
+      font-size: 9px; font-weight: 600;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      padding: 4px 10px; border-radius: 3px; cursor: pointer;
+      transition: all var(--t-fast) ease;
+    }
+    .browser-filter-btn:hover { color: var(--text-primary); }
+    .browser-filter-btn.active {
+      background: rgba(199,125,255,0.15); color: var(--accent);
+    }
+
+    .browser-scan-row {
+      padding: 8px 18px;
+      border-bottom: 1px solid var(--border-divider);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .browser-scan-btn {
+      height: 24px; padding: 0 14px;
+      background: rgba(199,125,255,0.1);
+      border: 1px solid rgba(199,125,255,0.4);
+      color: var(--accent); font-family: inherit;
+      font-size: 9px; font-weight: 600;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      border-radius: 4px; cursor: pointer;
+      transition: all var(--t-fast) ease;
+    }
+    .browser-scan-btn:hover {
+      background: rgba(199,125,255,0.2);
+      border-color: var(--accent);
+    }
+    .browser-scan-btn:disabled {
+      opacity: 0.5; cursor: not-allowed;
+    }
+    .browser-scan-info {
+      flex: 1; font-size: 9px;
+      color: var(--text-dim); letter-spacing: 0.04em;
+      font-variant-numeric: tabular-nums;
+    }
+    .browser-progress {
+      flex: 1; height: 4px;
+      background: var(--bg-shell);
+      border-radius: 2px; overflow: hidden;
+      display: none;
+    }
+    .browser-progress.visible { display: block; }
+    .browser-progress-fill {
+      height: 100%; width: 0%;
+      background: linear-gradient(90deg, var(--band-low), var(--accent));
+      transition: width 100ms ease;
+    }
+
+    .browser-list {
+      flex: 1; overflow-y: auto;
+      padding: 6px;
+      min-height: 200px;
+    }
+    .browser-empty {
+      padding: 40px 20px; text-align: center;
+      color: var(--text-dim);
+      font-size: 11px; letter-spacing: 0.04em;
+    }
+    .browser-empty.italic { font-style: italic; }
+
+    .browser-group-label {
+      padding: 8px 10px 4px 10px;
+      font-size: 8px; font-weight: 700;
+      letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--text-dim);
+    }
+    .browser-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background var(--t-fast) ease;
+    }
+    .browser-row:hover {
+      background: rgba(199,125,255,0.08);
+    }
+    .browser-row-format {
+      font-size: 8px; font-weight: 700;
+      letter-spacing: 0.1em;
+      padding: 2px 6px; border-radius: 3px;
+      flex-shrink: 0; min-width: 36px; text-align: center;
+    }
+    .browser-row-format.vst3 {
+      background: rgba(58,184,212,0.15);
+      color: var(--band-low);
+    }
+    .browser-row-format.audiounit {
+      background: rgba(95,200,138,0.15);
+      color: var(--band-mid);
+    }
+    .browser-row-name {
+      flex: 1; font-size: 11px; font-weight: 500;
+      color: var(--text-primary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .browser-row-category {
+      font-size: 9px; color: var(--text-dim);
+      letter-spacing: 0.04em; flex-shrink: 0;
+    }
+
+    /* Slot drag-over highlight — copper = move, purple = alt-duplicate */
+    .slot-card.drag-over {
+      border-color: var(--accent) !important;
+      box-shadow: 0 0 12px rgba(212,165,116,0.45) !important;
+      background: rgba(212,165,116,0.10) !important;
+    }
+    .slot-card.drag-over-alt {
+      border-color: #c77dff !important;
+      box-shadow: 0 0 14px rgba(199,125,255,0.55) !important;
+      background: rgba(199,125,255,0.12) !important;
+    }
+    .slot-card.dragging {
+      opacity: 0.5;
+      cursor: grabbing;
+    }
+    .slot-card[draggable="true"]:not(.empty) {
+      cursor: grab;
+    }
+
+    /* Error overlay (debug) */
+    #err {
+      position: fixed; top: 40px; left: 0; right: 0;
+      background: var(--state-error); color: #fff;
+      font: 11px monospace; padding: 8px; z-index: 9999;
+      display: none; white-space: pre-wrap;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="err"></div>
+  <script>
+    window.onerror = function(msg, src, line, col, err) {
+      var d = document.getElementById('err');
+      if (d) { d.style.display='block'; d.textContent='ERR: '+msg+' @ '+line+':'+col; }
+      return false;
+    };
+  </script>
+
+  <!-- PLUGIN BROWSER MODAL -->
+  <div class="browser-overlay" id="browserOverlay">
+    <div class="browser-card">
+      <div class="browser-header">
+        <div class="browser-title">Plugin Browser</div>
+        <button class="browser-close" id="browserClose">×</button>
+      </div>
+      <div class="browser-search-row">
+        <input type="text" class="browser-search" id="browserSearch" placeholder="Search plugins..." autocomplete="off" spellcheck="false" />
+        <div class="browser-filter">
+          <button class="browser-filter-btn active" data-format="">All</button>
+          <button class="browser-filter-btn" data-format="VST3">VST3</button>
+          <button class="browser-filter-btn" data-format="AudioUnit">AU</button>
+        </div>
+      </div>
+      <div class="browser-scan-row">
+        <button class="browser-scan-btn" id="browserScanBtn">Scan</button>
+        <div class="browser-scan-info" id="browserScanInfo">0 plugins</div>
+        <div class="browser-progress" id="browserProgress"><div class="browser-progress-fill" id="browserProgressFill"></div></div>
+      </div>
+      <div class="browser-list" id="browserList"></div>
+    </div>
+  </div>
+
+  <div class="plugin-shell" id="pluginShell">
+
+    <!-- SETTINGS POPOVER (button moved into header-right below) -->
+    <div class="settings-popover" id="settingsPopover">
+      <h3>Settings</h3>
+      <div class="settings-row">
+        <span class="settings-row-label">Tooltips</span>
+        <button class="settings-toggle" id="settingsTooltipToggle"></button>
+      </div>
+      <div style="padding: 8px 0; border-bottom: 1px solid var(--border-divider);">
+        <div class="settings-row-label" style="margin-bottom: 6px;">Window Size</div>
+        <div style="display:flex; gap:4px;">
+          <button class="settings-preset-btn" data-w="1050" data-h="600">SM</button>
+          <button class="settings-preset-btn" data-w="1400" data-h="800">MD</button>
+          <button class="settings-preset-btn" data-w="1750" data-h="1000">LG</button>
+          <button class="settings-preset-btn" data-w="2100" data-h="1200">XL</button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <span class="settings-row-label">Brightness</span>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <button class="settings-mini-btn" id="brightnessDown">−</button>
+          <span class="settings-row-value" id="brightnessValue">100%</span>
+          <button class="settings-mini-btn" id="brightnessUp">+</button>
+        </div>
+      </div>
+      <div style="padding: 8px 0; border-top: 1px solid var(--border-divider);">
+        <div class="settings-row-label" style="margin-bottom: 6px;">Crossover Mode</div>
+        <div style="display:flex; gap:4px; flex-wrap:wrap;">
+          <button class="xover-mode-btn" data-mode="dynamic"     title="Filters engage only on bands with plugins. Unused spectrum stays bit-transparent. Zero latency.">DYNAMIC</button>
+          <button class="xover-mode-btn" data-mode="zerolatency" title="Classic Linkwitz-Riley — all bands always filtered. Zero latency.">ZERO LAT</button>
+          <button class="xover-mode-btn" data-mode="linearphase" title="Linear-phase FIR — zero phase distortion, adds latency.">LIN PHASE</button>
+        </div>
+      </div>
+      <div style="padding: 8px 0; border-top: 1px solid var(--border-divider);">
+        <div class="settings-row-label" style="margin-bottom: 6px;">Scan Formats</div>
+        <div style="display:flex; gap:4px; flex-wrap:wrap;">
+          <button class="fmt-toggle is-active" data-fmt="VST3">VST3</button>
+          <button class="fmt-toggle is-active" data-fmt="AudioUnit">AU</button>
+          <button class="fmt-toggle" data-fmt="VST">VST</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- HEADER -->
+    <div class="header">
+      <div class="header-left">
+        <div class="plugin-title">MultiBlend</div>
+        <div class="plugin-eyebrow">Entropia Audio &middot; v1.0.0</div>
+      </div>
+
+      <div class="header-center">
+        <div class="chaos-row">
+          <button class="undo-btn" id="undoBtn" title="Undo (⌘Z / Ctrl+Z)" disabled>↶</button>
+          <button class="mutate-btn" id="makeChaosBtn" title="Randomize plugin inserts across bands">CHAOS</button>
+          <button class="undo-btn" id="redoBtn" title="Redo (⌘⇧Z / Ctrl+Y)" disabled>↷</button>
+        </div>
+        <div class="header-preset-bar" id="headerPresetBar">
+          <button class="preset-dropdown-btn" id="presetDropdownBtn" title="Presets">
+            <span class="preset-current placeholder" id="presetCurrent">— select preset —</span>
+            <span class="preset-arrow">▾</span>
+          </button>
+          <div class="preset-dropdown-menu" id="presetDropdownMenu"></div>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <div class="chaos-timer-cluster">
+          <div class="chaos-timer-col">
+            <div class="chaos-timer-row">
+              <button class="timer-toggle is-stopped" id="chaosTimerToggle" title="Start / stop auto-mutation timer">START</button>
+              <button class="timer-mode-btn" id="chaosModeBtn" title="MS = free time. SYNC = host BPM divisions.">MS</button>
+              <span class="timer-value-label" id="chaosIntervalLabel">30s</span>
+            </div>
+            <input class="timer-slider" id="chaosIntervalSlider" type="range" min="0" max="1000" value="500" step="1" title="Drag to choose interval / division">
+          </div>
+          <div class="countdown stopped" id="chaosCountdown" title="Time to next auto-mutation">--:--</div>
+        </div>
+        <div class="knob-group">
+          <div class="knob" data-value="0.5" data-type="gain" data-param-id="global_input_gain" style="width:26px;height:26px"><canvas width="108" height="108"></canvas><div class="knob-face"></div><div class="knob-indicator"></div></div>
+          <span class="knob-label">In</span>
+          <span class="knob-value" data-knob-type="gain"></span>
+        </div>
+        <div class="knob-group">
+          <div class="knob" data-value="0.5" data-type="gain" data-param-id="global_output_gain" style="width:26px;height:26px"><canvas width="108" height="108"></canvas><div class="knob-face"></div><div class="knob-indicator"></div></div>
+          <span class="knob-label">Out</span>
+          <span class="knob-value" data-knob-type="gain"></span>
+        </div>
+        <div class="knob-group">
+          <div class="knob" data-value="1.0" data-type="pct" data-param-id="global_dry_wet" style="width:26px;height:26px"><canvas width="108" height="108"></canvas><div class="knob-face"></div><div class="knob-indicator"></div><span class="knob-pct" style="font-size:7px">100%</span></div>
+          <span class="knob-label">D/W</span>
+          <span class="knob-value" data-knob-type="pct"></span>
+        </div>
+        <button class="settings-btn" id="settingsBtn" title="Settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- SPECTRUM -->
+    <div class="spectrum-container" id="spectrum-container">
+      <canvas class="spectrum-canvas" id="spectrum-canvas"></canvas>
+      <button class="spectrum-toggle-btn" onclick="toggleSpectrum()">▼</button>
+    </div>
+    <div class="collapse-bar hidden" id="collapse-bar" onclick="toggleSpectrum()"><span>▶ Show Spectrum</span></div>
+
+    <!-- BANDS -->
+    <div class="bands-container" id="bands-container"></div>
+
+  </div>
+
+  <script>
+    'use strict';
+
+    // ─── JUCE NATIVE FUNCTIONS ──────────────────────────────────────────────
+    const isJUCE = typeof window.__JUCE__ !== 'undefined';
+    let juceGetPluginList, juceLoadPlugin, juceUnloadPlugin, juceOpenPluginEditor,
+        juceScanPlugins, juceGetSlotStatus, juceSetEditorSize,
+        juceListPresets, juceSavePreset, juceLoadPreset, juceDeletePreset,
+        juceResetToDefaults, juceSaveAsDefaults,
+        juceGetScanProgress, juceLoadPluginByPath, juceClearBlacklist,
+        juceGetSpectrum, juceShufflePlugins, juceGetHostBpm,
+        juceMoveSlot, juceDuplicateSlot,
+        juceUndo, juceRedo, juceGetUndoState, juceBeginUndoTransaction,
+        juceTriggerChaos, juceGetCrossoverMode, juceSetCrossoverMode;
+
+    function initJuceFns() {
+      if (!window.J || !window.J.getNativeFunction) return false;
+      try {
+        const gf = window.J.getNativeFunction;
+        juceGetPluginList = gf('getPluginList');
+        juceLoadPlugin = gf('loadPlugin');
+        juceUnloadPlugin = gf('unloadPlugin');
+        juceOpenPluginEditor = gf('openPluginEditor');
+        juceScanPlugins = gf('scanPlugins');
+        juceGetSlotStatus = gf('getSlotStatus');
+        juceSetEditorSize = gf('setEditorSize');
+        juceListPresets = gf('listPresets');
+        juceSavePreset = gf('savePreset');
+        juceLoadPreset = gf('loadPreset');
+        juceDeletePreset = gf('deletePreset');
+        juceResetToDefaults = gf('resetToDefaults');
+        juceSaveAsDefaults = gf('saveCurrentAsDefaults');
+        juceGetScanProgress = gf('getScanProgress');
+        juceLoadPluginByPath = gf('loadPluginByPath');
+        juceClearBlacklist = gf('clearBlacklist');
+        juceGetSpectrum = gf('getSpectrum');
+        juceShufflePlugins = gf('shufflePlugins');
+        juceGetHostBpm = gf('getHostBpm');
+        juceMoveSlot = gf('moveSlot');
+        juceDuplicateSlot = gf('duplicateSlot');
+        juceUndo = gf('undo');
+        juceRedo = gf('redo');
+        juceGetUndoState = gf('getUndoState');
+        juceBeginUndoTransaction = gf('beginUndoTransaction');
+        juceTriggerChaos = gf('triggerChaos');
+        juceGetCrossoverMode = gf('getCrossoverMode');
+        juceSetCrossoverMode = gf('setCrossoverMode');
+        return true;
+      } catch (e) { console.error('JUCE init failed:', e); return false; }
+    }
+    if (!initJuceFns()) window.addEventListener('juce-ready', initJuceFns);
+
+    // ─── BAND BUILDING ───────────────────────────────────────────────────────
+    const BANDS = ['low', 'mid', 'high'];
+    const BAND_COLORS = { low: '#3ab8d4', mid: '#5fc88a', high: '#d6884a' };
+    const BAND_LABELS = { low: 'LOW', mid: 'MID', high: 'HIGH' };
+    const SLOTS = 5;
+    const DEMO_PLUGINS = ['Pro-C 2','Pro-Q 3','Saturn 2','Valhalla Room','Decapitator','SSL G-Bus','Ozone EQ','LA-2A','CLA-76','Gullfoss','Soothe2','Pro-L 2'];
+    var demoIdx = 0;
+    const SLOT_KNOB = 24;
+
+    function buildBands() {
+      const container = document.getElementById('bands-container');
+      BANDS.forEach(band => {
+        const col = document.createElement('div');
+        col.className = 'band-column';
+        col.dataset.band = band;
+        col.id = 'band-' + band + '-col';
+        const bp = 'band_' + band + '_';
+        col.innerHTML = `
+          <div class="band-strip">
+            <div class="band-strip-row">
+              <span class="band-label" data-band="${band}">${BAND_LABELS[band]}</span>
+              <span class="band-freq" id="${band}-freq-range"></span>
+            </div>
+            <div class="band-strip-row centered">
+              <div id="cv_${bp}ms_morph" class="cv-knob-slot"></div>
+              <div id="cv_${bp}dry_wet" class="cv-knob-slot"></div>
+              <div id="cv_${bp}output_gain" class="cv-knob-slot"></div>
+            </div>
+            <div class="band-strip-row centered" style="gap:4px;">
+              <button class="band-btn" data-param-id="${bp}solo" data-toggle="true" data-action="solo" onclick="toggleBandBtn(this,'solo')">S</button>
+              <button class="band-btn" data-param-id="${bp}mute" data-toggle="true" data-action="mute" onclick="toggleBandBtn(this,'mute')">M</button>
+              <button class="band-btn" data-param-id="${bp}bypass" data-toggle="true" data-action="bypass" onclick="toggleBandBtn(this,'bypass')">B</button>
+            </div>
+          </div>
+        `;
+        for (let s = 1; s <= SLOTS; s++) {
+          const slot = document.createElement('div');
+          slot.className = 'slot-card empty';
+          slot.dataset.band = band;
+          slot.dataset.slot = s;
+          slot.onclick = function() { loadPlugin(this); };
+
+          // Make slot draggable. Source coord encoded in dataTransfer.
+          // Alt/Option held on drop = DUPLICATE (clone + state). Otherwise MOVE.
+          slot.draggable = true;
+          slot.addEventListener('dragstart', function(e) {
+            // Abort HTML5 drag if user clicked on knob / button / canvas inside slot.
+            // Knob has own ns-resize drag handler; HTML5 drag would hijack mousemove.
+            const interactive = e.target.closest('.knob, .slot-btn, .slot-delete-btn, button, canvas, .slot-knob-stack');
+            if (interactive) { e.preventDefault(); return; }
+            if (slot.classList.contains('empty')) { e.preventDefault(); return; }
+            const b = BANDS.indexOf(slot.dataset.band);
+            const s = parseInt(slot.dataset.slot) - 1;
+            try { e.dataTransfer.setData('application/x-mb-slot', JSON.stringify({ b, s })); } catch (err) {}
+            e.dataTransfer.effectAllowed = 'copyMove';
+            slot.classList.add('dragging');
+          });
+          slot.addEventListener('dragend', function() {
+            slot.classList.remove('dragging');
+          });
+
+          slot.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = e.altKey ? 'copy' : 'move';
+            slot.classList.add('drag-over');
+            slot.classList.toggle('drag-over-alt', e.altKey);
+          });
+          slot.addEventListener('dragleave', function() {
+            slot.classList.remove('drag-over');
+            slot.classList.remove('drag-over-alt');
+          });
+          slot.addEventListener('drop', function(e) {
+            e.preventDefault();
+            slot.classList.remove('drag-over');
+            slot.classList.remove('drag-over-alt');
+            const db = BANDS.indexOf(slot.dataset.band);
+            const ds = parseInt(slot.dataset.slot) - 1;
+
+            // 1. Slot-to-slot drag
+            let payload = null;
+            try { payload = e.dataTransfer.getData('application/x-mb-slot'); } catch (err) {}
+            if (payload) {
+              const src = JSON.parse(payload);
+              if (src.b === db && src.s === ds) return;       // dropped on self
+              if (e.altKey) {
+                if (juceDuplicateSlot) juceDuplicateSlot(src.b, src.s, db, ds);
+              } else {
+                if (juceMoveSlot) juceMoveSlot(src.b, src.s, db, ds);
+              }
+              return;
+            }
+
+            // 2. File-drop (load plugin from finder)
+            const files = e.dataTransfer.files;
+            if (files && files.length > 0 && juceLoadPluginByPath) {
+              const path = files[0].path || files[0].name;
+              juceLoadPluginByPath(db, ds, path);
+            }
+          });
+          const sp = bp + 'slot_' + s + '_';
+          slot.innerHTML = `
+            <div class="slot-color-bar"></div>
+            <div class="slot-number">${s}</div>
+            <div class="slot-info"><span class="slot-plugin-name">Empty — Click to load</span></div>
+            <div class="slot-controls">
+              <div class="slot-knob-stack">
+                <div class="knob" data-value="1.0" data-band="${band}" data-type="pct" data-param-id="${sp}dry_wet" style="width:${SLOT_KNOB}px;height:${SLOT_KNOB}px">
+                  <canvas width="${(SLOT_KNOB+12)*2}" height="${(SLOT_KNOB+12)*2}"></canvas>
+                  <div class="knob-face"></div>
+                  <div class="knob-indicator"></div>
+                </div>
+                <span class="slot-knob-pct">100%</span>
+              </div>
+              <button class="slot-btn" data-param-id="${sp}bypass" data-toggle="true" data-action="bypass" onclick="event.stopPropagation();toggleSlotBypass(this)">B</button>
+              <button class="slot-delete-btn" title="Remove plugin" onclick="event.stopPropagation();unloadSlot(this)" style="display:none">×</button>
+            </div>
+          `;
+          col.appendChild(slot);
+        }
+        container.appendChild(col);
+      });
+    }
+
+    // Map band → accent color for CVKnob.
+    window.CVKnobConfig = {
+      tooltipsEnabled: false,
+      sectionColors: {
+        low:  '#3ab8d4',
+        mid:  '#5fc88a',
+        high: '#d6884a'
+      }
+    };
+
+    // Build all band-strip knobs using cv-knob library. Requires window.J ready.
+    function buildBandCVKnobs() {
+      if (!window.J || !window.J.getSliderState || !window.CVKnob) return false;
+      BANDS.forEach(band => {
+        const bp = 'band_' + band + '_';
+        const mk = (suffix, label, unit, min, max, defaultNorm, format) => ({
+          id: bp + suffix,
+          label, unit, min, max,
+          section: band,
+          defaultNorm,
+          state: window.J.getSliderState(bp + suffix),
+          format
+        });
+        try {
+          // Layout L→R: M/S · Dry-Wet · Output
+          window.CVKnob.build('cv_' + bp + 'ms_morph',    mk('ms_morph', 'M/S', '', 0, 1, 0.5,
+              (v, n) => n < 0.49 ? 'M ' + Math.round((0.5-n)*200) + '%'
+                       : n > 0.51 ? 'S ' + Math.round((n-0.5)*200) + '%'
+                       : 'Stereo'));
+          window.CVKnob.build('cv_' + bp + 'dry_wet',     mk('dry_wet',     'D/W', '%',  0,  100, 1.0));
+          window.CVKnob.build('cv_' + bp + 'output_gain', mk('output_gain', 'Out', 'dB', -24, 24, 0.5));
+        } catch (e) { console.error('CVKnob build failed', e); }
+      });
+      return true;
+    }
+
+    // ─── KNOB RENDERING — Exact Chaosverb LED Ring style ─────────────────
+    // Thin arc near canvas edge with cyan→accent gradient + 3-pass outer glow.
+    // Inner dark face disc rendered via .knob-face div. Indicator dot via .knob-indicator div.
+    const KNOB_CYAN = '#00d4ff';
+    function lerpHex(a, b, t) {
+      t = Math.max(0, Math.min(1, t));
+      const ar = parseInt(a.slice(1,3),16), ag = parseInt(a.slice(3,5),16), ab = parseInt(a.slice(5,7),16);
+      const br = parseInt(b.slice(1,3),16), bg = parseInt(b.slice(3,5),16), bb = parseInt(b.slice(5,7),16);
+      return `rgb(${Math.round(ar+(br-ar)*t)},${Math.round(ag+(bg-ag)*t)},${Math.round(ab+(bb-ab)*t)})`;
+    }
+
+    function drawKnob(canvas, value, accentColor) {
+      const ctx = canvas.getContext('2d');
+      const W = canvas.width, H = canvas.height;
+      // Canvas is rendered at 2× DPR pixels; CSS scales to (knob+28)px.
+      // Drawing reference unit: 2 (1 CSS px → 2 canvas px).
+      const cx = W / 2, cy = H / 2;
+      const r  = (W / 2) - 18;          // arc radius, leaving room for glow + indicator
+      const lineW = Math.max(2.0, W / 50);
+
+      ctx.clearRect(0, 0, W, H);
+      ctx.lineCap = 'round';
+
+      const startA = (135 * Math.PI) / 180;
+      const totalSweep = (270 * Math.PI) / 180;
+      const endA = startA + totalSweep;
+
+      // 1. Background track
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, startA, endA);
+      ctx.strokeStyle = '#1a1a1e';
+      ctx.lineWidth = lineW;
+      ctx.stroke();
+
+      // 2. Value arc — gradient lerp cyan → accent + 3 glow passes
+      if (value > 0.001) {
+        const valA = startA + totalSweep * value;
+        const totalAngleDeg = value * 270;
+        const segments = Math.max(2, Math.round(totalAngleDeg * 0.5));
+
+        const strokeArc = () => {
+          for (let i = 0; i < segments; ++i) {
+            const t0 = i / segments;
+            const t1 = (i + 1) / segments;
+            const segStart = startA + totalSweep * value * t0;
+            const segEnd = startA + totalSweep * value * t1 + 0.012;
+            const c = lerpHex(KNOB_CYAN, accentColor, (t0 + t1) * 0.5);
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, segStart, segEnd);
+            ctx.strokeStyle = c;
+            ctx.lineWidth = lineW;
+            ctx.lineCap = (i === 0 || i === segments - 1) ? 'round' : 'butt';
+            ctx.stroke();
+          }
+        };
+
+        // Pass 1: outer halo (wide blur, low alpha)
+        ctx.save();
+        ctx.shadowColor = accentColor;
+        ctx.shadowBlur = lineW * 8;
+        ctx.globalAlpha = 0.35;
+        strokeArc();
+        ctx.restore();
+
+        // Pass 2: mid glow
+        ctx.save();
+        ctx.shadowColor = accentColor;
+        ctx.shadowBlur = lineW * 4;
+        ctx.globalAlpha = 0.6;
+        strokeArc();
+        ctx.restore();
+
+        // Pass 3: crisp inner
+        ctx.save();
+        ctx.shadowColor = accentColor;
+        ctx.shadowBlur = lineW * 1.5;
+        ctx.globalAlpha = 1.0;
+        strokeArc();
+        ctx.restore();
+      }
+    }
+
+    // Position .knob-indicator dot using the knob's data-value.
+    function updateIndicator(knobEl) {
+      const ind = knobEl.querySelector('.knob-indicator');
+      if (!ind) return;
+      const v = parseFloat(knobEl.dataset.value);
+      const angle = (135 + v * 270) * Math.PI / 180;
+      // CSS knob-body coords: center at (size/2). Dot orbits at ~36% of size (just inside face edge).
+      const size = knobEl.clientWidth || parseFloat(knobEl.style.width) || 26;
+      const r = size * 0.30;
+      const cx = size / 2;
+      const cy = size / 2;
+      ind.style.left = (cx + r * Math.cos(angle)) + 'px';
+      ind.style.top  = (cy + r * Math.sin(angle)) + 'px';
+    }
+
+    function updateKnobDisplay(knobEl) {
+      const pctEl = knobEl.querySelector('.knob-pct');
+      const val = parseFloat(knobEl.dataset.value);
+      const type = knobEl.dataset.type;
+      let insideText = '', belowText = '';
+      if (type === 'pct') {
+        insideText = Math.round(val * 100) + '%';
+        belowText = insideText;
+      } else if (type === 'slope') {
+        const slope = Math.round(6 + val * 90);
+        insideText = slope;
+        belowText = slope + ' dB/oct';
+      } else if (type === 'ms') {
+        if (val < 0.48) {
+          const mp = Math.round((1 - val / 0.5) * 100);
+          insideText = 'M' + mp;
+          belowText = 'Mid ' + mp + '%';
+        } else if (val > 0.52) {
+          const sp = Math.round(((val - 0.5) / 0.5) * 100);
+          insideText = 'S' + sp;
+          belowText = 'Side ' + sp + '%';
+        } else {
+          insideText = 'St';
+          belowText = 'Stereo';
+        }
+      } else if (type === 'gain') {
+        const db = ((val - 0.5) * 48).toFixed(1);
+        belowText = (db >= 0 ? '+' : '') + db + ' dB';
+      }
+      if (pctEl) pctEl.textContent = insideText;
+      const group = knobEl.closest('.knob-group');
+      if (group) {
+        const valEl = group.querySelector('.knob-value');
+        if (valEl) valEl.textContent = belowText;
+      }
+      // Slot D/W: separate pct label below knob (more visible than tiny inside-knob text)
+      const stack = knobEl.closest('.slot-knob-stack');
+      if (stack) {
+        const sl = stack.querySelector('.slot-knob-pct');
+        if (sl) sl.textContent = insideText;
+      }
+    }
+
+    function getKnobColor(knob) {
+      const band = knob.dataset.band;
+      const type = knob.dataset.type;
+      const val = parseFloat(knob.dataset.value);
+      if (type === 'ms' && Math.abs(val - 0.5) < 0.03) return '#a0a0a4';
+      return band ? BAND_COLORS[band] : '#c77dff';
+    }
+
+    function initAllKnobs() {
+      document.querySelectorAll('.knob').forEach(knob => {
+        const canvas = knob.querySelector('canvas');
+        const val = parseFloat(knob.dataset.value) || 0.5;
+        drawKnob(canvas, val, getKnobColor(knob));
+        updateIndicator(knob);
+        updateKnobDisplay(knob);
+        setupKnobDrag(knob);
+      });
+    }
+
+    function setupKnobDrag(knob) {
+      let startY, startVal;
+      const onMove = (e) => {
+        const nv = Math.max(0, Math.min(1, startVal + (startY - e.clientY) / 150));
+        knob.dataset.value = nv;
+        drawKnob(knob.querySelector('canvas'), nv, getKnobColor(knob));
+        updateIndicator(knob);
+        updateKnobDisplay(knob);
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        document.body.style.cursor = '';
+      };
+      knob.addEventListener('mousedown', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        startY = e.clientY; startVal = parseFloat(knob.dataset.value) || 0.5;
+        document.body.style.cursor = 'ns-resize';
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      });
+      knob.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        const type = knob.dataset.type;
+        const def = type === 'pct' ? 1.0 : type === 'ms' ? 0.5 : type === 'slope' ? 0.2 : 0.5;
+        knob.dataset.value = def;
+        drawKnob(knob.querySelector('canvas'), def, getKnobColor(knob));
+        updateIndicator(knob);
+        updateKnobDisplay(knob);
+      });
+    }
+
+    // ─── SPECTRUM ─────────────────────────────────────────────────────────────
+    let spectrumCollapsed = false;
+    let crossoverLowMid = 200, crossoverMidHigh = 3000;
+    let slopeLowMid = 24, slopeMidHigh = 24;     // dB/oct, per-crossover
+    const SLOPE_MIN = 6, SLOPE_MAX = 48;          // continuous 6..48 dB/oct, 0.1 dB resolution
+    const SLOPE_STEP = 0.1;
+    function snapSlope(v) { return Math.max(SLOPE_MIN, Math.min(SLOPE_MAX, Math.round(v * 10) / 10)); }
+    let draggingHandle = null;
+    let draggingMode = null;                     // 'freq' | 'slope' (determined after small drag delta)
+    let hoverHandle = null;                      // 'lm' | 'mh' | null — pointer near crossover
+    let lmRevealUntil = 0, mhRevealUntil = 0;    // ms timestamps — keep visible briefly after change
+    const REVEAL_MS = 1200;
+    function revealLM() { lmRevealUntil = performance.now() + REVEAL_MS; }
+    function revealMH() { mhRevealUntil = performance.now() + REVEAL_MS; }
+
+    function toggleSpectrum() {
+      spectrumCollapsed = !spectrumCollapsed;
+      document.getElementById('spectrum-container').classList.toggle('collapsed', spectrumCollapsed);
+      document.getElementById('collapse-bar').classList.toggle('hidden', !spectrumCollapsed);
+    }
+
+    function freqToX(f, w) {
+      return ((Math.log10(f) - Math.log10(20)) / (Math.log10(20000) - Math.log10(20))) * w;
+    }
+    function xToFreq(x, w) {
+      return Math.pow(10, Math.log10(20) + (x / w) * (Math.log10(20000) - Math.log10(20)));
+    }
+    function fmtFreq(f) { return f >= 1000 ? (f/1000).toFixed(1)+'k' : Math.round(f)+''; }
+
+    // Peak-hold buffers — dual layer (input + output)
+    var __specInDisplay = null;
+    var __specOutDisplay = null;
+    var __specOutPeak = null;
+    const SMOOTH_ATTACK = 0.65;
+    const SMOOTH_RELEASE = 0.06;
+    const PEAK_DECAY = 0.004;
+    // 1/f slope tilt — visually flattens pink noise (pro analyzer convention)
+    const TILT_DB_PER_OCT = 3.0;
+    const REF_FREQ = 1000;
+
+    function drawSpectrum() {
+      const canvas = document.getElementById('spectrum-canvas');
+      if (!canvas || spectrumCollapsed) return;
+      const rect = canvas.parentElement.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+      }
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      const w = rect.width, h = rect.height;
+      ctx.clearRect(0, 0, w, h);
+      const xLM = freqToX(crossoverLowMid, w), xMH = freqToX(crossoverMidHigh, w);
+      const now = performance.now();
+      const showLM = (draggingHandle === 'lm') || hoverHandle === 'lm' || now < lmRevealUntil;
+      const showMH = (draggingHandle === 'mh') || hoverHandle === 'mh' || now < mhRevealUntil;
+
+      // Band region tints — always visible (very subtle) so user sees zones
+      ctx.fillStyle = 'rgba(58,184,212,0.05)'; ctx.fillRect(0, 0, xLM, h);
+      ctx.fillStyle = 'rgba(95,200,138,0.05)'; ctx.fillRect(xLM, 0, xMH-xLM, h);
+      ctx.fillStyle = 'rgba(214,136,74,0.05)'; ctx.fillRect(xMH, 0, w-xMH, h);
+
+      // ─── Grid (dB horizontal + freq vertical) ─────────────────────────
+      // dB scale: top = 0 dB, bottom = -90 dB
+      ctx.strokeStyle = 'rgba(80,80,90,0.18)'; ctx.lineWidth = 0.5;
+      const DB_LINES = [-12, -24, -36, -48, -60, -72, -84];
+      ctx.fillStyle = 'rgba(140,140,150,0.45)'; ctx.font = '8px "JetBrains Mono", ui-monospace, monospace'; ctx.textAlign = 'left';
+      DB_LINES.forEach(db => {
+        const y = ((-db) / 90) * h;
+        ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+        ctx.fillText(db + ' dB', 4, y - 2);
+      });
+
+      // Freq grid (decade + 2,5 sub) with stronger lines on decades
+      const FREQ_GRID_MAJOR = [100, 1000, 10000];
+      const FREQ_GRID_MINOR = [50, 200, 500, 2000, 5000];
+      ctx.strokeStyle = 'rgba(80,80,90,0.10)';
+      FREQ_GRID_MINOR.forEach(f => { const x=freqToX(f,w); ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h-16); ctx.stroke(); });
+      ctx.strokeStyle = 'rgba(80,80,90,0.25)';
+      FREQ_GRID_MAJOR.forEach(f => { const x=freqToX(f,w); ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h-16); ctx.stroke(); });
+
+      // Freq labels (along bottom)
+      ctx.fillStyle = 'rgba(140,140,150,0.6)'; ctx.font = '9px "JetBrains Mono", ui-monospace, monospace'; ctx.textAlign = 'center';
+      [[20,'20'],[50,'50'],[100,'100'],[200,'200'],[500,'500'],[1000,'1k'],[2000,'2k'],[5000,'5k'],[10000,'10k'],[20000,'20k']].forEach(([f,l]) => {
+        ctx.fillText(l, freqToX(f,w), h-4);
+      });
+
+      // Dual-layer spectrum: input (muted) + output (vivid).
+      const rawData = window.__spectrumBins;  // { input: [...], output: [...] }
+      const numPx = Math.max(64, Math.floor(w));
+      if (!__specInDisplay || __specInDisplay.length !== numPx) {
+        __specInDisplay  = new Float32Array(numPx);
+        __specOutDisplay = new Float32Array(numPx);
+        __specOutPeak    = new Float32Array(numPx);
+      }
+
+      const specFmin = (rawData && rawData.fmin) ? rawData.fmin : 20;
+      const specFmax = (rawData && rawData.fmax) ? rawData.fmax : 20000;
+      const specLogMin = Math.log(specFmin), specLogMax = Math.log(specFmax);
+
+      function smoothLayer(bins, display) {
+        if (!bins || bins.length === 0) return;
+        const LB = bins.length;
+        const raw = new Float32Array(numPx);
+        for (let x = 0; x < numPx; ++x) {
+          const fc = xToFreq(x + 0.5, w);
+          // Map pixel freq → log-spaced bin index (bins already log-distributed)
+          const t = (Math.log(Math.max(specFmin, Math.min(specFmax, fc))) - specLogMin)
+                    / (specLogMax - specLogMin);
+          const bIdx = t * (LB - 1);
+          const i0 = Math.max(0, Math.min(LB - 1, Math.floor(bIdx)));
+          const i1 = Math.max(0, Math.min(LB - 1, i0 + 1));
+          const frac = bIdx - i0;
+          const v = bins[i0] * (1 - frac) + bins[i1] * frac;
+          let db = (v - 1.0) * 100.0;
+          const octFromRef = Math.log2(Math.max(20, fc) / REF_FREQ);
+          db += octFromRef * TILT_DB_PER_OCT;
+          raw[x] = Math.max(0, Math.min(1, (db + 90) / 90));
+        }
+        // Spatial smoothing (5-tap binomial blur) — kills bin-step staircase
+        const smooth = new Float32Array(numPx);
+        for (let x = 0; x < numPx; ++x) {
+          const a = raw[Math.max(0, x - 2)];
+          const b = raw[Math.max(0, x - 1)];
+          const c = raw[x];
+          const d = raw[Math.min(numPx - 1, x + 1)];
+          const e = raw[Math.min(numPx - 1, x + 2)];
+          smooth[x] = (a + 4*b + 6*c + 4*d + e) / 16;     // binomial coefficients
+        }
+        // Temporal smoothing (attack/release)
+        for (let x = 0; x < numPx; ++x) {
+          const cur = display[x];
+          const coef = smooth[x] > cur ? SMOOTH_ATTACK : SMOOTH_RELEASE;
+          display[x] = cur + (smooth[x] - cur) * coef;
+        }
+      }
+
+      if (rawData) {
+        smoothLayer(rawData.input,  __specInDisplay);
+        smoothLayer(rawData.output, __specOutDisplay);
+        // Peak hold on output
+        for (let x = 0; x < numPx; ++x) {
+          __specOutPeak[x] = Math.max(__specOutPeak[x] - PEAK_DECAY, __specOutDisplay[x]);
+        }
+      }
+
+      const pad = 4;
+
+      function drawCurve(display, fillStyle, strokeStyle, strokeW) {
+        if (!display) return;
+        ctx.beginPath();
+        ctx.moveTo(0, h);
+        let prevY = h * (1 - display[0]) + pad;
+        ctx.lineTo(0, prevY);
+        for (let x = 1; x < numPx; ++x) {
+          const y = h * (1 - display[x]) + pad;
+          const midX = x - 0.5, midY = (prevY + y) * 0.5;
+          ctx.quadraticCurveTo(x - 1, prevY, midX, midY);
+          prevY = y;
+        }
+        ctx.lineTo(numPx - 1, prevY);
+        ctx.lineTo(numPx - 1, h);
+        ctx.closePath();
+        if (fillStyle) { ctx.fillStyle = fillStyle; ctx.fill(); }
+
+        if (strokeStyle) {
+          ctx.beginPath();
+          prevY = h * (1 - display[0]) + pad;
+          ctx.moveTo(0, prevY);
+          for (let x = 1; x < numPx; ++x) {
+            const y = h * (1 - display[x]) + pad;
+            const midX = x - 0.5, midY = (prevY + y) * 0.5;
+            ctx.quadraticCurveTo(x - 1, prevY, midX, midY);
+            prevY = y;
+          }
+          ctx.lineTo(numPx - 1, prevY);
+          ctx.strokeStyle = strokeStyle;
+          ctx.lineWidth = strokeW;
+          ctx.stroke();
+        }
+      }
+
+      // INPUT layer — outline only, dim grey (reference signal)
+      drawCurve(__specInDisplay, null, 'rgba(180,180,190,0.55)', 1.0);
+
+      // OUTPUT layer — copper-amber fill (matches Entropia accent), on top
+      const outGrad = ctx.createLinearGradient(0, 0, 0, h);
+      outGrad.addColorStop(0,   'rgba(212,165,116,0.55)');
+      outGrad.addColorStop(0.5, 'rgba(212,165,116,0.18)');
+      outGrad.addColorStop(1,   'rgba(212,165,116,0.02)');
+      drawCurve(__specOutDisplay, outGrad, 'rgba(232,190,140,0.95)', 1.3);
+
+      // OUTPUT peak hold (faint amber)
+      if (__specOutPeak) {
+        ctx.beginPath();
+        let py = h * (1 - __specOutPeak[0]) + pad;
+        ctx.moveTo(0, py);
+        for (let x = 1; x < numPx; ++x) {
+          py = h * (1 - __specOutPeak[x]) + pad;
+          ctx.lineTo(x, py);
+        }
+        ctx.strokeStyle = 'rgba(232,190,140,0.35)';
+        ctx.lineWidth = 0.7;
+        ctx.stroke();
+      }
+
+      // ─── Per-band crossover response curves (Pro-MB style) ───────────────
+      // Each band = real magnitude response of the cascaded 1st-order filters.
+      // Bands overlap and cross at the crossover points (~-3..-6 dB), exactly
+      // like Pro-MB. Slope (dB/oct) sets skirt steepness.
+      // Floor deeper than the deepest crossover dip (-slope/2 = -24 dB @ 48 dB/oct)
+      // so adjacent bands CROSS visibly (~X shape) instead of plunging to the
+      // bottom. Gamma < 1 compresses gentle skirts → 6 dB/oct stays narrow.
+      const VIZ_DB_RANGE = 60;
+      const VIZ_GAMMA    = 0.62;
+      const respTopY  = pad + 2;        // y at 0 dB
+      const respBaseY = h - 20;         // y at -VIZ_DB_RANGE
+      const nLM = Math.max(0.1, slopeLowMid  / 6);   // cascade order = slope/6
+      const nMH = Math.max(0.1, slopeMidHigh / 6);
+
+      function dbLP (f, fc, n) { return -n * 10 * Math.log10(1 + (f / fc) * (f / fc)); }
+      function dbHP (f, fc, n) { return -n * 10 * Math.log10(1 + (fc / f) * (fc / f)); }
+      function bandDb (f, which) {
+        if (which === 0) return dbLP(f, crossoverLowMid, nLM);                                   // LOW
+        if (which === 1) return dbHP(f, crossoverLowMid, nLM) + dbLP(f, crossoverMidHigh, nMH);  // MID
+        return dbHP(f, crossoverMidHigh, nMH);                                                   // HIGH
+      }
+      function dbToY (db) {
+        let t = Math.max(0, Math.min(1, (-db) / VIZ_DB_RANGE));
+        t = Math.pow(t, VIZ_GAMMA);     // compress gentle skirts (narrower 6 dB look)
+        return respTopY + (respBaseY - respTopY) * t;
+      }
+      function drawBand (which, fill, stroke) {
+        ctx.beginPath();
+        ctx.moveTo(0, respBaseY);
+        for (let x = 0; x <= w; x += 2) {
+          const f = xToFreq(x + 0.0001, w);
+          ctx.lineTo(x, dbToY(bandDb(f, which)));
+        }
+        ctx.lineTo(w, respBaseY);
+        ctx.closePath();
+        ctx.fillStyle = fill;
+        ctx.fill();
+        // stroke top edge only
+        ctx.beginPath();
+        for (let x = 0; x <= w; x += 2) {
+          const f = xToFreq(x + 0.0001, w);
+          const y = dbToY(bandDb(f, which));
+          if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+      }
+      drawBand(0, 'rgba(58,184,212,0.10)',  'rgba(58,184,212,0.80)');   // LOW  cyan
+      drawBand(1, 'rgba(95,200,138,0.10)',  'rgba(95,200,138,0.80)');   // MID  mint
+      drawBand(2, 'rgba(214,136,74,0.10)',  'rgba(214,136,74,0.80)');   // HIGH amber
+
+      // Crossover line + freq label. Always rendered. Brighter when revealed.
+      // active = mid-drag.  revealed = drag/hover/recent change (last 1.2s).
+      function drawCrossoverLabel(x, freq, slope, active, revealed) {
+        ctx.save();
+        // Vertical dashed line — copper, always visible, brighter when revealed
+        const lineAlpha = active ? 0.85 : (revealed ? 0.7 : 0.45);
+        ctx.strokeStyle = active
+          ? 'rgba(199,125,255,' + lineAlpha + ')'
+          : 'rgba(212,165,116,' + lineAlpha + ')';
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([4,3]);
+        ctx.beginPath(); ctx.moveTo(x,16); ctx.lineTo(x,h-20); ctx.stroke();
+        ctx.setLineDash([]);
+        // Small grip dot at top of line (clear drag affordance)
+        ctx.beginPath();
+        ctx.arc(x, 16, active ? 4.5 : 3.5, 0, Math.PI*2);
+        ctx.fillStyle = active ? '#c77dff' : '#d4a574';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+
+        // Pill label at top — always show freq, also slope when revealed
+        const txt = revealed
+          ? fmtFreq(freq) + ' Hz  ·  ' + slope.toFixed(1) + ' dB/oct'
+          : fmtFreq(freq) + ' Hz';
+        ctx.font = revealed ? 'bold 10px "JetBrains Mono", ui-monospace, monospace'
+                            : '9px "JetBrains Mono", ui-monospace, monospace';
+        const tw = ctx.measureText(txt).width;
+        const px = 6;
+        const lx = Math.max(2, Math.min(w - tw - px*2 - 2, x - tw/2 - px));
+        const ly = revealed ? 2 : 24;     // dim label sits LOWER (under grip) — keeps top clean
+        const lh = revealed ? 16 : 13;
+        const rr = 6;
+        ctx.fillStyle = revealed ? 'rgba(20,17,15,0.92)' : 'rgba(20,17,15,0.65)';
+        ctx.strokeStyle = active
+          ? 'rgba(199,125,255,0.85)'
+          : (revealed ? 'rgba(212,165,116,0.7)' : 'rgba(212,165,116,0.35)');
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(lx+rr, ly);
+        ctx.lineTo(lx+tw+px*2-rr, ly);
+        ctx.quadraticCurveTo(lx+tw+px*2, ly, lx+tw+px*2, ly+rr);
+        ctx.lineTo(lx+tw+px*2, ly+lh-rr);
+        ctx.quadraticCurveTo(lx+tw+px*2, ly+lh, lx+tw+px*2-rr, ly+lh);
+        ctx.lineTo(lx+rr, ly+lh);
+        ctx.quadraticCurveTo(lx, ly+lh, lx, ly+lh-rr);
+        ctx.lineTo(lx, ly+rr);
+        ctx.quadraticCurveTo(lx, ly, lx+rr, ly);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = active ? '#f0e6ff' : (revealed ? '#e8d4b8' : '#a88860');
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(txt, lx + px, ly + lh/2);
+        ctx.textBaseline = 'alphabetic';
+        ctx.restore();
+      }
+      // ALWAYS draw crossover lines + labels so user sees filter location.
+      // Bright/active when revealed (drag/hover/recent change), dim otherwise.
+      drawCrossoverLabel(xLM, crossoverLowMid,  slopeLowMid,  draggingHandle === 'lm', showLM);
+      drawCrossoverLabel(xMH, crossoverMidHigh, slopeMidHigh, draggingHandle === 'mh', showMH);
+
+      const lo = document.getElementById('low-freq-range');
+      const mi = document.getElementById('mid-freq-range');
+      const hi = document.getElementById('high-freq-range');
+      if (lo) lo.textContent = '20 - ' + fmtFreq(crossoverLowMid) + ' Hz';
+      if (mi) mi.textContent = fmtFreq(crossoverLowMid) + ' - ' + fmtFreq(crossoverMidHigh) + ' Hz';
+      if (hi) hi.textContent = fmtFreq(crossoverMidHigh) + ' - 20k Hz';
+    }
+
+    (function installCrossoverInteraction() {
+      const canvas = document.getElementById('spectrum-canvas');
+
+      // Hover detection — show crossover line when pointer near it
+      canvas.addEventListener('mousemove', (e) => {
+        if (draggingHandle) return;
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left, w = rect.width;
+        const xLM = freqToX(crossoverLowMid, w), xMH = freqToX(crossoverMidHigh, w);
+        const dLM = Math.abs(x - xLM), dMH = Math.abs(x - xMH);
+        const NEAR = 25;
+        let newHover = null;
+        if (dLM < dMH && dLM < NEAR) newHover = 'lm';
+        else if (dMH < NEAR) newHover = 'mh';
+        if (newHover !== hoverHandle) {
+          hoverHandle = newHover;
+          canvas.style.cursor = newHover ? 'ew-resize' : 'default';
+        }
+      });
+      canvas.addEventListener('mouseleave', () => { hoverHandle = null; canvas.style.cursor = 'default'; });
+
+      canvas.addEventListener('mousedown', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left, y = e.clientY - rect.top, w = rect.width;
+        const xLM = freqToX(crossoverLowMid, w), xMH = freqToX(crossoverMidHigh, w);
+        if (Math.abs(x-xLM) < 15) draggingHandle = 'lm';
+        else if (Math.abs(x-xMH) < 15) draggingHandle = 'mh';
+        else return;
+        e.preventDefault();
+        draggingMode = null;
+        const startX = x, startY = y;
+        const startSlope = (draggingHandle === 'lm') ? slopeLowMid : slopeMidHigh;
+        const onMove = (e2) => {
+          const mx = e2.clientX - rect.left;
+          const my = e2.clientY - rect.top;
+          if (draggingMode === null) {
+            // First few px decide mode: horizontal = freq, vertical = slope
+            const dx = Math.abs(mx - startX), dy = Math.abs(my - startY);
+            if (Math.max(dx, dy) < 3) return;
+            draggingMode = (dy > dx) ? 'slope' : 'freq';
+          }
+          if (draggingMode === 'freq') {
+            const f = Math.max(20, Math.min(20000, xToFreq(mx, w)));
+            if (draggingHandle === 'lm') {
+              crossoverLowMid = Math.min(f, crossoverMidHigh - 50);
+              setCrossoverFromHz('lm', crossoverLowMid);
+            } else {
+              crossoverMidHigh = Math.max(f, crossoverLowMid + 50);
+              setCrossoverFromHz('mh', crossoverMidHigh);
+            }
+          } else {
+            // Slope: vertical drag, up = steeper (higher dB/oct). 200 px = full range.
+            const dy = startY - my;                            // up positive
+            const newSlope = Math.max(SLOPE_MIN, Math.min(SLOPE_MAX, startSlope + (dy / 200) * (SLOPE_MAX - SLOPE_MIN)));
+            setSlope(draggingHandle, newSlope);
+          }
+        };
+        const onUp = () => {
+          draggingHandle = null; draggingMode = null;
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      });
+
+      // Mouse wheel on handle = slope
+      canvas.addEventListener('wheel', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left, w = rect.width;
+        const xLM = freqToX(crossoverLowMid, w), xMH = freqToX(crossoverMidHigh, w);
+        let which = null;
+        if (Math.abs(x-xLM) < 20) which = 'lm';
+        else if (Math.abs(x-xMH) < 20) which = 'mh';
+        if (!which) return;
+        e.preventDefault();
+        const cur = (which === 'lm') ? slopeLowMid : slopeMidHigh;
+        const dir = -Math.sign(e.deltaY);    // wheel up = steeper
+        setSlope(which, cur + dir * SLOPE_STEP);
+      }, { passive: false });
+    })();
+
+    function setSlope(which, val) {
+      const snapped = snapSlope(val);
+      if (which === 'lm') { slopeLowMid = snapped; revealLM(); } else { slopeMidHigh = snapped; revealMH(); }
+      const id = which === 'lm' ? 'crossover_low_mid_slope' : 'crossover_mid_high_slope';
+      const norm = (snapped - SLOPE_MIN) / (SLOPE_MAX - SLOPE_MIN);
+      const st = getSlider(id);
+      if (st) { try { st.setNormalisedValue(Math.max(0, Math.min(1, norm))); } catch(e) {} }
+    }
+
+    // ─── BUTTONS ─────────────────────────────────────────────────────────────
+
+    function toggleBandBtn(el, type) {
+      el.classList.toggle(type + '-active');
+      if (type === 'bypass') el.closest('.band-column').classList.toggle('bypassed', el.classList.contains('bypass-active'));
+    }
+    function toggleSlotBypass(el) {
+      el.classList.toggle('bypass-active');
+      el.closest('.slot-card').classList.toggle('bypassed', el.classList.contains('bypass-active'));
+    }
+    function loadPlugin(card) {
+      if (isJUCE) {
+        if (!juceGetPluginList) {
+          if (window.J) initJuceFns();
+          if (!juceGetPluginList) {
+            window.addEventListener('juce-ready', () => loadPlugin(card), { once: true });
+            return;
+          }
+        }
+        const band = BANDS.indexOf(card.dataset.band);
+        const slot = parseInt(card.dataset.slot) - 1;
+        openBrowser(band, slot);
+      } else {
+        // Browser preview demo
+        if (!card.classList.contains('empty')) return;
+        card.classList.remove('empty');
+        card.querySelector('.slot-plugin-name').textContent = DEMO_PLUGINS[demoIdx++ % DEMO_PLUGINS.length];
+      }
+    }
+
+    // ─── PLUGIN BROWSER MODAL ─────────────────────────────────────────────
+    let browserTargetBand = 0, browserTargetSlot = 0;
+    let browserSearchTerm = '', browserFormatFilter = '';
+    let browserScanPoller = null;
+
+    function openBrowser(band, slot) {
+      browserTargetBand = band;
+      browserTargetSlot = slot;
+      document.getElementById('browserOverlay').classList.add('visible');
+      document.getElementById('browserSearch').value = '';
+      browserSearchTerm = '';
+      refreshBrowserList();
+      setTimeout(() => document.getElementById('browserSearch').focus(), 50);
+    }
+    function closeBrowser() {
+      document.getElementById('browserOverlay').classList.remove('visible');
+      stopScanPoll();
+    }
+    document.getElementById('browserClose').addEventListener('click', closeBrowser);
+    document.getElementById('browserOverlay').addEventListener('click', (e) => {
+      if (e.target.id === 'browserOverlay') closeBrowser();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && document.getElementById('browserOverlay').classList.contains('visible')) {
+        closeBrowser();
+      }
+    });
+
+    document.getElementById('browserSearch').addEventListener('input', (e) => {
+      browserSearchTerm = e.target.value.toLowerCase();
+      refreshBrowserList();
+    });
+    document.querySelectorAll('.browser-filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.browser-filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        browserFormatFilter = btn.dataset.format;
+        refreshBrowserList();
+      });
+    });
+    // ─── Scan-format toggles (persisted to localStorage) ─────────────
+    const SCAN_FMT_KEY = 'multiblend.scanFormats';
+    function getEnabledScanFormats() {
+      try {
+        const stored = localStorage.getItem(SCAN_FMT_KEY);
+        if (stored) return JSON.parse(stored);
+      } catch (e) {}
+      return ['VST3', 'AudioUnit'];   // default
+    }
+    function saveEnabledScanFormats(arr) {
+      try { localStorage.setItem(SCAN_FMT_KEY, JSON.stringify(arr)); } catch (e) {}
+    }
+    function refreshFmtButtons() {
+      const enabled = new Set(getEnabledScanFormats());
+      document.querySelectorAll('.fmt-toggle').forEach(b => {
+        b.classList.toggle('is-active', enabled.has(b.dataset.fmt));
+      });
+    }
+    document.querySelectorAll('.fmt-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const enabled = new Set(getEnabledScanFormats());
+        const fmt = btn.dataset.fmt;
+        if (enabled.has(fmt)) enabled.delete(fmt); else enabled.add(fmt);
+        saveEnabledScanFormats(Array.from(enabled));
+        refreshFmtButtons();
+      });
+    });
+    refreshFmtButtons();
+
+    document.getElementById('browserScanBtn').addEventListener('click', () => {
+      if (!juceScanPlugins) return;
+      const formats = getEnabledScanFormats();
+      juceScanPlugins(formats);
+      startScanPoll();
+    });
+
+    function startScanPoll() {
+      const btn = document.getElementById('browserScanBtn');
+      const info = document.getElementById('browserScanInfo');
+      const prog = document.getElementById('browserProgress');
+      const fill = document.getElementById('browserProgressFill');
+      btn.disabled = true; btn.textContent = 'Scanning...';
+      prog.classList.add('visible');
+      if (browserScanPoller) clearInterval(browserScanPoller);
+      browserScanPoller = setInterval(async () => {
+        if (!juceGetScanProgress) return;
+        try {
+          const s = await juceGetScanProgress();
+          if (s) {
+            fill.style.width = Math.round(s.progress * 100) + '%';
+            info.textContent = (s.current || '') + ' — ' + s.count + ' plugins';
+            if (!s.scanning) {
+              clearInterval(browserScanPoller);
+              browserScanPoller = null;
+              btn.disabled = false; btn.textContent = 'Rescan';
+              prog.classList.remove('visible');
+              info.textContent = s.count + ' plugins found';
+              refreshBrowserList();
+            }
+          }
+        } catch (e) {}
+      }, 300);
+    }
+    function stopScanPoll() {
+      if (browserScanPoller) { clearInterval(browserScanPoller); browserScanPoller = null; }
+    }
+
+    async function refreshBrowserList() {
+      const list = document.getElementById('browserList');
+      const info = document.getElementById('browserScanInfo');
+      if (!juceGetPluginList) {
+        list.innerHTML = '<div class="browser-empty">Plugin browser unavailable</div>';
+        return;
+      }
+      let plugins = [];
+      try { plugins = await juceGetPluginList(); } catch (_) {}
+      plugins = plugins || [];
+      info.textContent = plugins.length + ' plugins';
+
+      // Filter
+      const filtered = plugins.filter(p => {
+        if (browserFormatFilter && p.format !== browserFormatFilter) return false;
+        if (browserSearchTerm) {
+          const hay = (p.name + ' ' + p.manufacturer + ' ' + p.category).toLowerCase();
+          if (hay.indexOf(browserSearchTerm) === -1) return false;
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        if (plugins.length === 0) {
+          list.innerHTML = '<div class="browser-empty italic">No plugins yet. Click <b>Scan</b> to find installed VST3/AU plugins.</div>';
+        } else {
+          list.innerHTML = '<div class="browser-empty italic">No matches.</div>';
+        }
+        return;
+      }
+
+      // Group by manufacturer
+      const groups = {};
+      filtered.forEach(p => {
+        const mfr = p.manufacturer || 'Unknown';
+        if (!groups[mfr]) groups[mfr] = [];
+        groups[mfr].push(p);
+      });
+      const sortedMfrs = Object.keys(groups).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+
+      let html = '';
+      sortedMfrs.forEach(mfr => {
+        html += '<div class="browser-group-label">' + escapeHtml(mfr) + '</div>';
+        groups[mfr].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+        groups[mfr].forEach(p => {
+          const fmtClass = p.format === 'VST3' ? 'vst3' : (p.format === 'AudioUnit' ? 'audiounit' : '');
+          const fmtLabel = p.format === 'AudioUnit' ? 'AU' : (p.format || '?');
+          html += `<div class="browser-row" data-index="${p.index}">
+            <span class="browser-row-format ${fmtClass}">${escapeHtml(fmtLabel)}</span>
+            <span class="browser-row-name">${escapeHtml(p.name)}</span>
+            <span class="browser-row-category">${escapeHtml(p.category || '')}</span>
+          </div>`;
+        });
+      });
+      list.innerHTML = html;
+
+      list.querySelectorAll('.browser-row').forEach(row => {
+        row.addEventListener('click', async () => {
+          const idx = parseInt(row.dataset.index, 10);
+          if (juceLoadPlugin) {
+            try { await juceLoadPlugin(browserTargetBand, browserTargetSlot, idx); } catch (_) {}
+          }
+          closeBrowser();
+        });
+      });
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({
+        '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+      }[c]));
+    }
+
+    // Listen for scan complete from C++
+    if (isJUCE && window.__JUCE__.backend && typeof window.__JUCE__.backend.addEventListener === 'function') {
+      try {
+        window.__JUCE__.backend.addEventListener('scanComplete', () => {
+          stopScanPoll();
+          document.getElementById('browserScanBtn').disabled = false;
+          document.getElementById('browserScanBtn').textContent = 'Rescan';
+          document.getElementById('browserProgress').classList.remove('visible');
+          refreshBrowserList();
+        });
+      } catch (e) {}
+    }
+    function openPluginEditor(card) {
+      const band = BANDS.indexOf(card.dataset.band);
+      const slot = parseInt(card.dataset.slot) - 1;
+      if (isJUCE && juceOpenPluginEditor) juceOpenPluginEditor(band, slot);
+    }
+
+    function unloadSlot(btn) {
+      const card = btn.closest('.slot-card');
+      if (!card) return;
+      const band = BANDS.indexOf(card.dataset.band);
+      const slot = parseInt(card.dataset.slot) - 1;
+      if (isJUCE && juceUnloadPlugin) juceUnloadPlugin(band, slot);
+    }
+
+    // ─── Crossover Mode selector (DYNAMIC / ZERO LAT / LIN PHASE) ───
+    (function installXoverMode() {
+      const btns = document.querySelectorAll('.xover-mode-btn');
+      if (!btns.length) return;
+      function highlight(mode) {
+        btns.forEach(b => b.classList.toggle('is-active', b.dataset.mode === mode));
+      }
+      function refreshFromJuce() {
+        if (!juceGetCrossoverMode) return;
+        try {
+          juceGetCrossoverMode().then(s => {
+            if (!s) return;
+            const mode = s.linearPhase ? 'linearphase' : (s.dynamic ? 'dynamic' : 'zerolatency');
+            highlight(mode);
+          }).catch(() => {});
+        } catch (e) {}
+      }
+      btns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const mode = btn.dataset.mode;
+          highlight(mode);
+          if (juceSetCrossoverMode) { try { juceSetCrossoverMode(mode); } catch (e) {} }
+        });
+      });
+      // Initial sync (defer until JUCE ready)
+      if (window.J && window.J.getNativeFunction) refreshFromJuce();
+      else window.addEventListener('juce-ready', refreshFromJuce, { once: true });
+    })();
+
+    // Slot status updates
+    if (isJUCE && window.__JUCE__.backend && typeof window.__JUCE__.backend.addEventListener === 'function') {
+      try {
+        window.__JUCE__.backend.addEventListener('slotStatusUpdate', (data) => {
+          if (!data || !data.slots) return;
+          BANDS.forEach((band, b) => {
+            for (let s = 0; s < SLOTS; s++) {
+              const info = data.slots[b][s];
+              const card = document.querySelector(`.slot-card[data-band="${band}"][data-slot="${s + 1}"]`);
+              if (!card) continue;
+              const delBtn = card.querySelector('.slot-delete-btn');
+              if (info.loaded) {
+                card.classList.remove('empty');
+                card.querySelector('.slot-plugin-name').textContent = info.name;
+                card.onclick = function(e) {
+                  // Ignore clicks on internal controls (knob, bypass btn, delete btn)
+                  if (e.target.closest('.slot-controls')) return;
+                  openPluginEditor(this);
+                };
+                if (delBtn) delBtn.style.display = '';
+              } else {
+                card.classList.add('empty');
+                card.querySelector('.slot-plugin-name').textContent = 'Empty — Click to load';
+                card.onclick = function() { loadPlugin(this); };
+                if (delBtn) delBtn.style.display = 'none';
+              }
+            }
+          });
+        });
+      } catch (e) { console.error('JUCE listener failed:', e); }
+    }
+
+    // ─── SETTINGS PANEL ──────────────────────────────────────────────────────
+    const SETTINGS_KEY = 'mbeverythingSettings';
+    const DEFAULT_SETTINGS = { tooltips: false, windowW: 1400, windowH: 800, brightness: 1.0 };
+    function loadSettings() {
+      try {
+        const raw = localStorage.getItem(SETTINGS_KEY);
+        if (!raw) return { ...DEFAULT_SETTINGS };
+        return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+      } catch (_) { return { ...DEFAULT_SETTINGS }; }
+    }
+    function saveSettings(obj) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(obj)); } catch (_) {} }
+    let settings = loadSettings();
+    let liveSettings = { ...settings };
+
+    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsPopover = document.getElementById('settingsPopover');
+    const settingsTipToggle = document.getElementById('settingsTooltipToggle');
+    const brightnessUp = document.getElementById('brightnessUp');
+    const brightnessDown = document.getElementById('brightnessDown');
+    const brightnessValue = document.getElementById('brightnessValue');
+    const presetBtns = document.querySelectorAll('.settings-preset-btn');
+
+    function applyBrightness(v) {
+      document.getElementById('pluginShell').style.filter = `brightness(${v})`;
+    }
+    function refreshSettingsUI() {
+      settingsTipToggle.classList.toggle('on', liveSettings.tooltips);
+      brightnessValue.textContent = Math.round(liveSettings.brightness * 100) + '%';
+      applyBrightness(liveSettings.brightness);
+      presetBtns.forEach(b => {
+        const w = parseInt(b.dataset.w, 10);
+        const h = parseInt(b.dataset.h, 10);
+        b.classList.toggle('active', w === liveSettings.windowW && h === liveSettings.windowH);
+      });
+      saveSettings(liveSettings);
+    }
+    refreshSettingsUI();
+    if (settings.windowW && settings.windowH && juceSetEditorSize) {
+      juceSetEditorSize(settings.windowW, settings.windowH).catch(() => {});
+    }
+
+    settingsBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = settingsPopover.classList.toggle('visible');
+      settingsBtn.classList.toggle('open', isOpen);
+    });
+    document.addEventListener('click', (e) => {
+      if (!settingsPopover.contains(e.target) && e.target !== settingsBtn) {
+        settingsPopover.classList.remove('visible');
+        settingsBtn.classList.remove('open');
+      }
+    });
+    settingsTipToggle.addEventListener('click', () => {
+      liveSettings.tooltips = !liveSettings.tooltips;
+      refreshSettingsUI();
+    });
+    presetBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const w = parseInt(btn.dataset.w, 10);
+        const h = parseInt(btn.dataset.h, 10);
+        liveSettings.windowW = w; liveSettings.windowH = h;
+        if (juceSetEditorSize) juceSetEditorSize(w, h).catch(() => {});
+        refreshSettingsUI();
+      });
+    });
+    brightnessUp.addEventListener('click', () => {
+      liveSettings.brightness = Math.min(1.5, +(liveSettings.brightness + 0.1).toFixed(1));
+      refreshSettingsUI();
+    });
+    brightnessDown.addEventListener('click', () => {
+      liveSettings.brightness = Math.max(0.5, +(liveSettings.brightness - 0.1).toFixed(1));
+      refreshSettingsUI();
+    });
+
+    // ─── PRESETS DROPDOWN ────────────────────────────────────────────────────
+    const presetDropdownBtn = document.getElementById('presetDropdownBtn');
+    const presetDropdownMenu = document.getElementById('presetDropdownMenu');
+    const presetCurrentEl = document.getElementById('presetCurrent');
+    let cachedPresetNames = [];
+    let currentPresetName = null;
+
+    async function refreshPresetList() {
+      let names = [];
+      try { if (juceListPresets) names = await juceListPresets(); } catch (_) {}
+      cachedPresetNames = Array.isArray(names) ? [...names] : [];
+      cachedPresetNames.sort((a, b) => String(a).toLowerCase().localeCompare(String(b).toLowerCase()));
+      presetDropdownMenu.innerHTML = '';
+
+      // Save Preset action
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'preset-row preset-action';
+      saveBtn.innerHTML = '<span class="preset-action-icon">+</span><span>Save Preset</span>';
+      saveBtn.addEventListener('click', async () => {
+        const name = prompt('Preset name:');
+        if (name && juceSavePreset) {
+          await juceSavePreset(name);
+          await refreshPresetList();
+        }
+      });
+      presetDropdownMenu.appendChild(saveBtn);
+
+      // Reset to Default
+      const resetBtn = document.createElement('button');
+      resetBtn.className = 'preset-row preset-action';
+      resetBtn.innerHTML = '<span class="preset-action-icon">↺</span><span>Reset to Default</span>';
+      resetBtn.addEventListener('click', async () => {
+        if (juceResetToDefaults) await juceResetToDefaults();
+        closePresetDropdown();
+      });
+      presetDropdownMenu.appendChild(resetBtn);
+
+      if (cachedPresetNames.length > 0) {
+        const divider = document.createElement('div');
+        divider.className = 'preset-divider';
+        presetDropdownMenu.appendChild(divider);
+        const label = document.createElement('div');
+        label.className = 'preset-section-label';
+        label.textContent = 'Presets';
+        presetDropdownMenu.appendChild(label);
+        cachedPresetNames.forEach(name => {
+          const row = document.createElement('div');
+          row.className = 'preset-row';
+          const nameEl = document.createElement('span');
+          nameEl.className = 'preset-item-name';
+          nameEl.textContent = name;
+          nameEl.addEventListener('click', async () => {
+            if (juceLoadPreset) await juceLoadPreset(name);
+            currentPresetName = name;
+            presetCurrentEl.textContent = name;
+            presetCurrentEl.classList.remove('placeholder');
+            presetDropdownBtn.classList.add('has-preset');
+            closePresetDropdown();
+          });
+          const delBtn = document.createElement('button');
+          delBtn.className = 'preset-item-delete';
+          delBtn.textContent = '×';
+          delBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (juceDeletePreset) await juceDeletePreset(name);
+            await refreshPresetList();
+          });
+          row.appendChild(nameEl);
+          row.appendChild(delBtn);
+          presetDropdownMenu.appendChild(row);
+        });
+      }
+    }
+    function openPresetDropdown() {
+      presetDropdownMenu.classList.add('visible');
+      presetDropdownBtn.classList.add('open');
+    }
+    function closePresetDropdown() {
+      presetDropdownMenu.classList.remove('visible');
+      presetDropdownBtn.classList.remove('open');
+    }
+    presetDropdownBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (presetDropdownMenu.classList.contains('visible')) closePresetDropdown();
+      else { await refreshPresetList(); openPresetDropdown(); }
+    });
+    document.addEventListener('click', (e) => {
+      if (!presetDropdownMenu.contains(e.target) && e.target !== presetDropdownBtn) closePresetDropdown();
+    });
+    refreshPresetList();
+
+    // ─── RESIZE (CSS zoom for sharp HiDPI) ─────────────────────────────────
+    const DESIGN_W = 1400, DESIGN_H = 800;
+    function updateScale() {
+      const shell = document.getElementById('pluginShell');
+      shell.style.zoom = '1';
+      const scaleX = window.innerWidth / DESIGN_W;
+      const scaleY = window.innerHeight / DESIGN_H;
+      const scale = Math.min(scaleX, scaleY);
+      shell.style.zoom = scale;
+      document.documentElement.style.setProperty('--ui-scale', scale);
+    }
+    window.addEventListener('resize', updateScale);
+
+    // ─── PARAMETER BINDING (UI ↔ APVTS) ────────────────────────────────────
+    // Map each knob/button with data-param-id to its JUCE SliderState/ToggleState.
+    // Without this, UI changes don't affect audio engine.
+    const sliderStateCache = {};
+    const toggleStateCache = {};
+
+    function getSlider(id) {
+      if (!window.J || !window.J.getSliderState) return null;
+      if (sliderStateCache[id] === undefined) {
+        try { sliderStateCache[id] = window.J.getSliderState(id) || null; }
+        catch (e) { sliderStateCache[id] = null; }
+      }
+      return sliderStateCache[id];
+    }
+    function getToggle(id) {
+      if (!window.J || !window.J.getToggleState) return null;
+      if (toggleStateCache[id] === undefined) {
+        try { toggleStateCache[id] = window.J.getToggleState(id) || null; }
+        catch (e) { toggleStateCache[id] = null; }
+      }
+      return toggleStateCache[id];
+    }
+
+    function bindKnobToJUCE(knob) {
+      const id = knob.dataset.paramId;
+      if (!id) return;
+      const state = getSlider(id);
+      if (!state) return;
+
+      // JUCE → UI: listen for param changes from DAW/host/state restore
+      try {
+        state.valueChangedEvent.addListener(() => {
+          const v = state.getNormalisedValue();
+          if (Math.abs(v - parseFloat(knob.dataset.value)) < 0.0001) return;
+          knob.dataset.value = v;
+          drawKnob(knob.querySelector('canvas'), v, getKnobColor(knob));
+          updateIndicator(knob);
+          updateKnobDisplay(knob);
+        });
+        const v = state.getNormalisedValue();
+        if (!isNaN(v)) {
+          knob.dataset.value = v;
+          drawKnob(knob.querySelector('canvas'), v, getKnobColor(knob));
+          updateIndicator(knob);
+          updateKnobDisplay(knob);
+        }
+      } catch (e) {}
+
+      // UI → JUCE: hook data-value mutation via wrapping the existing drag logic
+      // setupKnobDrag uses onMove that updates knob.dataset.value. Watch via MutationObserver.
+      const observer = new MutationObserver((muts) => {
+        for (const m of muts) {
+          if (m.attributeName === 'data-value') {
+            const v = parseFloat(knob.dataset.value);
+            try { state.setNormalisedValue(v); } catch (e) {}
+          }
+        }
+      });
+      observer.observe(knob, { attributes: true, attributeFilter: ['data-value'] });
+    }
+
+    function bindToggleToJUCE(btn) {
+      const id = btn.dataset.paramId;
+      const action = btn.dataset.action;  // 'solo' | 'mute' | 'bypass' | undefined (generic 'active')
+      if (!id) return;
+      const state = getToggle(id);
+      if (!state) return;
+
+      const cls = action ? (action + '-active') : 'active';
+
+      try {
+        state.valueChangedEvent.addListener(() => {
+          const on = state.getValue();
+          btn.classList.toggle(cls, on);
+          // Visual side-effects for bypass — scope by button class
+          if (action === 'bypass') {
+            if (btn.classList.contains('slot-btn')) {
+              // Slot-level bypass → only slot-card
+              const card = btn.closest('.slot-card');
+              if (card) card.classList.toggle('bypassed', on);
+            } else if (btn.classList.contains('band-btn')) {
+              // Band-level bypass → only band-column (skip the enclosing slot/card)
+              const col = btn.closest('.band-column');
+              if (col) col.classList.toggle('bypassed', on);
+            }
+          }
+        });
+        // Sync initial
+        const v = state.getValue();
+        btn.classList.toggle(cls, v);
+      } catch (e) {}
+
+      // Intercept click in capture phase, push to JUCE
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        try { state.setValue(!state.getValue()); } catch (err) {}
+      }, true);
+      // Remove original inline onclick by clearing it (data-toggle marker)
+      btn.onclick = null;
+    }
+
+    function bindAllParams() {
+      if (!window.J || !window.J.getSliderState) {
+        window.addEventListener('juce-ready', bindAllParams, { once: true });
+        return;
+      }
+      document.querySelectorAll('.knob[data-param-id]').forEach(bindKnobToJUCE);
+      document.querySelectorAll('[data-toggle="true"]').forEach(bindToggleToJUCE);
+
+      // Crossover handles: bind drag to APVTS freq params
+      // JUCE param uses setSkewForCentre(632) → skew constant below matches exactly.
+      const xLM = getSlider('crossover_low_mid');
+      const xMH = getSlider('crossover_mid_high');
+      if (xLM) {
+        xLM.valueChangedEvent.addListener(() => {
+          crossoverLowMid = normToHz(xLM.getNormalisedValue());
+        });
+        try { crossoverLowMid = normToHz(xLM.getNormalisedValue()); } catch (e) {}
+      }
+      if (xMH) {
+        xMH.valueChangedEvent.addListener(() => {
+          crossoverMidHigh = normToHz(xMH.getNormalisedValue());
+        });
+        try { crossoverMidHigh = normToHz(xMH.getNormalisedValue()); } catch (e) {}
+      }
+
+      // Slope params (6..96 step 6 = 16 morphable values)
+      const sLM = getSlider('crossover_low_mid_slope');
+      const sMH = getSlider('crossover_mid_high_slope');
+      function readSlope(st) {
+        try {
+          const val = SLOPE_MIN + st.getNormalisedValue() * (SLOPE_MAX - SLOPE_MIN);
+          return snapSlope(val);
+        } catch(e) { return 24; }
+      }
+      if (sLM) {
+        sLM.valueChangedEvent.addListener(() => { slopeLowMid = readSlope(sLM); });
+        slopeLowMid = readSlope(sLM);
+      }
+      if (sMH) {
+        sMH.valueChangedEvent.addListener(() => { slopeMidHigh = readSlope(sMH); });
+        slopeMidHigh = readSlope(sMH);
+      }
+    }
+
+    // JUCE NormalisableRange.setSkewForCentre(632) on (20, 20000):
+    //   skew = ln(0.5) / ln((632 - 20) / (20000 - 20)) ≈ 0.198828
+    // norm→hz: 20 + 19980 * pow(norm, 1/skew)
+    // hz→norm: pow((hz - 20)/19980, skew)
+    const FREQ_SKEW = Math.log(0.5) / Math.log((632.0 - 20.0) / (20000.0 - 20.0));
+    function normToHz(n)  { return Math.max(20, Math.min(20000, 20 + 19980 * Math.pow(n, 1 / FREQ_SKEW))); }
+    function hzToNorm(hz) { return Math.max(0, Math.min(1, Math.pow((hz - 20) / 19980, FREQ_SKEW))); }
+
+    function setCrossoverFromHz(which, hz) {
+      const id = which === 'lm' ? 'crossover_low_mid' : 'crossover_mid_high';
+      const st = getSlider(id);
+      if (st) { try { st.setNormalisedValue(hzToNorm(hz)); } catch (e) {} }
+      if (which === 'lm') revealLM(); else revealMH();
+    }
+
+    // ─── UNDO / REDO ──────────────────────────────────────────────────────
+    (function installUndo() {
+      const ub = document.getElementById('undoBtn');
+      const rb = document.getElementById('redoBtn');
+      if (!ub || !rb) return;
+      function refreshState() {
+        if (!juceGetUndoState) return;
+        juceGetUndoState().then(s => {
+          if (!s) return;
+          ub.disabled = !s.canUndo;
+          rb.disabled = !s.canRedo;
+        }).catch(() => {});
+      }
+      ub.addEventListener('click', () => { if (juceUndo) juceUndo().then(refreshState); });
+      rb.addEventListener('click', () => { if (juceRedo) juceRedo().then(refreshState); });
+      // Hotkeys: Cmd/Ctrl+Z = undo, Cmd+Shift+Z or Ctrl+Y = redo
+      window.addEventListener('keydown', (e) => {
+        const mod = e.metaKey || e.ctrlKey;
+        if (!mod) return;
+        if (e.key === 'z' || e.key === 'Z') {
+          e.preventDefault();
+          if (e.shiftKey) { if (juceRedo) juceRedo().then(refreshState); }
+          else            { if (juceUndo) juceUndo().then(refreshState); }
+        } else if (e.key === 'y' || e.key === 'Y') {
+          e.preventDefault();
+          if (juceRedo) juceRedo().then(refreshState);
+        }
+      });
+      // Refresh enable-state ~3 Hz
+      setInterval(refreshState, 300);
+    })();
+
+    // ─── INIT ─────────────────────────────────────────────────────────────
+    buildBands();
+    initAllKnobs();
+    bindAllParams();
+    updateScale();
+
+    // Build band-strip knobs via CVKnob lib once JUCE ready.
+    if (!buildBandCVKnobs()) {
+      window.addEventListener('juce-ready', buildBandCVKnobs, { once: true });
+    }
+
+    // Spectrum polling — pull FFT from C++ ~30Hz
+    window.__spectrumBins = null;
+    function pollSpectrum() {
+      if (juceGetSpectrum) {
+        try {
+          juceGetSpectrum().then(obj => {
+            if (obj && (obj.input || obj.output)) window.__spectrumBins = obj;
+          }).catch(() => {});
+        } catch (e) {}
+      }
+    }
+    setInterval(pollSpectrum, 33);
+
+    (function animate() { drawSpectrum(); requestAnimationFrame(animate); })();
+
+    // ─── MAKE CHAOS — random mutation system (Chaosverb pattern) ──────
+    // Randomizes per-band sound-shaping params on demand or on a timer.
+    // What randomizes  : dry_wet, input_gain, output_gain, ms_morph
+    // What stays fixed : crossover freqs, solo/mute/bypass, slot routing,
+    //                    linear phase, global in/out/dry-wet
+    // Locks            : right-click any knob to exclude it from chaos.
+    //                    Lock state is per-session (not persisted to APVTS).
+    // Interval         : user-adjustable 5s..600s log-scale via header slider.
+    (function installChaos() {
+      const CHAOS_BANDS  = ['low', 'mid', 'high'];
+      const CHAOS_PARAMS = ['dry_wet', 'input_gain', 'output_gain', 'ms_morph'];
+
+      // Mode + slider-driven value. Slider 0..1000 maps to either:
+      //   MS:   100ms (0) → 600000ms (1000), log scale
+      //   SYNC: nearest index in SYNC_VALUES (snap)
+      const SYNC_VALUES = [
+        { label: '1/32',  beats: 0.125 },
+        { label: '1/16',  beats: 0.25  },
+        { label: '1/8',   beats: 0.5   },
+        { label: '1/4',   beats: 1     },
+        { label: '1/2',   beats: 2     },
+        { label: '1 BAR', beats: 4     },
+        { label: '2 BAR', beats: 8     },
+        { label: '4 BAR', beats: 16    },
+        { label: '8 BAR', beats: 32    },
+      ];
+      const MS_MIN_S = 0.1;        // 100ms
+      const MS_MAX_S = 600;        // 10 minutes
+      const LOG_MIN_S = Math.log(MS_MIN_S);
+      const LOG_MAX_S = Math.log(MS_MAX_S);
+
+      let mode = 'MS';
+      let msSlider = 700;          // ~30s after log mapping
+      let syncSlider = 333;        // ~1/4 in SYNC mode
+      try {
+        const stored = JSON.parse(localStorage.getItem('multiblend.chaosTimer') || '{}');
+        if (stored.mode === 'MS' || stored.mode === 'SYNC') mode = stored.mode;
+        if (typeof stored.msSlider === 'number')   msSlider = stored.msSlider;
+        if (typeof stored.syncSlider === 'number') syncSlider = stored.syncSlider;
+      } catch (e) {}
+
+      function persistTimer() {
+        try { localStorage.setItem('multiblend.chaosTimer', JSON.stringify({ mode, msSlider, syncSlider })); } catch (e) {}
+      }
+
+      function sliderToMs(s) {
+        const t = Math.max(0, Math.min(1, s / 1000));
+        const secs = Math.exp(LOG_MIN_S + t * (LOG_MAX_S - LOG_MIN_S));
+        return secs * 1000;
+      }
+      function sliderToSyncIdx(s) {
+        const t = Math.max(0, Math.min(1, s / 1000));
+        return Math.max(0, Math.min(SYNC_VALUES.length - 1, Math.round(t * (SYNC_VALUES.length - 1))));
+      }
+      function fmtMs(ms) {
+        if (ms < 1000) return Math.round(ms) + 'ms';
+        const secs = ms / 1000;
+        if (secs < 60) return secs.toFixed(secs < 10 ? 1 : 0) + 's';
+        const m = Math.floor(secs / 60);
+        const s = Math.round(secs - m * 60);
+        return s === 0 ? m + 'm' : m + 'm' + s + 's';
+      }
+
+      let lastHostBpm = 120.0;
+      let timerId    = null;
+      let tickerId   = null;
+      let nextFireMs = 0;
+      const lockedIds = new Set();
+
+      const btn      = document.getElementById('makeChaosBtn');
+      const cd       = document.getElementById('chaosCountdown');
+      const tt       = document.getElementById('chaosTimerToggle');
+      const modeBtn  = document.getElementById('chaosModeBtn');
+      const intLbl   = document.getElementById('chaosIntervalLabel');
+      const intSl    = document.getElementById('chaosIntervalSlider');
+      if (!btn || !cd || !tt || !modeBtn || !intLbl || !intSl) return;
+
+      function currentIntervalMs() {
+        if (mode === 'SYNC') {
+          const idx = sliderToSyncIdx(syncSlider);
+          const bpm = (lastHostBpm > 1.0) ? lastHostBpm : 120.0;
+          return (60000.0 / bpm) * SYNC_VALUES[idx].beats;
+        }
+        return sliderToMs(msSlider);
+      }
+
+      function refreshTimerUI() {
+        modeBtn.textContent = mode;
+        modeBtn.classList.toggle('sync-mode', mode === 'SYNC');
+        if (mode === 'SYNC') {
+          intSl.value = syncSlider;
+          intLbl.textContent = SYNC_VALUES[sliderToSyncIdx(syncSlider)].label;
+        } else {
+          intSl.value = msSlider;
+          intLbl.textContent = fmtMs(sliderToMs(msSlider));
+        }
+      }
+      refreshTimerUI();
+
+      modeBtn.addEventListener('click', () => {
+        mode = (mode === 'MS') ? 'SYNC' : 'MS';
+        persistTimer();
+        refreshTimerUI();
+        if (timerId) { stop(); start(); }
+      });
+      intSl.addEventListener('input', () => {
+        const v = parseInt(intSl.value, 10);
+        if (mode === 'SYNC') syncSlider = v; else msSlider = v;
+        persistTimer();
+        refreshTimerUI();
+        // Don't restart timer mid-drag — apply on release
+      });
+      intSl.addEventListener('change', () => {
+        if (timerId) { stop(); start(); }
+      });
+
+      // Poll host BPM ~2Hz when in sync mode
+      setInterval(() => {
+        if (mode !== 'SYNC' || !juceGetHostBpm) return;
+        try {
+          juceGetHostBpm().then(v => { if (typeof v === 'number' && v > 1.0) lastHostBpm = v; });
+        } catch (e) {}
+      }, 500);
+
+      function fmt(secs) {
+        const m = Math.floor(secs / 60);
+        const s = secs % 60;
+        return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+      }
+
+      // ─── Countdown tick ────────────────────────────────────────────
+      function tick() {
+        if (!timerId) return;
+        const remMs = Math.max(0, nextFireMs - performance.now());
+        cd.textContent = fmt(Math.ceil(remMs / 1000));
+      }
+
+      // ─── Mutation fire ─────────────────────────────────────────────
+      function fire() {
+        // Single C++ call → opens transaction, randomizes knobs, shuffles, closes.
+        // Whole CHAOS = one undo step. Knob UI updates via valueChangedEvent
+        // listeners (already wired in bindKnobToJUCE / CVKnob slider state).
+        if (juceTriggerChaos) {
+          try {
+            const lockedParamArr = Array.from(lockedIds);
+            juceTriggerChaos(lockedLinearCoords(), lockedParamArr);
+          } catch (e) {}
+        }
+
+        btn.classList.add('firing');
+        setTimeout(() => btn.classList.remove('firing'), 350);
+        cd.classList.remove('pulse');
+        void cd.offsetWidth;
+        cd.classList.add('pulse');
+      }
+
+      // ─── Timer control ─────────────────────────────────────────────
+      function start() {
+        stop();
+        const ms = currentIntervalMs();
+        nextFireMs = performance.now() + ms;
+        // Use setTimeout-chain so BPM changes recompute interval each cycle
+        const scheduleNext = () => {
+          const dt = currentIntervalMs();
+          nextFireMs = performance.now() + dt;
+          timerId = setTimeout(() => {
+            fire();
+            scheduleNext();
+          }, dt);
+        };
+        scheduleNext();
+        tickerId = setInterval(tick, 250);
+        tt.classList.remove('is-stopped');
+        tt.textContent = 'STOP';
+        cd.classList.remove('stopped');
+        tick();
+      }
+      function stop() {
+        if (timerId)  { clearTimeout(timerId);  timerId  = null; }
+        if (tickerId) { clearInterval(tickerId); tickerId = null; }
+        tt.classList.add('is-stopped');
+        tt.textContent = 'START';
+        cd.classList.add('stopped');
+        cd.textContent = '--:--';
+      }
+
+      // ─── Button hookups ────────────────────────────────────────────
+      btn.addEventListener('click', () => {
+        fire();
+        if (timerId) {
+          const dt = currentIntervalMs();
+          nextFireMs = performance.now() + dt;
+          tick();
+        }
+      });
+      tt.addEventListener('click', () => {
+        if (timerId) stop(); else start();
+      });
+
+      // ─── Lock system ──────────────────────────────────────────────
+      // 3 levels (right-click):
+      //   1. Knob param → lockedIds (param ID string)
+      //   2. Slot card  → slotLocks (key "band_X_slot_Y")
+      //   3. Band label → bandLocks (key "band_X")
+      // Knobs handled first (most specific). Then slot/band fallback.
+      const slotLocks = new Set();
+      const bandLocks = new Set();
+      window.__chaosSlotLocks = slotLocks;
+      window.__chaosBandLocks = bandLocks;
+
+      // Linear coord helper (band index 0-2, slot 0-4) → int key matching C++ side
+      const BAND_INDEX = { low: 0, mid: 1, high: 2 };
+      function lockedLinearCoords() {
+        const set = new Set();
+        // Slot locks → linear
+        slotLocks.forEach(key => {
+          const m = key.match(/^band_(low|mid|high)_slot_(\d)$/);
+          if (m) set.add(BAND_INDEX[m[1]] * 5 + (parseInt(m[2]) - 1));
+        });
+        // Band locks → expand to all 5 slots in that band
+        bandLocks.forEach(key => {
+          const m = key.match(/^band_(low|mid|high)$/);
+          if (m) for (let s = 0; s < 5; s++) set.add(BAND_INDEX[m[1]] * 5 + s);
+        });
+        return Array.from(set);
+      }
+
+      document.addEventListener('contextmenu', (e) => {
+        // 1a. Legacy knob lock (.knob[data-param-id]) — global header knobs + slot D/W
+        const knob = e.target.closest && e.target.closest('.knob[data-param-id]');
+        if (knob) {
+          e.preventDefault();
+          const id = knob.dataset.paramId;
+          if (!id) return;
+          if (lockedIds.has(id)) { lockedIds.delete(id); knob.classList.remove('chaos-locked'); }
+          else                   { lockedIds.add(id);    knob.classList.add('chaos-locked'); }
+          return;
+        }
+        // 1b. CVKnob lock (.knob-wrap[data-param]) — band In/Out/D-W/M-S
+        const cv = e.target.closest && e.target.closest('.knob-wrap[data-param]');
+        if (cv) {
+          e.preventDefault();
+          const id = cv.getAttribute('data-param');
+          if (!id) return;
+          if (lockedIds.has(id)) { lockedIds.delete(id); cv.classList.remove('chaos-locked'); }
+          else                   { lockedIds.add(id);    cv.classList.add('chaos-locked'); }
+          return;
+        }
+        // 2. Band label lock (right-click on .band-label)
+        const bandLabel = e.target.closest && e.target.closest('.band-label[data-band]');
+        if (bandLabel) {
+          e.preventDefault();
+          const band = bandLabel.dataset.band;
+          const key = 'band_' + band;
+          const col = document.querySelector('.band-column[data-band="' + band + '"]');
+          if (bandLocks.has(key)) { bandLocks.delete(key); col && col.classList.remove('chaos-locked-band'); }
+          else                    { bandLocks.add(key);    col && col.classList.add('chaos-locked-band'); }
+          return;
+        }
+        // 3. Slot card lock (any other right-click inside .slot-card)
+        const slot = e.target.closest && e.target.closest('.slot-card[data-band][data-slot]');
+        if (slot) {
+          e.preventDefault();
+          const band = slot.dataset.band;
+          const idx  = slot.dataset.slot;
+          const key = 'band_' + band + '_slot_' + idx;
+          if (slotLocks.has(key)) { slotLocks.delete(key); slot.classList.remove('chaos-locked-slot'); }
+          else                    { slotLocks.add(key);    slot.classList.add('chaos-locked-slot'); }
+          return;
+        }
+      });
+
+      window.__chaos = { fire, start, stop, lockedIds, slotLocks, bandLocks, lockedLinearCoords };
+    })();
+  </script>
+</body>
+</html>
