@@ -1,0 +1,13 @@
+#include "../JuceIncludes.h"
+
+/* This file contains auto-generated code - modifications may be overwritten */
+
+static inline const bool VerifyMoonbaseKeyIntegrity (const juce::BigInteger rsaModulus)
+{
+OBF_BEGIN
+/* MOONBASE_KEY_INTEGRITY_CHECK_BEGIN */
+    return true;
+/* MOONBASE_KEY_INTEGRITY_CHECK_END */
+OBF_END
+    return true;
+}

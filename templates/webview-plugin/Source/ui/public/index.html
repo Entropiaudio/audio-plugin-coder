@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>__PLUGIN__</title>
+<style>
+  @font-face { font-family: 'Montserrat';    src: url('/fonts/Montserrat-Variable.woff2') format('woff2-variations');    font-weight: 100 900; font-display: swap; }
+  @font-face { font-family: 'Fraunces';       src: url('/fonts/Fraunces-Variable.woff2') format('woff2-variations');       font-weight: 100 900; font-display: swap; }
+  @font-face { font-family: 'JetBrains Mono';  src: url('/fonts/JetBrainsMono-Variable.woff2') format('woff2-variations'); font-weight: 100 800; font-display: swap; }
+
+  /* ─── DESIGN TOKENS (Entropia Audio) — reskin here ─── */
+  :root {
+    --bg-shell: #14110F; --bg-card: #1C1916; --bg-elevated: #24201D;
+    --border-subtle: #2e2a25; --border-bright: #3e3a35; --border-divider: #26221F;
+    --text-primary: #E8E2D6; --text-secondary: #A8A29A; --text-dim: #6A6258; --text-faint: #403A32;
+    --accent: #D4A574; --accent-bright: #E2BD96; --accent-glow: rgba(212,165,116,0.35); --accent-muted: rgba(212,165,116,0.15);
+    --state-success: #6bff8e; --state-warning: #ffb86b;
+    --t-fast: 120ms; --t-base: 200ms; --ease: cubic-bezier(0.22,1,0.36,1);
+  }
+  html, body { height: 100%; margin: 0; }
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    user-select: none; -webkit-user-select: none; cursor: default; overflow: hidden;
+    background: var(--bg-shell); color: var(--text-primary);
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .shell { width: 720px; height: 480px; position: relative; display: flex; flex-direction: column; background: var(--bg-shell); }
+
+  /* header */
+  .header { height: 56px; flex: 0 0 56px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--border-divider); }
+  .title { font-family: 'Fraunces', Georgia, serif; font-weight: 300; font-size: 22px; line-height: 1; }
+  .eyebrow { font-size: 8.5px; letter-spacing: 2px; text-transform: uppercase; color: var(--accent); opacity: 0.85; }
+  .hist { display: flex; gap: 6px; }
+  .hist button { font-family: inherit; font-size: 12px; color: var(--text-dim); background: transparent; border: 1px solid var(--border-subtle); border-radius: 50%; width: 24px; height: 24px; cursor: pointer; }
+  .hist button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+  .hist button:disabled { opacity: 0.35; cursor: default; }
+
+  /* body */
+  .body { flex: 1; display: flex; align-items: center; justify-content: center; gap: 36px; padding: 20px; }
+  .knob-wrap { display: flex; flex-direction: column; align-items: center; gap: 5px; width: 68px; cursor: ns-resize; }
+  .knob-body { width: 56px; height: 56px; position: relative; }
+  .knob-body canvas { position: absolute; top: -8px; left: -8px; width: 72px; height: 72px; }
+  .knob-face { position: absolute; top: 9px; left: 9px; width: 38px; height: 38px; border-radius: 50%; background: #1f1c19; border: 1px solid var(--border-bright); z-index: 2; }
+  .knob-ind { position: absolute; top: 50%; left: 50%; width: 2.5px; height: 2.5px; margin: -1.25px 0 0 -1.25px; border-radius: 50%; background: #fff; z-index: 4; transform-origin: 50% 50%; }
+  .knob-label { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-dim); }
+  .knob-value { font-size: 9px; font-weight: 500; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+  .col { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .chips { display: flex; gap: 4px; }
+  .chip { font-family: inherit; font-size: 9px; letter-spacing: 1px; color: var(--text-dim); background: transparent; border: 1px solid var(--border-subtle); border-radius: 10px; padding: 4px 12px; cursor: pointer; transition: all var(--t-fast) var(--ease); }
+  .toggle { font-family: inherit; font-size: 9px; letter-spacing: 1.5px; color: var(--text-dim); background: transparent; border: 1px solid var(--border-subtle); border-radius: 12px; padding: 5px 18px; cursor: pointer; }
+  .toggle.on { color: var(--state-warning); border-color: var(--state-warning); }
+
+  /* settings + resize grip */
+  .gear { position: absolute; bottom: 4px; right: 20px; width: 15px; height: 15px; padding: 1px; background: none; border: none; cursor: pointer; color: var(--text-dim); z-index: 20; }
+  .gear svg { width: 100%; height: 100%; }
+  .grip { position: absolute; bottom: 2px; right: 2px; width: 14px; height: 14px; cursor: nwse-resize; opacity: 0.5; z-index: 20; }
+  .grip:hover { opacity: 1; }
+  .grip::before { content: ""; position: absolute; inset: 0; background: linear-gradient(135deg, transparent 55%, var(--text-dim) 55% 60%, transparent 60% 75%, var(--text-dim) 75% 80%, transparent 80%); }
+  .pop { position: absolute; bottom: 26px; right: 16px; width: 180px; padding: 10px 12px; background: var(--bg-elevated); border: 1px solid var(--border-bright); border-radius: 8px; box-shadow: 0 4px 18px rgba(0,0,0,0.5); display: none; z-index: 21; }
+  .pop.open { display: block; }
+  .pop h3 { margin: 0 0 8px; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--accent); font-weight: 400; }
+  .prow { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; }
+  .prow span { font-size: 8.5px; letter-spacing: 1px; color: var(--text-secondary); }
+  .sw { width: 26px; height: 14px; border-radius: 7px; background: var(--bg-shell); border: 1px solid var(--border-subtle); position: relative; cursor: pointer; padding: 0; }
+  .sw::after { content: ""; position: absolute; top: 1.5px; left: 2px; width: 9px; height: 9px; border-radius: 50%; background: var(--text-dim); transition: left var(--t-fast) var(--ease), background var(--t-fast); }
+  .sw.on { border-color: var(--accent); } .sw.on::after { left: 13px; background: var(--accent); }
+  .mini { font-family: inherit; font-size: 8px; color: var(--text-dim); background: none; border: 1px solid var(--border-subtle); border-radius: 6px; padding: 2px 7px; cursor: pointer; }
+  .mini:hover { color: var(--accent); border-color: var(--accent); }
+  .tip { position: fixed; z-index: 50; pointer-events: none; background: var(--bg-card); border: 1px solid var(--border-bright); border-radius: 6px; font-size: 8.5px; padding: 4px 8px; opacity: 0; transition: opacity var(--t-fast) var(--ease); }
+  .tip.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="shell" id="shell">
+  <div class="header">
+    <div><div class="title">__PLUGIN__</div><div class="eyebrow">Entropia Audio</div></div>
+    <div class="hist"><button id="undoBtn" data-tip="Undo (⌘Z)" disabled>↶</button><button id="redoBtn" data-tip="Redo (⌘⇧Z)" disabled>↷</button></div>
+  </div>
+  <div class="body">
+    <div class="knob-wrap" id="knob_gain"></div>
+    <div class="knob-wrap" id="knob_cutoff"></div>
+    <div class="col">
+      <div class="chips" id="modeChips"></div>
+      <button class="toggle" id="bypassBtn">BYPASS</button>
+    </div>
+  </div>
+  <div class="pop" id="pop">
+    <h3>Settings</h3>
+    <div class="prow"><span>Tooltips</span><button class="sw" id="tipSw"></button></div>
+    <div style="padding:5px 0"><div style="font-size:8.5px;letter-spacing:1px;color:var(--text-secondary);margin-bottom:5px">Window Size</div>
+      <div style="display:flex;gap:4px"><button class="mini" data-w="480" data-h="320">SM</button><button class="mini" data-w="720" data-h="480">MD</button><button class="mini" data-w="960" data-h="640">LG</button></div></div>
+    <div class="prow"><span>Brightness</span><span><button class="mini" id="brDn">−</button> <b id="brVal">100%</b> <button class="mini" id="brUp">+</button></span></div>
+  </div>
+  <button class="gear" id="gear" data-tip="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+  <div class="grip" id="grip" data-tip="Drag to resize"></div>
+</div>
+
+<script type="module">
+"use strict";
+import * as Juce from "./js/juce/index.js";
+
+/* Real backend fills initialisationData.__juce__platform; the JS lib shims a
+   placeholder window.__JUCE__ in a plain browser (so this file also runs at
+   http://localhost for design work). */
+const EMBEDDED = typeof window.__JUCE__ !== "undefined"
+  && (window.__JUCE__.initialisationData?.__juce__platform?.length ?? 0) > 0;
+const DPR = window.devicePixelRatio || 1;
+const clamp = (v,a,b) => Math.min(b, Math.max(a, v));
+const el_ = (tag, cls) => { const e = document.createElement(tag); if (cls) e.className = cls; return e; };
+
+/* ── PARAMETER LAYER ──
+   Uniform get/set in DENORMALIZED units. Embedded → JUCE relays using the
+   lib's own skew math (properties carry start/end/skew from the C++
+   NormalisableRange). Browser → local mock. UI talks only to P.*  */
+function sliderParam(id, def) {
+  const ls = [];
+  if (EMBEDDED) {
+    const st = Juce.getSliderState(id);
+    st.valueChangedEvent.addListener(() => ls.forEach(f => f()));
+    const toVal = n => { const p = st.properties; return Math.pow(clamp(n,0,1), 1/p.skew) * (p.end - p.start) + p.start; };
+    const toNorm = v => { const p = st.properties; return Math.pow(clamp((v-p.start)/(p.end-p.start),0,1), p.skew); };
+    return { get: () => toVal(st.getNormalisedValue()), set: v => st.setNormalisedValue(toNorm(v)), onChange: f => ls.push(f) };
+  }
+  let v = def; return { get: () => v, set: x => { v = x; ls.forEach(f => f()); }, onChange: f => ls.push(f) };
+}
+function comboParam(id, def) {
+  const ls = [];
+  if (EMBEDDED) { const st = Juce.getComboBoxState(id); st.valueChangedEvent.addListener(() => ls.forEach(f => f()));
+    return { get: () => st.getChoiceIndex(), set: i => st.setChoiceIndex(i), onChange: f => ls.push(f) }; }
+  let v = def; return { get: () => v, set: x => { v = x|0; ls.forEach(f => f()); }, onChange: f => ls.push(f) };
+}
+function toggleParam(id, def) {
+  const ls = [];
+  if (EMBEDDED) { const st = Juce.getToggleState(id); st.valueChangedEvent.addListener(() => ls.forEach(f => f()));
+    return { get: () => !!st.getValue(), set: b => st.setValue(!!b), onChange: f => ls.push(f) }; }
+  let v = def; return { get: () => v, set: x => { v = !!x; ls.forEach(f => f()); }, onChange: f => ls.push(f) };
+}
+const MODES = ["Clean", "Warm", "Crush"];
+const P = {
+  gain:   sliderParam("gain", 0),
+  cutoff: sliderParam("cutoff", 1000),
+  mode:   comboParam("mode", 0),
+  bypass: toggleParam("bypass", false),
+};
+const native = n => EMBEDDED ? Juce.getNativeFunction(n) : (async () => null);
+const commitUndoN = native("commitUndo"), undoN = native("undo"), redoN = native("redo"), setSizeN = native("setEditorSize");
+
+/* ── KNOB — Entropia component (Chaosverb-matched, tuned) ── */
+const KNOB = 72, RAD = 24, START = 135;
+const d2r = d => d * Math.PI / 180;
+function lerp(a, b, t) { t = clamp(t,0,1);
+  const p = i => parseInt(a.slice(i,i+2),16), q = i => parseInt(b.slice(i,i+2),16);
+  return `rgb(${Math.round(p(1)+(q(1)-p(1))*t)},${Math.round(p(3)+(q(3)-p(3))*t)},${Math.round(p(5)+(q(5)-p(5))*t)})`; }
+function drawKnob(cv, norm, color) {
+  const ctx = cv.getContext("2d");
+  if (cv.width !== KNOB*DPR) { cv.width = KNOB*DPR; cv.height = KNOB*DPR; }
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  const c = KNOB/2, w = 1.5;
+  ctx.clearRect(0,0,KNOB,KNOB);
+  ctx.beginPath(); ctx.arc(c,c,RAD,d2r(START),d2r(START+270)); ctx.strokeStyle="#1f1c19"; ctx.lineWidth=w; ctx.lineCap="round"; ctx.stroke();
+  if (norm > 0.001) {
+    const tot = clamp(norm,0,1)*270, seg = Math.max(2, Math.round(tot*0.5));
+    const stroke = () => { for (let i=0;i<seg;i++){ const t0=i/seg,t1=(i+1)/seg;
+      ctx.beginPath(); ctx.arc(c,c,RAD,d2r(START+t0*tot),d2r(START+t1*tot)+0.012);
+      ctx.strokeStyle=lerp("#D4A574",color,(t0+t1)*0.5); ctx.lineWidth=w; ctx.lineCap=(i===0||i===seg-1)?"round":"butt"; ctx.stroke(); } };
+    ctx.save(); ctx.shadowColor=color; ctx.shadowBlur=9;   ctx.globalAlpha=0.30; stroke(); ctx.restore();
+    ctx.save(); ctx.shadowColor=color; ctx.shadowBlur=4.5; ctx.globalAlpha=0.55; stroke(); ctx.restore();
+    ctx.save(); ctx.shadowColor=color; ctx.shadowBlur=1.5; ctx.globalAlpha=1.0;  stroke(); ctx.restore();
+  }
+}
+function makeKnob(id, label, opts) {
+  const host = document.getElementById(id);
+  const body = el_("div","knob-body"), cv = document.createElement("canvas");
+  const face = el_("div","knob-face"), ind = el_("div","knob-ind");
+  face.appendChild(ind); body.appendChild(cv); body.appendChild(face);
+  const lab = el_("div","knob-label"); lab.textContent = label;
+  const val = el_("div","knob-value");
+  host.appendChild(body); host.appendChild(lab); host.appendChild(val);
+  const k = { refresh() { const n = opts.norm(); drawKnob(cv, n, opts.color);
+    ind.style.transform = `rotate(${-135+clamp(n,0,1)*270}deg) translateY(-14px)`; ind.style.boxShadow = `0 0 4px ${opts.color}`;
+    val.textContent = opts.fmt(); } };
+  let drag = false, lastY = 0;
+  host.addEventListener("mousedown", e => { drag = true; lastY = e.clientY; e.preventDefault(); });
+  window.addEventListener("mousemove", e => { if (!drag) return; const dy = lastY - e.clientY; lastY = e.clientY;
+    opts.setNorm(clamp(opts.norm() + dy * 0.005 * (e.shiftKey?0.2:1), 0, 1)); k.refresh(); });
+  window.addEventListener("mouseup", () => drag = false);
+  host.addEventListener("dblclick", () => { opts.setNorm(opts.def); k.refresh(); });
+  k.refresh(); return k;
+}
+const fmtHz = f => f>=1000 ? (f/1000).toFixed(f<10000?1:0)+" kHz" : Math.round(f)+" Hz";
+const FMIN=20, FMAX=20000, lg = f => Math.log(f/FMIN)/Math.log(FMAX/FMIN), lgInv = n => FMIN*Math.pow(FMAX/FMIN,n);
+const kGain = makeKnob("knob_gain", "Gain", { color:"#D4A574", def:0.5,
+  norm: () => (P.gain.get()+24)/48, setNorm: n => P.gain.set(-24+n*48), fmt: () => P.gain.get().toFixed(1)+" dB" });
+const kCut = makeKnob("knob_cutoff", "Cutoff", { color:"#5fc88a", def: lg(1000),
+  norm: () => lg(P.cutoff.get()), setNorm: n => P.cutoff.set(lgInv(n)), fmt: () => fmtHz(P.cutoff.get()) });
+
+/* mode chips + bypass */
+const chipsEl = document.getElementById("modeChips");
+MODES.forEach((m,i) => { const b = el_("button","chip"); b.textContent = m.toUpperCase();
+  b.onclick = () => { P.mode.set(i); refreshPanels(); }; chipsEl.appendChild(b); });
+const bypassBtn = document.getElementById("bypassBtn");
+bypassBtn.onclick = () => { P.bypass.set(!P.bypass.get()); refreshPanels(); };
+
+function refreshPanels() {
+  kGain.refresh(); kCut.refresh();
+  chipsEl.querySelectorAll(".chip").forEach((c,i) => { const on = i===P.mode.get();
+    c.style.color = on ? "#14110F" : ""; c.style.background = on ? "var(--accent)" : ""; c.style.borderColor = on ? "var(--accent)" : ""; });
+  bypassBtn.classList.toggle("on", P.bypass.get());
+}
+/* host automation → coalesced repaint */
+let dirty = false;
+const sched = () => { if (dirty) return; dirty = true; requestAnimationFrame(() => { dirty = false; refreshPanels(); }); };
+Object.values(P).forEach(p => p.onChange(sched));
+
+/* ── UNDO / REDO ── (host-side no-op filter makes 'mouseup' a safe commit) */
+const undoBtn = document.getElementById("undoBtn"), redoBtn = document.getElementById("redoBtn");
+const setBtns = st => { if (!st) return; undoBtn.disabled = !st.canUndo; redoBtn.disabled = !st.canRedo; };
+let commitT = null;
+const scheduleCommit = () => { if (!EMBEDDED) return; clearTimeout(commitT); commitT = setTimeout(() => commitUndoN().then(setBtns).catch(()=>{}), 160); };
+window.addEventListener("mouseup", scheduleCommit);
+undoBtn.onclick = () => { if (EMBEDDED && !undoBtn.disabled) undoN().then(setBtns).catch(()=>{}); };
+redoBtn.onclick = () => { if (EMBEDDED && !redoBtn.disabled) redoN().then(setBtns).catch(()=>{}); };
+window.addEventListener("keydown", e => { const m = e.metaKey || e.ctrlKey; if (m && e.key.toLowerCase()==="z") { e.preventDefault(); (e.shiftKey ? redoBtn : undoBtn).click(); } });
+if (EMBEDDED) window.__JUCE__.backend.addEventListener("stateReloaded", () => refreshPanels());
+
+/* ── SETTINGS + resize grip + tooltips ── */
+const shell = document.getElementById("shell"), pop = document.getElementById("pop");
+document.getElementById("gear").onclick = e => { pop.classList.toggle("open"); e.stopPropagation(); };
+document.addEventListener("mousedown", e => { if (pop.classList.contains("open") && !pop.contains(e.target) && e.target.id!=="gear") pop.classList.remove("open"); });
+const store = (() => { try { return JSON.parse(localStorage.getItem("__PLUGIN___settings")||"{}"); } catch { return {}; } })();
+const save = () => { try { localStorage.setItem("__PLUGIN___settings", JSON.stringify(store)); } catch {} };
+let bright = clamp(store.brightness ?? 100, 70, 130);
+const applyBright = () => { shell.style.filter = bright===100 ? "" : `brightness(${bright}%)`; document.getElementById("brVal").textContent = bright+"%"; store.brightness = bright; save(); };
+document.getElementById("brUp").onclick = () => { bright = clamp(bright+5,70,130); applyBright(); };
+document.getElementById("brDn").onclick = () => { bright = clamp(bright-5,70,130); applyBright(); };
+applyBright();
+document.querySelectorAll(".mini[data-w]").forEach(b => b.onclick = () => { if (EMBEDDED) setSizeN(+b.dataset.w, +b.dataset.h).catch(()=>{}); });
+let tips = store.tooltips !== false; const tipSw = document.getElementById("tipSw");
+const applyTips = () => { tipSw.classList.toggle("on", tips); store.tooltips = tips; save(); };
+tipSw.onclick = () => { tips = !tips; applyTips(); }; applyTips();
+const tipEl = el_("div","tip"); document.body.appendChild(tipEl);
+document.addEventListener("mouseover", e => { const t = e.target.closest("[data-tip]"); if (!t || !tips) { tipEl.classList.remove("show"); return; }
+  tipEl.textContent = t.dataset.tip; const r = t.getBoundingClientRect();
+  tipEl.style.left = clamp(r.left+r.width/2-40, 4, document.documentElement.clientWidth-90)+"px"; tipEl.style.top = Math.max(4, r.top-24)+"px"; tipEl.classList.add("show"); });
+document.addEventListener("mouseout", () => tipEl.classList.remove("show"));
+(() => { const g = document.getElementById("grip"); let d = null;
+  g.addEventListener("mousedown", e => { d = { x:e.screenX, w:document.documentElement.clientWidth }; e.preventDefault(); e.stopPropagation(); });
+  window.addEventListener("mousemove", e => { if (!d) return; const w = clamp(d.w + (e.screenX-d.x), 480, 1600); if (EMBEDDED) setSizeN(Math.round(w), Math.round(w*480/720)).catch(()=>{}); });
+  window.addEventListener("mouseup", () => d = null); })();
+
+/* ── crisp scaling: fixed 720×480 design space, CSS zoom to fit window ── */
+function fit() { const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+  shell.style.zoom = (vw>0 && vh>0) ? Math.min(vw/720, vh/480) : 1; }
+window.addEventListener("resize", fit); window.addEventListener("load", fit);
+fit(); refreshPanels();
+</script>
+</body>
+</html>

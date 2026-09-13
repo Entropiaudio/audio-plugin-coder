@@ -14,6 +14,7 @@ design_library/_exclude/
 
 # Build Artifacts (The Dirty Zone)
 build/
+build-release/
 cmake-build-*/
 .vs/
 out/
@@ -25,6 +26,11 @@ out/
 *.vst3
 *.lib
 *.exp
+
+# ...but the Moonbase module ships prebuilt per-platform prebuild tools as
+# SOURCE. They run at build time only (never bundled into the plugin), and
+# without them a fresh clone cannot build on that platform.
+!**/modules/moonbase_JUCEClient/**/*.exe
 
 # github
 github/
@@ -53,3 +59,8 @@ cloudwash_crash_log.txt
 # Backups
 _backups/
 dist/
+build-debug/
+
+# Local tool output (knowledge-graph builds, Browser-pane launch config)
+graphify-out/
+.claude/launch.json

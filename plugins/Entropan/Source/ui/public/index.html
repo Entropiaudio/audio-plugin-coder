@@ -1,0 +1,3928 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Entropan</title>
+<style>
+  /* ─── BUNDLED VARIABLE FONTS (served from JUCE BinaryData) ─── */
+  @font-face {
+    font-family: 'Montserrat';
+    src: url('/fonts/Montserrat-Variable.woff2') format('woff2-variations');
+    font-weight: 100 900; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Fraunces';
+    src: url('/fonts/Fraunces-Variable.woff2') format('woff2-variations');
+    font-weight: 100 900; font-style: normal; font-display: swap;
+  }
+  /* Barlow Condensed is the house UI face (Entropia design system). It ships as
+     STATIC weights — there is no variable cut — so it needs one @font-face per
+     weight rather than a single range. 300-600 covers everything the UI asks
+     for; the few weight:100 rules resolve to 300, which is the nearest real cut
+     and far better than a synthesised one. */
+  @font-face {
+    font-family: 'Barlow Condensed';
+    src: url('/fonts/BarlowCondensed-300.woff2') format('woff2');
+    font-weight: 300; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Barlow Condensed';
+    src: url('/fonts/BarlowCondensed-400.woff2') format('woff2');
+    font-weight: 400; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Barlow Condensed';
+    src: url('/fonts/BarlowCondensed-500.woff2') format('woff2');
+    font-weight: 500; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Barlow Condensed';
+    src: url('/fonts/BarlowCondensed-600.woff2') format('woff2');
+    font-weight: 600; font-style: normal; font-display: swap;
+  }
+
+  /* ─── DESIGN TOKENS — cloned from Chaosverb v1.0.18 ─── */
+  :root {
+    --bg-shell: #14110F;
+    --bg-card: #1C1916;
+    --bg-elevated: #24201D;
+    --border-subtle: #2e2a25;
+    --border-bright: #3e3a35;
+    --border-divider: #26221F;
+    --text-primary: #E8E2D6;
+    --text-secondary: #A8A29A;
+    --text-dim: #6A6258;
+    --text-faint: #403A32;
+    --accent: #D4A574;
+    --accent-bright: #E2BD96;
+    --accent-glow: rgba(212, 165, 116, 0.35);
+    --accent-tint: rgba(212, 165, 116, 0.08);
+    --section-output: #c8c8d0;
+    --state-warning: #ffb86b;
+    --t-fast: 120ms;
+    --t-base: 200ms;
+    --t-slow: 350ms;
+    --ease-editorial: cubic-bezier(0.22, 1, 0.36, 1);
+    /* canvas-only inks — JS reads these so the renderers follow the theme */
+    --knob-track: #1f1c19;
+    --knob-face: #1f1c19;
+    --knob-face-locked: #181612;
+    --knob-face-border: #3e3a35;   /* == --border-bright; Daylight overrides */
+    --knob-dot: #ffffff;
+    /* States. "Locked" and "frozen" were literals until Daylight arrived, and
+       a literal tuned for near-black inverts on parchment: #444 reads as DIM
+       on ink and as EMPHASIS on paper. Each state gets a pair. */
+    --locked-ink: #444;
+    --locked-line: #2a2724;
+    --locked-fill: linear-gradient(90deg, #4a4a4a, #666);
+    --freeze-on: #7fd4ff;
+    --freeze-glow: #7fd4ff55;
+    --switch-off: #2A2724;
+    --switch-thumb: #E8E2D6;
+    --danger: #d98a8a;
+    --danger-line: #5a3a3a;
+    --danger-tint: rgba(217,138,138,0.12);
+    --warn: #d9b98a;
+    --analyzer-ink: 232,226,214;   /* rgb triplet: analyser fill/stroke */
+    --grid-ink: 232,226,214;
+    --floating-bg: rgba(36, 32, 29, 0.92);   /* quick-menu floating over the analyser */
+    --dim-veil: rgba(20, 17, 15, 0.55);      /* bypass wash: toward the dark shell */
+  }
+
+  /* ── LIGHT SKIN (Entropia "daylight" palette: parchment + plum ink) ──
+     Only token values change; every rule above/below reads the variables, so
+     the whole UI re-skins from this one block. */
+  body.theme-light {
+    --bg-shell: #EDE0CC;          /* paper */
+    --bg-card: #F0E0D0;           /* parchment */
+    --bg-elevated: #F7ECDC;       /* lifted surface */
+    --border-subtle: rgba(38,16,25,0.14);
+    --border-bright: rgba(38,16,25,0.26);
+    --border-divider: rgba(38,16,25,0.10);
+    --text-primary: #261019;      /* plum-black ink */
+    --text-secondary: rgba(38,16,25,0.72);
+    --text-dim: rgba(38,16,25,0.50);
+    --text-faint: rgba(38,16,25,0.30);
+    --accent: #DD6E26;            /* burnt copper */
+    --accent-bright: #F08030;
+    --accent-glow: rgba(221,110,38,0.35);
+    --accent-tint: rgba(221,110,38,0.10);
+    --section-output: #9A6A45;    /* toasted umber */
+    --state-warning: #C98A32;     /* ochre */
+    /* Knobs do NOT invert on paper. Per the Daylight spec (palette repo,
+       components/audio/Knob.jsx) the face stays the deep ink block — --plum,
+       the same disc as Night — with a parchment pip and a hairline of paper
+       around it. Only the track lightens: ink at 10%, not a tan fill. */
+    --knob-track: rgba(38,16,25,0.10);
+    --knob-face: #302030;         /* --plum */
+    --knob-face-locked: #241826;
+    --knob-face-border: rgba(240,224,208,0.14);
+    --knob-dot: #F0E0D0;          /* --parchment */
+    /* Locked has to stay QUIETER than --text-dim (ink @ 0.50), so on paper it
+       goes thinner, not darker. Freeze borrows the dusty teal; the reds move
+       to a brick that survives on parchment. */
+    --locked-ink: rgba(38,16,25,0.26);
+    --locked-line: rgba(38,16,25,0.06);
+    --locked-fill: linear-gradient(90deg, rgba(38,16,25,0.16), rgba(38,16,25,0.30));
+    --freeze-on: #37707C;
+    --freeze-glow: rgba(55,112,124,0.22);
+    --switch-off: rgba(38,16,25,0.18);
+    --switch-thumb: #F7ECDC;
+    --danger: #A34234;
+    --danger-line: rgba(163,66,52,0.42);
+    --danger-tint: rgba(163,66,52,0.12);
+    --warn: #8A6420;
+    --analyzer-ink: 38,16,25;     /* ink, not cream */
+    --grid-ink: 38,16,25;
+    --floating-bg: rgba(247, 236, 220, 0.94);   /* lifted parchment, not ink */
+    --dim-veil: rgba(237, 224, 204, 0.62);      /* bypass wash: toward paper (--paper-veil) */
+  }
+
+  html, body { height: 100%; margin: 0; padding: 0; }
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    user-select: none; -webkit-user-select: none;
+    cursor: default; overflow: hidden;
+    background: var(--bg-shell);
+    color: var(--text-primary);
+    font-family: 'Barlow Condensed', 'Inter', ui-sans-serif, system-ui, sans-serif;
+    font-size: 11px;
+  }
+
+  /* Fixed 900×560 design space; JS scales the shell uniformly to the window
+     (Chaosverb currentScale pattern). Aspect is host-locked via constrainer. */
+  body { display: flex; align-items: center; justify-content: center; }
+  .plugin-shell {
+    width: 900px; height: 560px;
+    display: flex; flex-direction: column;
+    background: var(--bg-shell);
+    position: relative;
+    /* scaled via CSS zoom (kit pattern) — reflows layout, so canvases size
+       to the real on-screen pixels and stay DPI-sharp at every scale */
+  }
+
+  /* ─── HEADER ─── */
+  .header {
+    height: 56px; flex: 0 0 56px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--border-divider);
+  }
+  .header-left { display: flex; flex-direction: column; gap: 2px; min-width: 210px; }
+  .plugin-title {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 300; font-size: 22px; line-height: 1;
+    color: var(--text-primary); letter-spacing: 0.5px;
+  }
+  .plugin-eyebrow {
+    font-size: 8.5px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--accent); opacity: 0.85;
+  }
+  .header-center { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .chaos-row { display: flex; align-items: center; gap: 6px; }
+  .mutate-btn {
+    font-family: inherit; font-size: 10px; letter-spacing: 3px;
+    color: var(--text-primary); background: transparent;
+    border: 1px solid var(--border-bright); border-radius: 14px;
+    padding: 5px 22px; cursor: pointer;
+    transition: all var(--t-base) var(--ease-editorial);
+  }
+  .mutate-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 12px var(--accent-glow); }
+  .undo-btn {
+    font-family: inherit; font-size: 12px; color: var(--text-dim);
+    background: transparent; border: 1px solid var(--border-subtle);
+    border-radius: 50%; width: 22px; height: 22px; cursor: pointer; line-height: 1;
+  }
+  .undo-btn:hover { color: var(--text-secondary); border-color: var(--border-bright); }
+  .preset-bar { position: relative; }
+  .preset-btn {
+    font-family: inherit; font-size: 9px; letter-spacing: 1px;
+    color: var(--text-dim); background: transparent;
+    border: 1px solid var(--border-subtle); border-radius: 10px;
+    padding: 3px 14px; cursor: pointer;
+  }
+  .preset-btn:hover { color: var(--text-secondary); border-color: var(--border-bright); }
+  .preset-btn.has-preset { color: var(--accent); border-color: var(--accent-glow); }
+  /* ── preset dropdown (Chaosverb pattern: custom popover, built by JS) ── */
+  .preset-menu {
+    display: none; position: absolute; top: calc(100% + 4px); left: 50%;
+    transform: translateX(-50%); min-width: 172px; max-height: 300px; overflow-y: auto;
+    background: var(--bg-elevated); border: 1px solid var(--border-bright);
+    border-radius: 8px; padding: 4px; z-index: 60;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.55);
+  }
+  .preset-menu.visible { display: block; }
+  .preset-row {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 9px; letter-spacing: 1px; color: var(--text-secondary);
+    padding: 5px 8px; border-radius: 5px; cursor: pointer; user-select: none;
+  }
+  .preset-row:hover { background: var(--accent-tint); color: var(--text-primary); }
+  .preset-row.is-current { color: var(--accent); }
+  .preset-row .preset-x {
+    margin-left: auto; width: 14px; height: 14px; line-height: 12px; text-align: center;
+    font-size: 11px; color: var(--text-faint); background: transparent;
+    border: none; border-radius: 50%; cursor: pointer; padding: 0;
+  }
+  .preset-row .preset-x:hover { color: var(--danger); background: var(--danger-tint); }
+  .preset-action-icon { width: 11px; text-align: center; color: var(--accent); }
+  .preset-divider { height: 1px; background: var(--border-divider); margin: 4px 2px; }
+  .preset-section-label {
+    font-size: 8px; letter-spacing: 2px; color: var(--text-faint);
+    text-transform: uppercase; padding: 3px 8px 2px;
+  }
+  /* save dialog — window.prompt() is blocked in WKWebView, so a real overlay */
+  .preset-save-overlay {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,0.55); align-items: center; justify-content: center;
+  }
+  .preset-save-overlay.visible { display: flex; }
+  .preset-save-card {
+    width: 250px; background: var(--bg-elevated);
+    border: 1px solid var(--border-bright); border-radius: 10px; padding: 14px;
+  }
+  .preset-save-title { font-size: 10px; letter-spacing: 2px; color: var(--text-primary); margin-bottom: 10px; }
+  .preset-save-card input {
+    width: 100%; box-sizing: border-box; font-family: inherit; font-size: 11px;
+    color: var(--text-primary); background: var(--bg-card);
+    border: 1px solid var(--border-bright); border-radius: 6px; padding: 6px 8px; outline: none;
+  }
+  .preset-save-card input:focus { border-color: var(--accent); }
+  .preset-save-msg { font-size: 9px; line-height: 1.4; color: var(--text-dim); margin-top: 8px; min-height: 12px; }
+  .preset-save-msg.warn { color: var(--warn); }
+  .preset-save-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 10px; }
+  .preset-save-actions button {
+    font-family: inherit; font-size: 9px; letter-spacing: 1px; cursor: pointer;
+    color: var(--text-secondary); background: transparent;
+    border: 1px solid var(--border-subtle); border-radius: 6px; padding: 4px 10px;
+  }
+  .preset-save-actions button:hover { color: var(--text-primary); border-color: var(--border-bright); }
+  .preset-save-actions button.primary { color: var(--accent); border-color: var(--accent-glow); }
+  .preset-save-actions button.danger  { color: var(--danger); border-color: var(--danger-line); }
+  .header-right { display: flex; align-items: center; gap: 11px; min-width: 210px; justify-content: flex-end; }
+  .settings-btn.hdr { align-self: center; }
+  .knob-wrap.knob-hdr { display: flex; flex-direction: row; align-items: center; gap: 8px; width: auto; cursor: ns-resize; }
+  .knob-hdr .knob-body { width: 32px; height: 32px; position: relative; }
+  .knob-hdr .knob-body canvas { width: 42px; height: 42px; top: -5px; left: -5px; }
+  .knob-hdr .knob-face { top: 6px; left: 6px; width: 20px; height: 20px; }
+  .knob-hdr .knob-label { display: none; }
+  .knob-hdr .knob-value { font-size: 13px; font-weight: 600; color: var(--accent-bright); text-shadow: 0 0 8px var(--accent-glow); min-width: 26px; text-align: left; font-variant-numeric: tabular-nums; }
+  .settings-btn.hdr { position: static; width: 16px; height: 16px; }
+  .seed-arrow {
+    font-family: inherit; background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 4px;
+    width: 16px; height: 16px; font-size: 9px; cursor: pointer; line-height: 1; padding: 0;
+  }
+  .seed-arrow:hover { color: var(--accent); border-color: var(--accent); }
+  .seed-val { font-size: 11px; color: var(--text-secondary); min-width: 26px; text-align: center; }
+
+  /* global speed label (knob sits beside it) */
+  .speed-label {
+    font-size: 8.5px; letter-spacing: 1.5px; color: var(--accent);
+    text-shadow: 0 0 8px var(--accent-glow);
+  }
+
+  /* ─── SPECTRUM ─── */
+  .spectrum-wrap { flex: 1 1 auto; position: relative; margin: 10px 12px 0 12px; }
+  #spectrum {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle); border-radius: 8px;
+    cursor: pointer;
+  }
+
+  /* floating band quick-menu */
+  .quick-menu {
+    position: absolute; z-index: 4; display: none;
+    width: 118px; padding: 5px 7px 6px 7px;
+    background: var(--floating-bg);
+    border: 1px solid var(--border-bright); border-radius: 7px;
+    backdrop-filter: blur(2px);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.45);
+  }
+  .quick-menu.visible { display: block; }
+  .qm-grip {
+    height: 8px; margin: -2px -4px 3px -4px; cursor: grab;
+    display: flex; align-items: center; justify-content: center; gap: 3px;
+  }
+  .qm-grip::before, .qm-grip::after {
+    content: ""; width: 22px; height: 2px; border-radius: 1px;
+    background: var(--border-bright);
+  }
+  .qm-grip:active { cursor: grabbing; }
+  .qm-row { position: relative; height: 17px; cursor: ew-resize; }
+  .qm-row + .qm-row { margin-top: 3px; }
+  .qm-label {
+    position: absolute; top: 0; left: 1px;
+    font-size: 7px; letter-spacing: 1px; color: var(--text-dim); text-transform: uppercase;
+  }
+  .qm-value { position: absolute; top: 0; right: 1px; font-size: 7.5px; color: var(--text-secondary); }
+  /* routed row: clear the handle dot so it never covers the value text */
+  .qm-row.routed .qm-value { padding-right: 10px; }
+  .qm-track {
+    position: absolute; left: 0; right: 0; bottom: 1px; height: 5px;
+    background: var(--bg-shell); border-radius: 3px; overflow: hidden;
+    border: 1px solid var(--border-divider);
+  }
+  .qm-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
+  /* live modulated-value marker (source-coloured) on routed tracks */
+  .mod-mark {
+    display: none; position: absolute; top: -1px; bottom: -1px; width: 2px;
+    margin-left: -1px; border-radius: 1px; pointer-events: none;
+    box-shadow: 0 0 4px currentColor;
+  }
+
+  /* ─── BOTTOM STRIP ─── */
+  .bottom {
+    flex: 0 0 180px;
+    min-height: 0; height: 180px;
+    display: flex; gap: 10px;
+    padding: 10px 12px 12px 12px;
+  }
+  .section-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle); border-radius: 8px;
+    padding: 8px 10px;
+    display: flex; flex-direction: column;
+    min-height: 0; overflow: hidden;
+  }
+  .section-label {
+    font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase;
+    opacity: 0.9; margin-bottom: 4px;
+  }
+  .sec-band { flex: 0 0 300px; position: relative; }   /* anchor for the link button */
+  .sec-mod  { flex: 1 1 auto; min-width: 0; position: relative; }
+  /* ── mod matrix ── */
+  /* per-band modulation pause — top-right of the modulator card */
+  .mod-freeze-btn {
+    position: absolute; top: 5px; right: 14px; z-index: 5;
+    font-size: 9px; line-height: 1; padding: 3px 7px;
+    background: transparent; border: 1px solid var(--border-subtle);
+    border-radius: 9px; color: var(--text-dim); cursor: pointer; user-select: none;
+  }
+  .mod-freeze-btn.frozen {
+    color: var(--freeze-on); border-color: var(--freeze-on);
+    box-shadow: 0 0 7px var(--freeze-glow); text-shadow: 0 0 5px var(--freeze-on);
+  }
+  .drag-ghost {
+    position: fixed; z-index: 90; pointer-events: none;
+    width: 10px; height: 10px; border-radius: 50%;
+    margin: -5px 0 0 -5px; box-shadow: 0 0 8px 2px rgba(255,255,255,0.25);
+  }
+  /* Routed-destination handle: the permanent way back to the amount dial.
+     Source-coloured, click-through-proof (its own mousedown stops the drag). */
+  .mod-handle {
+    display: none; position: absolute; z-index: 9;
+    width: 6px; height: 6px; border-radius: 50%; cursor: pointer;
+    box-shadow: 0 0 4px currentColor; transition: transform 90ms ease;
+  }
+  .mod-handle:hover { transform: scale(1.6); }
+  .knob-wrap .mod-handle { top: 1px; right: 5px; }
+  .hslider .mod-handle { top: 1px; right: -2px; }
+  .qm-row  .mod-handle { top: 2px; right: 2px; }
+  /* floating mod-amount dial: link-icon-sized (16px). The arc IS the value —
+     drag ↑↓ sets depth, right-click removes; exact % lives in the tooltip. */
+  /* amount editor: a row of tiny dials, ONE PER ROUTE on the destination —
+     several modulators on one knob edit side by side, not click-to-cycle */
+  .mod-editor { position: fixed; z-index: 95; display: none; gap: 3px; }
+  .mod-editor.open { display: flex; }
+  .me-dial {
+    width: 16px; height: 16px; border-radius: 50%; position: relative;
+    background: var(--bg-card); border: 1px solid var(--border-subtle);
+    cursor: ns-resize; user-select: none;
+  }
+  .me-dial canvas { position: absolute; inset: 0; width: 14px; height: 14px; pointer-events: none; }
+  .sec-out  { flex: 0 0 260px; }
+  /* Sits on the bottom row beside BYPASS, left half of the card. */
+  /* Compound selector for the same reason as the BYPASS rule below: plain
+     `.hslider` sets height:22px further down, and at equal specificity the
+     later rule wins — which left this box oversized and dropped the track well
+     clear of its label. 18px matches the step row's compact fader, so FLUX
+     reads exactly like SPEED does under the modulator. */
+  .sec-out .hslider.out-flux {
+    position: absolute; left: 10px; bottom: 6px; width: 96px;
+    height: 18px; flex: none;
+  }
+  /* BYPASS shifts right of the fader instead of sitting centred on the card. */
+  /* Two class names, not one: `.sec-out .bypass-btn` further down centres the
+     button, and at equal specificity the later rule wins — which left BYPASS
+     sitting on top of the FLUX fader. */
+  .sec-out .bypass-btn.out-bypass-shift { left: auto; right: 10px; transform: none; }
+  .sec-out .section-label { color: var(--section-output); opacity: 0.7; }
+
+  .knob-row { display: flex; justify-content: space-around; align-items: center; flex: 1; }
+  /* ─── Knob — exact Chaosverb v1.0.18 component (entropia-webview-ui kit) ─── */
+  .knob-wrap {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 5px; width: 64px; cursor: ns-resize; position: relative;
+  }
+  .knob-body { width: 56px; height: 56px; position: relative; flex-shrink: 0; }
+  /* Canvas is 72px (16px bigger than .knob-body) so glow has room past
+     the arc without clipping. Negative offset keeps it visually centered. */
+  .knob-body canvas {
+    position: absolute; top: -8px; left: -8px;
+    width: 72px; height: 72px;
+  }
+  .knob-face {
+    position: absolute; top: 9px; left: 9px; width: 38px; height: 38px;
+    border-radius: 50%; background: var(--knob-face);
+    border: 1px solid var(--knob-face-border);
+    box-shadow: none; z-index: 2;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .knob-indicator {
+    position: absolute; top: 50%; left: 50%;
+    width: 2.5px; height: 2.5px;
+    margin-left: -1.25px; margin-top: -1.25px;
+    border-radius: 50%; background: var(--knob-dot);
+    z-index: 4; pointer-events: none;
+    transition: background 0.15s ease;
+    transform-origin: 50% 50%;
+  }
+  .knob-label {
+    font-size: 9px; font-weight: 400; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--text-dim);
+    text-align: center; line-height: 1;
+  }
+  .knob-value {
+    font-size: 9px; font-weight: 500; letter-spacing: 0.04em;
+    color: var(--text-secondary); text-align: center; line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── CHAOS parameter locks — Chaosverb mechanism ──
+     Right-click a control to lock it; a locked param DIMS (grey, no glow) and
+     CHAOS leaves it alone. Section titles lock every param in the section and
+     go BRIGHT when fully locked (bright = "this is held"). */
+  .knob-body.locked .knob-face { border-color: transparent; }
+  .hslider.locked .hs-label, .hslider.locked .hs-value { color: var(--locked-ink); }
+  .hslider.locked .hs-track { border-color: var(--locked-line); }
+  .mode-chips.locked .mode-chip { opacity: 0.45; filter: saturate(0.2); }
+  .section-label.lockable {
+    cursor: pointer; user-select: none;
+    /* hit area = the word only, not the whole card-width row (parent is a flex
+       column, so align-self is what actually stops the stretch) */
+    display: inline-block; align-self: flex-start; width: fit-content;
+    transition: filter 0.15s ease, text-shadow 0.15s ease;
+  }
+  .section-label.lockable:hover { filter: brightness(1.6); }
+  .section-label.lockable.locked {
+    filter: brightness(1.9); opacity: 1;
+    text-shadow: 0 0 5px currentColor;
+  }
+  /* Nothing to edit (no band placed) → section reads as "off", like a bypassed band */
+  .section-col.section-off { opacity: 0.3; filter: saturate(0.12); pointer-events: none; }
+  /* band BYPASSED: dimmed but still coloured (lock = grey desat — different) */
+  .sec-band.bypassed .knob-row, .sec-band.bypassed .link-btn, .sec-band.bypassed .routing-toggle {
+    opacity: 0.42; filter: brightness(0.8);
+  }
+  /* DEPTH↔BIAS link toggle — chain icon below the knob row, under the
+     DEPTH/BIAS boundary (knob columns sit at 10/30/50/70/90% → boundary 80%) */
+  .link-btn {
+    position: absolute; left: 80%; bottom: 7px; transform: translateX(-50%);
+    width: 16px; height: 16px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent; border: 1px solid var(--border-subtle);
+    border-radius: 50%; cursor: pointer; color: var(--text-dim);
+    transition: all var(--t-fast) var(--ease-editorial);
+  }
+  .link-btn svg { width: 11px; height: 11px; display: block; }
+  .link-btn .icon-unlink { display: none; }
+  .link-btn.free .icon-link { display: none; }
+  .link-btn.free .icon-unlink { display: block; }
+
+  .toggle-btn {
+    font-family: inherit; font-size: 9px; letter-spacing: 1.5px;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 10px;
+    padding: 3px 12px; cursor: pointer; margin-top: 4px;
+    transition: all var(--t-fast) var(--ease-editorial);
+  }
+  .bypass-btn.active { color: var(--state-warning); border-color: var(--state-warning); }
+  .sec-out { position: relative; }
+  .sec-out .bypass-btn {
+    position: absolute; bottom: 7px; left: 50%; transform: translateX(-50%);
+    margin: 0;
+  }
+
+  /* ── bottom action row: both BYPASS buttons and the link share height 17,
+     bottom 7 — one visual line across the cards ── */
+  .bypass-btn {
+    height: 17px; box-sizing: border-box; margin-top: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0 12px;
+  }
+  .link-btn { height: 17px; width: 17px; box-sizing: border-box; }
+
+  /* slope pill reads as a mini KNOB: dial arc + value, ns-resize drag */
+  .routing-toggle#slopeToggle { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+  #slopeDial { width: 11px; height: 11px; flex: 0 0 11px; pointer-events: none; }
+
+  /* bottom-centre of the band card — placement only, look inherited from .bypass-btn */
+  .band-bypass-btn { position: absolute; bottom: 7px; left: 50%; transform: translateX(-50%); z-index: 5; }
+  /* .bypass-btn.active already sets colour+border (band button carries both classes) */
+  .band-bypass-btn.active { box-shadow: 0 0 7px color-mix(in srgb, var(--state-warning) 35%, transparent); }
+  /* SOLO lives in the floating quick-menu, on the band it belongs to, rather
+     than in the panel: the menu already follows the selected bell around the
+     analyser, so the control sits where you are looking while you place it.
+     Armed it takes the accent, not the warning colour — bypass is a
+     subtraction, solo is a monitor state. */
+  /* Sized with slack: the row measured 133px of content against 134px of inner
+     width, so any DPI rounding pushed the last button through the window edge. */
+  .qm-btn-row { margin-top: 4px; display: flex; gap: 2px; }
+  /* Delete sits BESIDE solo rather than in the panel's top corner: an X in the
+     corner of a floating panel reads as "close this", which is the last thing a
+     destructive control should look like. */
+  .qm-shape {
+    flex: 0 0 24px; height: 15px; padding: 0; box-sizing: border-box;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 4px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .qm-shape:hover { color: var(--accent); border-color: var(--accent); }
+  .qm-shape .shape-ico { width: 18px; height: 10px; margin: 0; }
+  /* Per-band freeze, same param as the MODULATOR header's ⏸ — the row shows
+     ⏸ while running and ▶ while held, mirroring that button exactly. */
+  .qm-freeze {
+    flex: 0 0 20px; height: 15px; padding: 0; box-sizing: border-box;
+    font-family: inherit; font-size: 8.5px; line-height: 1;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 4px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .qm-freeze:hover { color: var(--accent); border-color: var(--accent); }
+  .qm-freeze.frozen {
+    color: var(--freeze-on); border-color: var(--freeze-on);
+    box-shadow: 0 0 5px var(--freeze-glow);
+  }
+  .qm-del {
+    flex: 0 0 14px; height: 15px; padding: 0; line-height: 1;
+    font-family: inherit; font-size: 11px; box-sizing: border-box;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 4px; cursor: pointer;
+    transition: color var(--t-fast) var(--ease-editorial),
+                border-color var(--t-fast) var(--ease-editorial);
+  }
+  .qm-del:hover { color: var(--danger); border-color: var(--danger); }
+  .qm-solo {
+    flex: 1 1 0; min-width: 0; height: 15px; font-family: inherit; font-size: 8px;
+    letter-spacing: 0.6px; box-sizing: border-box; padding: 0;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 4px; cursor: pointer;
+    transition: color var(--t-fast) var(--ease-editorial),
+                border-color var(--t-fast) var(--ease-editorial);
+  }
+  .qm-solo:hover { color: var(--text-secondary); }
+  .qm-solo.active {
+    color: var(--accent); border-color: var(--accent);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  /* another band holds the solo bus — this one is being silenced by it */
+  .qm-solo.dimmed { border-style: dashed; opacity: 0.55; }
+
+  /* mode chips */
+  .mode-chips { display: flex; gap: 3px; margin: 2px 0 8px 0; flex-wrap: wrap; }
+  .mode-chip {
+    font-family: inherit; font-size: 8px; letter-spacing: 0.5px;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 9px;
+    padding: 2.5px 6px; cursor: pointer; white-space: nowrap; flex: 0 0 auto;
+    transition: all var(--t-fast) var(--ease-editorial);
+  }
+
+  /* mod layout: scope left, content right */
+  .mod-body { display: flex; gap: 8px; flex: 1; min-height: 0; }
+  #scopeCanvas {
+    /* min-width:0 is REQUIRED — a flex item defaults to min-width:auto, which for
+       a canvas resolves to its intrinsic (width-attribute) size. drawScope sets
+       that attr to rect.width*DPR, so on a retina display the floor doubled every
+       frame and the scope crushed .mod-right until the faders collapsed. */
+    flex: 0 0 128px; min-width: 0; min-height: 0; height: 100%;
+    border-radius: 6px; background: var(--bg-elevated);
+    border: 1px solid var(--border-divider);
+  }
+  .mod-right { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+
+  /* h-sliders */
+  .hslider-stack { display: flex; flex-direction: column; gap: 8px; flex: 1; justify-content: center; min-height: 0; overflow: hidden; }
+  /* ENV mode shows 4 rows (ATK/REL/SC-F/GAIN) where others show 3 — tighten so GAIN stays inside */
+  .hslider-stack.compact { gap: 3px; }
+  .hslider-stack.compact .hslider { height: 19px; }
+  .hslider-row { display: flex; align-items: center; gap: 8px; }
+  .hslider { flex: 1; height: 22px; position: relative; cursor: ew-resize; }
+  .hslider .hs-label {
+    position: absolute; top: -1px; left: 2px;
+    font-size: 8px; letter-spacing: 1.5px; color: var(--text-dim); text-transform: uppercase;
+  }
+  .hslider .hs-value { position: absolute; top: -1px; right: 2px; font-size: 8.5px; color: var(--text-secondary); }
+  .hslider .hs-track {
+    position: absolute; left: 0; right: 0; bottom: 2px; height: 8px;
+    background: var(--bg-elevated); border-radius: 4px; overflow: hidden;
+    border: 1px solid var(--border-divider);
+  }
+  .hslider .hs-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+  .hslider.disabled { opacity: 0.35; pointer-events: none; }
+  .mode-toggle {
+    font-family: inherit; font-size: 8.5px; letter-spacing: 1px;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 9px;
+    width: 46px; padding: 3px 0; cursor: pointer;
+  }
+
+  /* step editor */
+  .step-editor { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 4px; position: relative; }
+  .step-editor.visible { display: flex; }
+  #stepCanvas { flex: 1; min-height: 0; width: 100%; border-radius: 6px; background: var(--bg-elevated); border: 1px solid var(--border-divider); cursor: crosshair; }
+  /* one compact control row (SPEED · SYNC · SMOOTH) — the grid gets the rest */
+  .step-ctl-row { flex: 0 0 18px; gap: 8px; }
+  .step-ctl-row .hslider { height: 18px; }
+  .step-ctl-row .mode-toggle { font-size: 8px; padding: 1.5px 8px; }
+  .step-count-row { display: flex; align-items: center; gap: 5px; justify-content: flex-end; flex: 0 0 16px; }
+  .step-count-row .step-preset-sel, .step-count-row .step-save-btn { font-size: 8px; padding: 1px 5px; }
+  .step-del-btn { color: var(--danger); border-color: var(--danger-line); }
+  .step-del-btn:disabled { opacity: 0.35; cursor: default; color: var(--text-dim); border-color: var(--border-subtle); }
+  .preset-name-input {
+    position: absolute; left: 8px; right: 8px; bottom: 6px; z-index: 20;
+    font-family: inherit; font-size: 10px; letter-spacing: 0.05em;
+    padding: 4px 8px; border-radius: 6px; outline: none;
+    background: var(--bg-elevated); color: var(--text-primary);
+    border: 1px solid var(--accent);
+  }
+  .preset-name-input::placeholder { color: var(--text-dim); }
+  .step-count-row span { font-size: 8.5px; letter-spacing: 1px; color: var(--text-dim); }
+  .step-preset-sel {
+    font-family: inherit; font-size: 8px; letter-spacing: 0.5px;
+    background: var(--bg-elevated); color: var(--text-secondary);
+    border: 1px solid var(--border-subtle); border-radius: 8px;
+    padding: 2px 6px; cursor: pointer; margin-right: auto;
+  }
+  .step-save-btn {
+    font-family: inherit; font-size: 8px; letter-spacing: 1px;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 8px;
+    padding: 2px 8px; cursor: pointer;
+  }
+  .step-save-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* output */
+  /* absolute so the OUTPUT title stays a plain 1-line label → knob rows align across sections */
+  /* fixed width fits the longer word ("PARALLEL") so it never wraps or shifts;
+     text centred, single line */
+  /* Sits left of the slope dial in the band header. Compound selector so it
+     beats .routing-toggle regardless of source order. */
+  .sec-band .mode-toggle.shape-toggle { right: 92px; width: 40px; padding: 2px 0; }
+  .shape-ico { width: 24px; height: 12px; display: block; margin: 0 auto; overflow: visible; }
+  .shape-ico path { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+  /* Pro-Q-style shape picker: the icon IS the label, so the curve you are
+     choosing is the thing you look at. */
+  /* controls a shape ignores: tilt is pinned to LR4, so Q and SLOPE do nothing */
+  .ctl-off { opacity: 0.35; pointer-events: none; }
+  .shape-menu {
+    position: absolute; z-index: 20; display: none;   /* placed by openShapeMenu */
+    padding: 3px; border-radius: 7px; min-width: 104px;
+    background: var(--floating-bg); border: 1px solid var(--border-bright);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.40);
+  }
+  .shape-menu.visible { display: block; }
+  .shape-item {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    font-family: inherit; font-size: 8.5px; letter-spacing: 0.8px;
+    background: transparent; border: none; border-radius: 4px;
+    padding: 4px 7px; cursor: pointer; color: var(--text-dim);
+  }
+  .shape-item:hover { background: var(--accent-tint); color: var(--text-primary); }
+  .shape-item.on { color: var(--accent); }
+  .shape-item .shape-ico { margin: 0; flex: 0 0 24px; }
+  .routing-toggle { position: absolute; top: 6px; right: 14px; z-index: 5;
+    width: 64px; padding: 2px 0; font-size: 8px; letter-spacing: 1px;
+    text-align: center; white-space: nowrap; }
+  /* padding-bottom reserves the strip the FLUX fader and BYPASS share, so the
+     fader.s label cannot ride up into the knob values. */
+  .out-knob-row { display: flex; justify-content: space-around; align-items: center; flex: 1; padding-bottom: 12px; }
+
+  /* overlays */
+  .mutation-flash {
+    position: absolute; inset: 0; z-index: 10; pointer-events: none;
+    background: radial-gradient(circle at 50% 12%, var(--accent-tint), transparent 55%);
+    opacity: 0; transition: opacity var(--t-slow) var(--ease-editorial);
+  }
+  .mutation-flash.fire { opacity: 0.6; transition: none; }
+  .bypass-dim {
+    position: absolute; inset: 0; z-index: 9; pointer-events: none;
+    background: var(--dim-veil); opacity: 0;
+    transition: opacity var(--t-base) var(--ease-editorial);
+  }
+  .bypass-dim.on { opacity: 1; }
+
+  /* ─── SETTINGS POPOVER (Chaosverb feature set) ─── */
+  .about-popover { left: 12px; right: auto; width: 210px; }
+  .header-left { cursor: pointer; }
+  .settings-popover {
+    position: absolute; top: 52px; right: 12px; z-index: 20;
+    width: 190px; padding: 10px 12px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-bright); border-radius: 8px;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.5);
+    display: none;
+  }
+  .settings-popover.open { display: block; }
+  .settings-popover h3 {
+    margin: 0 0 8px 0; font-size: 9px; font-weight: 400;
+    letter-spacing: 2px; text-transform: uppercase; color: var(--accent);
+  }
+  .settings-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 0; border-bottom: 1px solid var(--border-divider);
+  }
+  .settings-row:last-child { border-bottom: none; }
+  .settings-row-label { font-size: 8.5px; letter-spacing: 1px; color: var(--text-secondary); }
+  .settings-row-value { font-size: 8.5px; color: var(--text-secondary); min-width: 30px; text-align: center; }
+  /* iOS-style switch: the TRACK carries the state colour and the thumb stays a
+     light disc, so on/off reads at a glance without a word in the control. */
+  .settings-toggle {
+    width: 26px; height: 15px; border-radius: 8px; cursor: pointer;
+    background: var(--switch-off); border: 1px solid var(--border-subtle);
+    position: relative; padding: 0;
+    transition: background var(--t-fast) var(--ease-editorial),
+                border-color var(--t-fast) var(--ease-editorial);
+  }
+  .settings-toggle::after {
+    content: ""; position: absolute; top: 1.5px; left: 1.5px;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--switch-thumb);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.35);
+    transition: left var(--t-fast) var(--ease-editorial);
+  }
+  .settings-toggle.on { background: var(--accent); border-color: var(--accent); }
+  .settings-toggle.on::after { left: 12.5px; }
+  .settings-preset-btn, .settings-mini-btn {
+    font-family: inherit; font-size: 8px; letter-spacing: 0.5px;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); border-radius: 6px;
+    padding: 2px 7px; cursor: pointer;
+  }
+  .settings-preset-btn:hover, .settings-mini-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .settings-size-row { display: flex; gap: 4px; padding: 6px 0; border-bottom: 1px solid var(--border-divider); }
+
+  /* floating tooltip — native title doesn't render inside WKWebView */
+  .ui-tooltip {
+    position: fixed; z-index: 50; pointer-events: none;
+    background: var(--bg-card); border: 1px solid var(--border-bright);
+    color: var(--text-primary); border-radius: 6px;
+    font-size: 8.5px; letter-spacing: 0.4px; padding: 4px 8px;
+    max-width: 200px; opacity: 0;
+    transition: opacity var(--t-fast) var(--ease-editorial);
+  }
+  .ui-tooltip.visible { opacity: 1; }
+
+  .resize-grip {
+    position: absolute; bottom: 2px; right: 2px; z-index: 6;
+    width: 14px; height: 14px; cursor: nwse-resize;
+    opacity: 0.5;
+  }
+  .resize-grip:hover { opacity: 1; }
+  .resize-grip::before {
+    content: ""; position: absolute; inset: 0;
+    background:
+      linear-gradient(135deg, transparent 0 55%, var(--text-dim) 55% 60%, transparent 60% 75%, var(--text-dim) 75% 80%, transparent 80%);
+  }
+  .settings-btn {
+    position: absolute; bottom: 2px; right: 19px; z-index: 21;
+    width: 14px; height: 14px; padding: 1px;
+    background: transparent; border: none; cursor: pointer;
+    color: var(--text-dim);
+  }
+  .settings-btn:hover { color: var(--text-secondary); }
+  .settings-btn svg { width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+
+<div class="plugin-shell" id="pluginShell">
+  <div class="mutation-flash" id="mutationFlash"></div>
+  <div class="bypass-dim" id="bypassDim"></div>
+  <!-- Shape picker popup. SHELL-level on purpose: it opens from two anchors
+       (band header + floating band window), and inside a .section-col it was
+       clipped by that card's overflow:hidden the moment the anchor maths put
+       it outside the card — which is exactly what happened from the floating
+       window. The shell clips nothing and both anchors share one coordinate
+       space. -->
+  <div class="shape-menu" id="shapeMenu"></div>
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-left" id="brandBlock" data-tip="About · license · contact">
+      <div class="plugin-title">Entropan</div>
+      <div class="plugin-eyebrow" id="eyebrow">Entropia Audio</div>
+    </div>
+    <div class="header-center">
+      <div class="chaos-row">
+        <button class="undo-btn" id="undoBtn" data-tip="Undo" disabled>↶</button>
+        <button class="mutate-btn" id="rerollBtn" data-tip="Re-deal all random modulators">CHAOS</button>
+        <button class="undo-btn" id="redoBtn" data-tip="Redo" disabled>↷</button>
+      </div>
+      <div class="preset-bar">
+        <button class="preset-btn" id="presetBtn"><span id="presetCurrent">— select preset —</span> ▾</button>
+        <div class="preset-menu" id="presetMenu"></div>
+      </div>
+    </div>
+    <div class="header-right">
+      <span class="speed-label" data-tip="Global speed — multiplies every band's rate">GLOBAL SPEED</span>
+      <div class="knob-wrap knob-hdr" id="knob_speed"></div>
+      <button class="settings-btn hdr" id="settingsBtn" data-tip="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+    </div>
+  </div>
+
+  <!-- SPECTRUM -->
+  <div class="spectrum-wrap">
+    <canvas id="spectrum"></canvas>
+    <div class="quick-menu" id="quickMenu">
+      <div class="qm-grip" id="qmGrip" data-tip="Drag to move"></div>
+      <div class="qm-row" id="qm_rate">
+        <div class="qm-label">RATE</div><div class="qm-value"></div>
+        <div class="qm-track"><div class="qm-fill"></div></div>
+      </div>
+      <div class="qm-row" id="qm_depth">
+        <div class="qm-label">DEPTH</div><div class="qm-value"></div>
+        <div class="qm-track"><div class="qm-fill"></div></div>
+      </div>
+      <div class="qm-row" id="qm_bias">
+        <div class="qm-label">BIAS</div><div class="qm-value"></div>
+        <div class="qm-track"><div class="qm-fill"></div></div>
+      </div>
+      <div class="qm-row" id="qm_gain">
+        <div class="qm-label">GAIN</div><div class="qm-value"></div>
+        <div class="qm-track"><div class="qm-fill"></div></div>
+      </div>
+      <div class="qm-btn-row">
+        <button class="qm-shape" id="qmShape" data-tip="Band shape — click to choose"></button>
+        <button class="qm-freeze" id="qmFreeze" data-tip="Pause this band's modulation — all waveforms hold their value">⏸</button>
+        <button class="qm-solo" id="qmSolo" data-tip="Solo — monitor this band's bell on its own, panned. Arm several to hear them together">SOLO</button>
+        <button class="qm-del" id="qmDelete" data-tip="Delete this band — frees the slot and resets it. BYPASS only mutes it and keeps the settings">×</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM STRIP -->
+  <div class="bottom">
+    <div class="section-col sec-band">
+      <div class="section-label" id="bandSecLabel">Band 1</div>
+      <button class="toggle-btn bypass-btn band-bypass-btn" id="bandBypassBtn" data-tip="Bypass this band — its bell stays placed but stops processing">BYPASS</button>
+      <button class="mode-toggle routing-toggle shape-toggle" id="shapeToggle" data-tip="Band shape — what this band grabs"></button>
+      <button class="mode-toggle routing-toggle" id="slopeToggle" data-tip="Crossover slope — drag ↑↓, continuous 12…48 dB/oct. Soft wide grab … surgical edges. Double-click: 24" style="cursor: ns-resize;"><canvas id="slopeDial"></canvas><span id="slopeDbText">24 dB</span></button>
+      <div class="knob-row">
+        <div class="knob-wrap" id="knob_freq"></div>
+        <div class="knob-wrap" id="knob_bwidth"></div>
+        <div class="knob-wrap" id="knob_lift"></div>
+        <div class="knob-wrap" id="knob_depth"></div>
+        <div class="knob-wrap" id="knob_bias"></div>
+      </div>
+      <button class="link-btn" id="overrideToggle" data-tip="DEPTH↔BIAS link: linked = bias trims depth (no clip) · broken = free depth, pan can reach the rail">
+        <svg class="icon-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M9 17H7A5 5 0 0 1 7 7h2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        <svg class="icon-unlink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M9 17H7A5 5 0 0 1 7 7h2"/><line x1="5" y1="19" x2="19" y2="5"/></svg>
+      </button>
+    </div>
+
+    <div class="section-col sec-mod">
+      <div class="section-label" id="modSecLabel">Modulator</div>
+      <button class="mod-freeze-btn" id="modFreezeBtn" data-tip="Pause this band's modulation — all waveforms hold their value">⏸</button>
+      <div class="mode-chips" id="modeChips"></div>
+      <div class="mod-body">
+        <canvas id="scopeCanvas"></canvas>
+        <div class="mod-right">
+          <div class="hslider-stack" id="sliderStack">
+            <div class="hslider-row">
+              <div class="hslider" id="hs_rate"></div>
+              <button class="mode-toggle" id="syncToggle">SYNC</button>
+            </div>
+            <div class="hslider-row">
+              <div class="hslider" id="hs_inertia"></div>
+              <button class="mode-toggle" id="polToggle" data-tip="Bipolar (L↔R) or Unipolar (centre→one side)">BI</button>
+            </div>
+            <div class="hslider-row">
+              <div class="hslider" id="hs_phase"></div>
+              <div style="width:46px;"></div>
+            </div>
+            <div class="hslider-row" id="envGainRow" style="display:none;">
+              <div class="hslider" id="hs_envgain"></div>
+              <div style="width:46px;"></div>
+            </div>
+          </div>
+          <div class="step-editor" id="stepEditor">
+            <canvas id="stepCanvas"></canvas>
+            <div class="hslider-row step-ctl-row">
+              <div class="hslider" id="hs_stepspeed"></div>
+              <button class="mode-toggle" id="stepSyncToggle">SYNC</button>
+              <div class="hslider" id="hs_stepsmooth"></div>
+            </div>
+            <div class="step-count-row">
+              <select class="step-preset-sel" id="stepPresetSel"></select>
+              <button class="step-save-btn" id="stepSaveBtn" data-tip="Save current pattern as preset">SAVE</button>
+              <button class="step-save-btn step-del-btn" id="stepDelBtn" data-tip="Delete the selected ★ preset" disabled>DEL</button>
+              <span>STEPS</span>
+              <button class="seed-arrow" id="stepDown">−</button>
+              <span class="seed-val" id="stepCount">8</span>
+              <button class="seed-arrow" id="stepUp">+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-col sec-out">
+      <div class="section-label" id="outSecLabel">Output</div>
+      <button class="mode-toggle routing-toggle" id="routingToggle" data-tip="Serial: bands chain (a later band re-pans an overlapping earlier one). Parallel: bands run independently on the dry input (overlaps blend).">SERIAL</button>
+      <div class="out-knob-row">
+        <div class="knob-wrap" id="knob_mix"></div>
+        <div class="knob-wrap" id="knob_wow"></div>
+        <div class="knob-wrap" id="knob_flutter"></div>
+        <div class="knob-wrap" id="knob_output"></div>
+      </div>
+      <!-- FLUX belongs with WOW and FLUTTER, but a fifth knob does not fit the
+           column without squeezing the MODULATOR beside it, so it rides the
+           bottom row as a compact fader instead of a knob. -->
+      <div class="hslider out-flux" id="hs_flux" data-tip="Flux — how unstable the transport is. At 0 wow and flutter are pure repeating sines; turn it up and each revolution drifts in rate and shape, like real tape"></div>
+      <button class="toggle-btn bypass-btn out-bypass-shift" id="bypassBtn">BYPASS</button>
+    </div>
+  </div>
+
+  <!-- ABOUT: opens from the Entropan name — build, license, contact -->
+  <div class="settings-popover about-popover" id="aboutPopover">
+    <h3>Entropan</h3>
+    <div class="settings-row">
+      <span class="settings-row-label">Version</span>
+      <span class="settings-row-value" id="aboutBuild">—</span>
+    </div>
+    <div class="settings-row" id="licenseRow" style="display:none;">
+      <span class="settings-row-label">License</span>
+      <div style="display:flex; align-items:center; gap:6px;">
+        <span class="settings-row-value" id="licenseState">—</span>
+        <button class="settings-mini-btn" id="licenseDeactivate"
+                style="width:auto; padding:0 6px; display:none;">Deactivate</button>
+      </div>
+    </div>
+    <div class="settings-row" id="licenseDetailRow" style="display:none;">
+      <span class="settings-row-label" id="licenseEmail"></span>
+      <span class="settings-row-value" id="licenseExpiry"></span>
+    </div>
+    <div id="licenseErrorRow" style="display:none; padding:2px 0 4px;">
+      <span class="settings-row-value" id="licenseError"
+            style="color:var(--danger); font-size:9px; line-height:1.35; display:block;
+                   white-space:normal; word-break:break-word;"></span>
+    </div>
+    <div class="settings-row">
+      <span class="settings-row-label">Entropia Audio</span>
+      <button class="settings-mini-btn" id="contactLink"
+              style="width:auto; padding:0 8px;">Contact us</button>
+    </div>
+  </div>
+
+  <div class="settings-popover" id="settingsPopover">
+    <h3>Settings</h3>
+    <div class="settings-row">
+      <span class="settings-row-label">Daylight</span>
+      <button class="settings-toggle" id="themeToggle"
+              data-tip="Daylight skin — off is Night, the original dark UI"></button>
+    </div>
+    <div class="settings-row">
+      <span class="settings-row-label">Tooltips</span>
+      <button class="settings-toggle" id="tooltipsToggle"></button>
+    </div>
+    <div>
+      <div class="settings-row-label" style="padding-top:6px;">Window Size</div>
+      <div class="settings-size-row">
+        <button class="settings-preset-btn" data-w="720"  data-h="448">SM</button>
+        <button class="settings-preset-btn" data-w="900"  data-h="560">MD</button>
+        <button class="settings-preset-btn" data-w="1200" data-h="747">LG</button>
+        <button class="settings-preset-btn" data-w="1500" data-h="933">XL</button>
+      </div>
+    </div>
+    <div class="settings-row">
+      <span class="settings-row-label">Brightness</span>
+      <div style="display:flex; align-items:center; gap:5px;">
+        <button class="settings-mini-btn" id="brightnessDown">−</button>
+        <span class="settings-row-value" id="brightnessValue">100%</span>
+        <button class="settings-mini-btn" id="brightnessUp">+</button>
+      </div>
+    </div>
+  </div>
+  <div class="preset-save-overlay" id="presetSaveOverlay">
+    <div class="preset-save-card">
+      <div class="preset-save-title" id="presetSaveTitle">SAVE PRESET</div>
+      <input type="text" id="presetSaveInput" placeholder="preset name" autocomplete="off" spellcheck="false" />
+      <div class="preset-save-msg" id="presetSaveMsg"></div>
+      <div class="preset-save-actions" id="presetSaveActions"></div>
+    </div>
+  </div>
+  <div class="resize-grip" id="resizeGrip" data-tip="Drag to resize"></div>
+</div>
+
+<script type="module">
+"use strict";
+import * as Juce from "./js/juce/index.js";
+
+/* ── BUILD STAMP — bump every dev build so stale caches are obvious ── */
+const ENTROPAN_BUILD = "B115";
+// single source for the UI version string — must match juce_add_plugin VERSION
+// in plugins/Entropan/CMakeLists.txt (which drives JucePlugin_VersionString)
+const ENTROPAN_VERSION = "0.8.0";
+console.log("Entropan UI " + ENTROPAN_BUILD);
+// eyebrow build suffix from the ONE build const (a hardcoded copy went stale)
+document.getElementById("eyebrow").textContent += " · " + ENTROPAN_BUILD;
+
+/* ════════════════════════════════════════════════════════════════════
+   PARAMETER LAYER
+   Embedded in the plugin → JUCE relays (window.__JUCE__ present).
+   Opened in a plain browser → local mock values (design-preview parity).
+   All UI code below talks ONLY to the `P` wrapper API.
+   ════════════════════════════════════════════════════════════════════ */
+/* The JUCE frontend lib defines a placeholder window.__JUCE__ in plain
+   browsers; only the real native backend fills initialisationData.__juce__platform. */
+const EMBEDDED = typeof window.__JUCE__ !== "undefined"
+  && (window.__JUCE__.initialisationData?.__juce__platform?.length ?? 0) > 0;
+
+const DPR = window.devicePixelRatio || 1;
+/* ── THEME ────────────────────────────────────────────────────────────────
+   CSS handles everything styled by a rule; the canvas renderers can't read
+   CSS, so they read THEME instead. Voice hues differ per skin: the dark set
+   would wash out on parchment, so the light skin uses the palette's section
+   accents (dusty teal / olive / jade / mulberry / ochre / copper). Index
+   meaning is preserved — band 1 is the "cyan slot" in both skins.
+
+   `dot` vs `mark` are NOT the same colour on paper, even though they were in
+   the dark skin. `dot` is the knob pip and sits ON the plum face, so it has to
+   be light in both skins. `mark` is the band handle centre and the scope
+   playhead, which sit on the parchment, so on Daylight it has to be ink. They
+   were one token until the faces went plum, which made every canvas dot
+   vanish. */
+const THEMES = {
+  dark: {
+    bands: ["#3ab8d4", "#8aaa7a", "#5fc88a", "#b06ed4", "#d6884a", "#D4A574"],
+    accent: "#D4A574", knobTrack: "#1f1c19",
+    face: "#1f1c19", faceLocked: "#181612",
+    faceBorderLocked: "#2e2a25",   // unlocked border comes from CSS (--knob-face-border)
+    dot: "#ffffff", dotLocked: "#aaaaaa",
+    mark: "#ffffff", markGhost: "#88837a", onAccent: "#14110F",
+    neutral: "#c8c8d0", voiceWarm: "#D4A574", voiceViolet: "#b06ed4", voiceCyan: "#3ab8d4",
+    arcLocked: "#666",
+    line: "#26221F", lineBright: "#3e3a35", textFaint: "#403A32",
+    ink: "232,226,214",
+  },
+  light: {
+    bands: ["#4E7C86", "#7E8A3A", "#4F9A78", "#8A5A7E", "#C98A32", "#DD6E26"],
+    accent: "#DD6E26", knobTrack: "rgba(38,16,25,0.10)",
+    face: "#302030", faceLocked: "#241826",
+    faceBorderLocked: "rgba(240,224,208,0.05)",
+    dot: "#F0E0D0", dotLocked: "#9A8A88",
+    mark: "#302030", markGhost: "#A08D74", onAccent: "#F7ECDC",
+    // The global knobs and the toggle tints used to carry the dark hues as
+    // literals. #c8c8d0 (the "no voice" steel of AMOUNT/LEVEL) and #b06ed4
+    // both die on parchment, so each voice gets a paper-side twin: a plum-grey
+    // neutral, and the palette's own mulberry / dusty teal / copper.
+    neutral: "#6E5C66", voiceWarm: "#DD6E26", voiceViolet: "#8A5A7E", voiceCyan: "#4E7C86",
+    arcLocked: "#9A8A92",
+    // canvas twins of --border-divider / --border-bright / --text-faint
+    line: "rgba(38,16,25,0.10)", lineBright: "rgba(38,16,25,0.26)", textFaint: "rgba(38,16,25,0.30)",
+    ink: "38,16,25",
+  },
+};
+let THEME = THEMES.dark;
+const BAND_COLORS = THEMES.dark.bands.slice();   // live array — patched on theme change
+function applyTheme(name) {
+  const t = THEMES[name] || THEMES.dark;
+  THEME = t;
+  for (let i = 0; i < 6; i++) BAND_COLORS[i] = t.bands[i];
+  document.body.classList.toggle("theme-light", name === "light");
+}
+const MODES = ["SINE", "TRI", "S&H", "CHAOS", "STEPS", "ENV"];
+const DIVS = ["1/16", "1/8", "1/4", "1/2", "1 BAR", "2 BAR", "4 BAR"];
+const DIV_HZ = [8, 4, 2, 1, 0.5, 0.25, 0.125]; // at 120 bpm — UI sim only
+const SPEEDS = [0.25, 0.5, 1, 2, 3, 4];
+const SPEED_LABELS = ["÷4", "÷2", "×1", "×2", "×3", "×4"];
+const FMIN = 20, FMAX = 20000;
+const RATE_MIN = 0.02, RATE_MAX = 1000;
+
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+// log morph of a 0..100 % knob across [lo, hi] — the SLOPE control's single
+// curve (dB/oct label and the bell-skirt exponent both read from this)
+const logMorph = (pct, lo, hi) => lo * Math.pow(hi / lo, clamp(pct, 0, 100) / 100);
+
+/* norm↔value maps. Embedded mode reads range+skew straight from the JUCE lib
+   (st.properties), so only code OUTSIDE the P wrapper uses these. */
+const MAPS = {
+  lin:  (lo, hi) => ({ from: n => lo + n * (hi - lo), to: v => (v - lo) / (hi - lo) }),
+  log:  (lo, hi) => ({ from: n => lo * Math.pow(hi / lo, n), to: v => Math.log(v / lo) / Math.log(hi / lo) })
+};
+
+/* param table: id → {kind, def(denorm — standalone-mock initial value)} */
+function bandIds(i) { const p = `b${i + 1}_`; return {
+  on:      { id: p + "on",      kind: "toggle", def: false },   // default preset: no bands
+  freq:    { id: p + "freq",    kind: "slider", def: [200, 500, 1000, 2000, 5000, 10000][i] },
+  width:   { id: p + "width",   kind: "slider", def: 1.0 },
+  lift:    { id: p + "lift",    kind: "slider", def: 100 },
+  depth:   { id: p + "depth",   kind: "slider", def: 100 },
+  gain:    { id: p + "gain",    kind: "slider", def: 0 },
+  mode:    { id: p + "mode",    kind: "combo",  def: 0 },
+  rate:    { id: p + "rate",    kind: "slider", def: 0.5 },
+  ratemode:{ id: p + "ratemode",kind: "combo",  def: 0 },
+  div:     { id: p + "div",     kind: "combo",  def: 3 },
+  inertia: { id: p + "inertia", kind: "slider", def: 60 },
+  phase:   { id: p + "phase",   kind: "slider", def: 0 },
+  uni:     { id: p + "uni",     kind: "toggle", def: false },
+  freeze:  { id: p + "freeze",  kind: "toggle", def: false },
+  bias:    { id: p + "bias",    kind: "slider", def: 0 },
+  override:{ id: p + "override",kind: "toggle", def: false },
+  stepsmooth:{ id: p + "stepsmooth", kind: "slider", def: 0 },
+  slope:   { id: p + "slope",   kind: "slider", def: 50 },
+  shape:   { id: p + "shape",   kind: "combo",  def: 0 },
+  solo:    { id: p + "solo",    kind: "toggle", def: false }
+}; }
+const GLOBALS = {
+  seed:   { id: "seed",   kind: "slider", def: 1 },
+  amount: { id: "amount", kind: "slider", def: 100 },
+  speed:  { id: "speed",  kind: "combo",  def: 2 },
+  routing:{ id: "routing",kind: "combo",  def: 0 },
+  wow:     { id: "wow",     kind: "slider", def: 0 },
+  flutter: { id: "flutter", kind: "slider", def: 0 },
+  flux:    { id: "flux",    kind: "slider", def: 0 },
+  envAtk:  { id: "env_atk", kind: "slider", def: 20 },
+  envRel:  { id: "env_rel", kind: "slider", def: 150 },
+  envScf:  { id: "env_scf", kind: "slider", def: 20 },
+  envRms:  { id: "env_rms", kind: "toggle", def: false },
+  envGain: { id: "env_gain", kind: "slider", def: 0 },
+  output: { id: "output", kind: "slider", def: 0 },
+  bypass: { id: "bypass", kind: "toggle", def: false }
+};
+
+/* wrapper: uniform get/set (denormalized) + change subscription */
+function makeParam(def) {
+  const listeners = [];
+  const notify = () => listeners.forEach(f => f());
+  if (EMBEDDED) {
+    if (def.kind === "slider") {
+      const st = Juce.getSliderState(def.id);
+      st.valueChangedEvent.addListener(notify);
+      // Use the SAME skew formula as the JUCE frontend lib (properties carry
+      // start/end/skew from the C++ NormalisableRange) — custom client-side
+      // maps drift from the host on every skewed parameter.
+      const toScaled = norm => {
+        const pr = st.properties;
+        return Math.pow(clamp(norm, 0, 1), 1 / pr.skew) * (pr.end - pr.start) + pr.start;
+      };
+      const toNorm = v => {
+        const pr = st.properties;
+        return Math.pow(clamp((v - pr.start) / (pr.end - pr.start), 0, 1), pr.skew);
+      };
+      return {
+        get: () => toScaled(st.getNormalisedValue()),
+        set: v => st.setNormalisedValue(toNorm(v)),
+        onChange: f => listeners.push(f)
+      };
+    }
+    if (def.kind === "toggle") {
+      const st = Juce.getToggleState(def.id);
+      st.valueChangedEvent.addListener(notify);
+      return { get: () => !!st.getValue(), set: v => st.setValue(!!v), onChange: f => listeners.push(f) };
+    }
+    const st = Juce.getComboBoxState(def.id);
+    st.valueChangedEvent.addListener(notify);
+    return {
+      get: () => st.getChoiceIndex(),   // JUCE 8 index API (always present in the vendored lib)
+      set: v => st.setChoiceIndex(v),
+      onChange: f => listeners.push(f)
+    };
+  }
+  // standalone mock
+  let val = def.def;
+  return {
+    get: () => val,
+    set: v => { val = def.kind === "toggle" ? !!v : v; notify(); },
+    onChange: f => listeners.push(f)
+  };
+}
+
+const P = {
+  bands: Array.from({ length: 6 }, (_, i) => {
+    const defs = bandIds(i), out = {};
+    for (const k in defs) out[k] = makeParam(defs[k]);
+    return out;
+  }),
+  ...Object.fromEntries(Object.entries(GLOBALS).map(([k, d]) => [k, makeParam(d)]))
+};
+
+/* native bridges (no-ops in a plain browser) */
+const native = name => EMBEDDED ? Juce.getNativeFunction(name) : (async () => null);
+const rerollNative = native("reroll");
+const setStepsNative = native("setSteps");
+const getStepsNative = native("getSteps");
+const commitUndoNative = native("commitUndo");
+const undoNative = native("undo");
+const redoNative = native("redo");
+const setLocksNative = native("setLocks");
+const getLocksNative = native("getLocks");
+
+/* ════════════════════════════════════════════════════════════════════
+   UI STATE (visual-only: selection, configured flags, step data mirror)
+   ════════════════════════════════════════════════════════════════════ */
+const ui = {
+  selected: 0,
+  menuHidden: false,   // true after clicking empty space (explicit deselect)
+  locks: Array.from({ length: 6 }, () => new Set()),   // per-band params frozen against CHAOS
+  globalLocks: new Set(),                              // global params frozen against CHAOS
+  // what each section-title lock covered, so untoggling restores the prior picks
+  lockMemo: { bands: Array.from({ length: 6 }, () => ({})), global: {} },
+  bands: Array.from({ length: 6 }, (_, i) => ({
+    configured: false,   // nothing on the canvas until the user adds a band
+    stepCount: 8,
+    steps: Array.from({ length: 16 }, (_, k) => ({ subdiv: 1, vals: [Math.sin(k / 16 * Math.PI * 2), 0, 0, 0], tie: false })),
+    // local modulator sim (drives traces/scope until DSP telemetry lands)
+    pan: 0, mod: 0, target: 0, phi: Math.random(), livePhase: 0,
+    lz: { x: 0.1 + i * 0.03, y: 0, z: 0 }, lastDeal: -1, driftA: Math.random() * 100
+  }))
+};
+const B = () => ui.bands[ui.selected];
+const PB = () => P.bands[ui.selected];
+const bandColor = () => BAND_COLORS[ui.selected];
+
+/* ════════════════════════════════════════════════════════════════════
+   CHAOS PARAMETER LOCKS
+   Per-band set of parameter keys the CHAOS button must leave untouched.
+   Persisted in the plugin state (apvts "uiLocks"), excluded from undo.
+   ════════════════════════════════════════════════════════════════════ */
+const LOCK_SECTIONS = {
+  band: ["freq", "width", "lift", "depth", "bias"],
+  mod:  ["mode", "rate", "inertia", "phase"],
+  out:  ["amount", "wow", "flutter"]     // global scope — LEVEL is never re-rolled
+};
+const lockSetFor = global => global ? ui.globalLocks : ui.locks[ui.selected];
+const isLocked = (key, global) => lockSetFor(global).has(key);
+function persistLocks() {
+  if (!EMBEDDED) return;
+  setLocksNative(JSON.stringify({ bands: ui.locks.map(s => [...s]), global: [...ui.globalLocks] })).catch(() => {});
+}
+function toggleLock(key, global) {
+  const s = lockSetFor(global);
+  s.has(key) ? s.delete(key) : s.add(key);
+  persistLocks(); refreshPanels();
+}
+/* Section title = lock the whole group. Untoggling restores exactly what was
+   locked before the group-lock, rather than clearing every lock in the group. */
+function toggleSectionLock(sectionId, keys, global) {
+  const s = lockSetFor(global);
+  const memoBag = global ? ui.lockMemo.global : ui.lockMemo.bands[ui.selected];
+  if (keys.every(k => s.has(k))) {
+    const memo = memoBag[sectionId] || [];
+    keys.forEach(k => s.delete(k));
+    memo.forEach(k => s.add(k));         // put the pre-lock selection back
+    delete memoBag[sectionId];
+  } else {
+    memoBag[sectionId] = keys.filter(k => s.has(k));   // remember before locking all
+    keys.forEach(k => s.add(k));
+  }
+  persistLocks(); refreshPanels();
+}
+/* right-click any lockable control to toggle its lock (Chaosverb gesture) */
+function bindLockGesture(el, key, global) {
+  el.addEventListener("contextmenu", e => { e.preventDefault(); toggleLock(key, global); return false; });
+}
+function reloadLocks() {
+  if (!EMBEDDED) return;
+  getLocksNative().then(json => {
+    if (!json) return;
+    try {
+      const d = JSON.parse(json);
+      const bands = Array.isArray(d) ? d : d && d.bands;   // bare array = B32 shape
+      if (Array.isArray(bands)) bands.forEach((keys, i) => { if (i < 6 && Array.isArray(keys)) ui.locks[i] = new Set(keys); });
+      if (d && Array.isArray(d.global)) ui.globalLocks = new Set(d.global);
+      refreshPanels();
+    } catch (e) {}
+  }).catch(() => {});
+}
+
+/* ── DEPTH ↔ BIAS memory ──
+   The live DEPTH param = base × biasTrim, where biasTrim is 1 at centre and 0.5
+   at full bias — biasing trims the swing toward half (never to zero) and
+   returning bias to centre restores DEPTH exactly (100% stays 100%, 60% → 60%).
+   `amount` is independent, and the DSP's (1 − depth·amount) bias clamp keeps the
+   biased pan off the rail (unless the per-band override frees it). */
+const bandOverride = i => P.bands[i].override.get();
+// biasTrim is 1 at centre → 0.5 at full bias. Under OVERRIDE the trim is lifted
+// (factor 1): DEPTH is a free 0-100% that bias no longer touches, and the DSP lets
+// the biased pan reach the rail (b*_override drops its headroom clamp).
+const biasTrim = pb => 1 - 0.5 * Math.abs(pb.bias.get()) / 100;
+const depthTrim = (pb, i) => bandOverride(i) ? 1 : biasTrim(pb);
+// The base is DERIVED, never stored: depth always equals base × trim, so
+// base == depth / trim at any moment. (A stored copy needed four sync
+// mechanisms and still broke on the plugin's async init push — B39.)
+const depthBaseOf = (pb, i) => clamp(pb.depth.get() / depthTrim(pb, i), 0, 100);
+function setDepthEff(pb, i, effPct) {             // user set DEPTH
+  effPct = clamp(effPct, 0, 100);
+  const trim = depthTrim(pb, i);
+  // Linked + pushed PAST the bias-limited ceiling (base would exceed 100) →
+  // trade BIAS back toward centre so DEPTH can keep rising: the reverse of
+  // "bias trims depth". base pins at 100, so trim must become effPct/100 →
+  // |bias| = 200·(1 − trim). Continuous with the current bias at the ceiling;
+  // reaches bias 0 at depth 100. Override (unlinked) never enters this branch.
+  if (!bandOverride(i) && effPct / trim > 100 && pb.bias.get() !== 0) {
+    const sign = pb.bias.get() < 0 ? -1 : 1;
+    pb.bias.set(sign * clamp(200 * (1 - effPct / 100), 0, 100));
+    pb.depth.set(effPct);
+  } else {
+    pb.depth.set(clamp(clamp(effPct / trim, 0, 100) * trim, 0, 100));
+  }
+}
+function setBiasRemembered(pb, i, b) {            // user set BIAS → trim/restore DEPTH from the base
+  const base = depthBaseOf(pb, i);                // derive BEFORE the bias moves (base is bias-invariant)
+  pb.bias.set(clamp(b, -100, 100));
+  pb.depth.set(clamp(base * depthTrim(pb, i), 0, 100));
+}
+
+/* mark configured when a band is (or becomes) enabled */
+P.bands.forEach((pb, i) => {
+  if (pb.on.get()) ui.bands[i].configured = true;
+  // repaint is handled by the coalesced schedulePanels subscription below
+  pb.on.onChange(() => { if (pb.on.get()) ui.bands[i].configured = true; });
+});
+
+/* push steps to the processor (debounced) */
+const stepsPushTimers = [null, null, null, null, null, null];
+function pushSteps(i) {
+  stepsRev++;   // any step edit invalidates the SMOOTH overlay cache
+  if (!EMBEDDED) return;
+  clearTimeout(stepsPushTimers[i]);
+  stepsPushTimers[i] = setTimeout(() => {
+    const b = ui.bands[i];
+    setStepsNative(i, JSON.stringify({
+      count: b.stepCount,
+      steps: b.steps.slice(0, b.stepCount).map(s => ({ subdiv: s.subdiv, vals: s.vals.slice(0, s.subdiv), tie: !!s.tie }))
+    })).catch(() => {});
+  }, 150);
+}
+/* pull step data from the processor (load + after undo/redo restore) */
+function reloadAllSteps() {
+  if (!EMBEDDED) return;
+  for (let i = 0; i < 6; i++) {
+    getStepsNative(i).then(json => {
+      if (!json) return;
+      try {
+        const d = JSON.parse(json);
+        if (!d || !d.steps) return;
+        const b = ui.bands[i];
+        b.stepCount = clamp(d.count || d.steps.length, 2, 16);
+        b.steps = d.steps.map(s => ({
+          subdiv: s.subdiv || 1,
+          vals: [...s.vals, 0, 0, 0, 0].slice(0, 4),
+          tie: !!s.tie
+        }));
+        while (b.steps.length < 16) b.steps.push({ subdiv: 1, vals: [0, 0, 0, 0], tie: false });
+        stepsRev++;   // reloaded from processor → invalidate the SMOOTH overlay cache
+        refreshPanels();
+      } catch {}
+    }).catch(() => {});
+  }
+}
+reloadAllSteps();
+reloadLocks();   // pull persisted CHAOS locks from the plugin state
+
+/* ── UNDO / REDO ──
+   The processor snapshots full APVTS state; we commit (debounced) after every
+   edit gesture. A no-op gesture is filtered host-side (compare vs lastCommitted),
+   so a plain window 'mouseup' is a safe universal commit trigger. */
+const undoBtn = document.getElementById("undoBtn");
+const redoBtn = document.getElementById("redoBtn");
+function setUndoButtons(st) {
+  if (!st) return;
+  undoBtn.disabled = !st.canUndo;
+  redoBtn.disabled = !st.canRedo;
+}
+let commitTimer = null;
+function scheduleCommit() {
+  if (!EMBEDDED) return;
+  clearTimeout(commitTimer);
+  commitTimer = setTimeout(() => {
+    commitUndoNative().then(setUndoButtons).catch(() => {});
+  }, 160);   // let param round-trips settle before snapshotting
+}
+window.addEventListener("mouseup", scheduleCommit);
+undoBtn.addEventListener("click", () => { if (EMBEDDED && !undoBtn.disabled) undoNative().then(setUndoButtons).catch(() => {}); });
+redoBtn.addEventListener("click", () => { if (EMBEDDED && !redoBtn.disabled) redoNative().then(setUndoButtons).catch(() => {}); });
+window.addEventListener("keydown", e => {
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    if (e.shiftKey) redoBtn.click(); else undoBtn.click();
+  }
+});
+if (EMBEDDED) {
+  window.__JUCE__.backend.addEventListener("stateReloaded", () => {
+    // params already updated via attachments — resync UI-local state + steps
+    for (let i = 0; i < 6; i++) if (P.bands[i].on.get()) ui.bands[i].configured = true;
+    reloadAllSteps();
+    loadRoutes();   // undo/redo/preset load can change the mod matrix
+    refreshPanels();
+  });
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   MOD MATRIX (UI) — drag the MOD dot onto a knob/fader to route the
+   selected band's modulator there. Routes live in the plugin state
+   (undoable); DSP applies them block-rate in the normalized domain.
+   ════════════════════════════════════════════════════════════════════ */
+const setRoutesNative = native("setRoutes"), getRoutesNative = native("getRoutes");
+let modRoutes = [];   // [{src 0-5, dst (band·10+slot | 60+g), depth −100..100}]
+// live raw source values (−1..1), band-major × waveform (6×6) — telemetry, or
+// the sim in a browser. Index = band*6 + waveform. Names live in MODES.
+const modSrcVals = new Array(36).fill(0);
+// a route's waveform: explicit stype, or the source band's current MODE (legacy −1)
+const routeWave = r => (r.stype >= 0 ? r.stype : P.bands[r.src].mode.get());
+// per-band destination slot indices (dst = band·10 + slot). MUST match the C++
+// kBandSlots order in PluginProcessor.cpp — dst crosses the WebView bridge raw.
+const SLOT = { FREQ: 0, WIDTH: 1, LIFT: 2, DEPTH: 3, GAIN: 4,
+               RATE: 5, SMOOTH: 6, PHASE: 7, BIAS: 8, STEPSMOOTH: 9 };
+// A modulation may not modulate its OWN parameters: all six waveforms share the
+// band's clock, so band N's source driving band N's RATE / SMOOTH / PHASE /
+// STEP-SMOOTH feeds straight back into itself. Cross-band is legal (that's the
+// FM trick), and same-band AUDIO params (freq/width/lift/depth/gain/bias) too.
+const SELF_MOD_SLOTS = [SLOT.RATE, SLOT.SMOOTH, SLOT.PHASE, SLOT.STEPSMOOTH];
+const isSelfModDest = (src, dst) =>
+  dst < 60 && Math.floor(dst / 10) === src && SELF_MOD_SLOTS.includes(dst % 10);
+// A route inherits its SOURCE band's polarity: BI swings ± around the knob,
+// UNI pushes one-way from it. (Raw value stays raw; the transform lives here.)
+// band polarity transform: BI passes −1..1 through, UNI folds to 0..1 (one-way)
+const applyPolarity = (pb, v) => (pb.uni.get() ? (v + 1) / 2 : v);
+const routeSrcVal = r => applyPolarity(P.bands[r.src], modSrcVals[r.src * 6 + routeWave(r)] || 0);
+const DEST_SLOT_NAMES = ["FREQ", "Q", "LIFT", "DEPTH", "GAIN", "RATE", "SMOOTH", "PHASE", "BIAS", "STEP SM"];
+const DEST_GLOBAL_NAMES = ["AMOUNT", "WOW", "FLUTTER", "LEVEL"];
+const destName = d => d >= 60 ? DEST_GLOBAL_NAMES[d - 60]
+                              : "B" + (Math.floor(d / 10) + 1) + " " + DEST_SLOT_NAMES[d % 10];
+// widgets carry data-mslot (band-relative, resolved against the SELECTED band)
+// or data-mabs (absolute global dest)
+const widgetDest = el => el.dataset.mabs !== undefined ? +el.dataset.mabs
+                       : el.dataset.mslot !== undefined ? ui.selected * 10 + (+el.dataset.mslot) : null;
+function pushRoutes() {
+  if (EMBEDDED) setRoutesNative(JSON.stringify({ routes: modRoutes })).catch(() => {});
+  refreshPanels();
+}
+function loadRoutes() {
+  const apply = j => {
+    try {
+      const d = JSON.parse(j || "{}");
+      modRoutes = Array.isArray(d.routes)
+        ? d.routes.filter(r => r && r.dst >= 0 && !isSelfModDest(r.src, r.dst))
+        : [];
+    }
+    catch { modRoutes = []; }
+    refreshPanels();
+  };
+  if (EMBEDDED) getRoutesNative().then(apply).catch(() => {});
+}
+/* thin outer arc on a knob canvas: shows the FINAL modulated position — knob
+   value + live modulator × depth (e.g. knob 50% + mod 50% at peak → ring 100%).
+   One arc per route, source band's colour. */
+function drawModRings(canvas, dest) {
+  if (dest === null) return;
+  const rs = modRoutes.filter(r => r.dst === dest);
+  if (!rs.length) return;
+  const base = destNorm(dest);
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.lineWidth = 1.2; ctx.lineCap = "round";
+  const ang = v => degToRad(ARC_START + 270 * clamp(v, 0, 1));
+  rs.forEach((r, k) => {
+    const rad = Math.min(33, ARC_RADIUS + 4 + k * 3);
+    const d = r.depth / 100;
+    // reachable span: BI = base ± |d| (both ways), UNI = base → base + d (one way)
+    const lo = P.bands[r.src].uni.get() ? Math.min(base, base + d) : base - Math.abs(d);
+    const hi = P.bands[r.src].uni.get() ? Math.max(base, base + d) : base + Math.abs(d);
+    const fin = clamp(base + routeSrcVal(r) * d, 0, 1);
+    ctx.beginPath();   // faint reachable span so the live head reads against it
+    ctx.arc(KNOB_SIZE / 2, KNOB_SIZE / 2, rad, ang(lo), ang(hi));
+    ctx.strokeStyle = BAND_COLORS[r.src] + "2a"; ctx.stroke();
+    ctx.beginPath();   // live head = the FINAL modulated value
+    ctx.arc(KNOB_SIZE / 2, KNOB_SIZE / 2, rad, ang(base), ang(fin), fin < base);
+    ctx.strokeStyle = BAND_COLORS[r.src] + "cc"; ctx.stroke();
+  });
+}
+/* floating mod-amount editor — opens where a route is dropped (and on re-drop
+   over an existing connection). Drag the circle ↑↓ to set depth; right-click removes. */
+let meDest = null;   // destination whose routes are on display
+const modEditor = document.createElement("div"); modEditor.className = "mod-editor";
+document.body.appendChild(modEditor);
+function meDialDraw(dial) {
+  const rt = dial._route, cv = dial._cv;
+  const S = 14, C = S / 2;
+  if (cv.width !== S * DPR) { cv.width = S * DPR; cv.height = S * DPR; }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, S, S);
+  ctx.lineWidth = 2; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.arc(C, C, 5, 0, Math.PI * 2);          // track
+  ctx.strokeStyle = THEME.line; ctx.stroke();
+  const sweep = Math.abs(rt.depth) / 100 * Math.PI * 1.7;     // the arc IS the value
+  ctx.beginPath();
+  ctx.arc(C, C, 5, -Math.PI / 2, -Math.PI / 2 + (rt.depth < 0 ? -sweep : sweep), rt.depth < 0);
+  ctx.strokeStyle = BAND_COLORS[rt.src]; ctx.stroke();
+  dial.dataset.tip = "B" + (rt.src + 1) + " " + (MODES[routeWave(rt)] || "")
+    + " → " + destName(rt.dst) + " · "
+    + (rt.depth > 0 ? "+" : "") + Math.round(rt.depth) + "%"
+    + (P.bands[rt.src].uni.get() ? " · UNI (one-way)" : " · BI (±)")
+    + " · drag ↑↓ · right-click removes";
+}
+// rebuild the row: one dial per route on meDest (order = route order)
+function meRebuild() {
+  const rs = modRoutes.filter(r => r.dst === meDest);
+  if (!rs.length) { modEditor.classList.remove("open"); return; }
+  modEditor.textContent = "";
+  for (const rt of rs) {
+    const dial = div_("me-dial");
+    dial.style.borderColor = BAND_COLORS[rt.src] + "88";
+    const cv = document.createElement("canvas");
+    dial.appendChild(cv);
+    dial._route = rt; dial._cv = cv;
+    dial.addEventListener("mousedown", e => {
+      const sy = e.clientY, d0 = rt.depth;
+      const lim = destHeadroom(rt.dst, rt.src);   // can't dial past the knob's remaining travel
+      // meDialDraw only (2 tiny arcs) — the main loop already repaints routed
+      // knobs, so any panel refresh here would stack a full rebuild per frame.
+      const mv = ev => { rt.depth = clamp(d0 + (sy - ev.clientY), lim.min, lim.max); meDialDraw(dial); };
+      const done = () => { window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", done); pushRoutes(); };
+      window.addEventListener("mousemove", mv); window.addEventListener("mouseup", done);
+      e.preventDefault(); e.stopPropagation();
+    });
+    dial.addEventListener("contextmenu", e => {   // right-click removes THIS route
+      e.preventDefault();
+      modRoutes = modRoutes.filter(r => r !== rt);
+      pushRoutes();
+      meRebuild();   // remaining dials stay; last one gone closes the row
+    });
+    modEditor.appendChild(dial);
+    meDialDraw(dial);
+  }
+}
+/* Normalized (0..1) position of a destination — mirrors each widget's own
+   mapping, but for the ROUTE's band (which may not be the selected one). */
+function destNorm(dst) {
+  if (dst >= 60) {
+    if (dst === 63) return clamp((P.output.get() + 24) / 36, 0, 1);
+    return clamp([P.amount, P.wow, P.flutter][dst - 60].get() / 100, 0, 1);
+  }
+  const pb = P.bands[Math.floor(dst / 10)];
+  switch (dst % 10) {
+    case 0: return clamp(fx(pb.freq.get()), 0, 1);
+    case 1: return clamp(octToNorm(pb.width.get()), 0, 1);
+    case 2: return clamp(pb.lift.get() / 100, 0, 1);
+    case 3: return clamp(pb.depth.get() / 100, 0, 1);
+    case 4: return clamp((pb.gain.get() + 6) / 12, 0, 1);
+    case 5: return clamp(RATE_MAP.to(pb.rate.get()), 0, 1);
+    case 6: return clamp(pb.inertia.get() / 100, 0, 1);
+    case 7: return clamp(pb.phase.get() / 360, 0, 1);
+    case 8: return clamp((pb.bias.get() + 100) / 200, 0, 1);
+    case 9: return clamp(pb.stepsmooth.get() / 100, 0, 1);
+  }
+  return 0.5;
+}
+// modulation may only travel to the rails from where the knob currently sits.
+// UNI is one-way: +depth ≤ (1 − pos)·100, −depth ≥ −pos·100.
+// BI swings both ways and may use the LARGER side: |depth| ≤ max(pos, 1−pos)·100.
+// The short side clamps at the rail (intentional flat-top) — the old min() rule
+// pinned the dial to 0 whenever the knob sat at an extreme, which made a knob
+// at 100% unmodulatable instead of modulatable downward.
+const destHeadroom = (dst, src) => {
+  const n = destNorm(dst);
+  if (P.bands[src].uni.get()) return { min: -n * 100, max: (1 - n) * 100 };
+  const m = Math.max(n, 1 - n) * 100;
+  return { min: -m, max: m };
+};
+
+// ── live DISPLAY values: base param + mod-matrix offset ─────────────────────
+// The DSP applies routes in the normalized domain at block rate; the UI must
+// show the same final value everywhere a parameter is drawn (spectrum bells,
+// track markers, knob rings) — not just the base the user set.
+const modNormOffset = dst => {
+  if (!modRoutes.length) return 0;   // common case — skip the scan entirely
+  let o = 0;
+  for (const r of modRoutes) if (r.dst === dst) o += routeSrcVal(r) * r.depth / 100;
+  return o;
+};
+const moddedNorm = dst => clamp(destNorm(dst) + modNormOffset(dst), 0, 1);
+// per-frame cache for the spectrum (bellY runs per 2px column — no route scans there)
+const dispBand = Array.from({ length: 6 }, () => ({ freqN: 0, oct: 1, lift: 0, gainDb: 0, gainMod: false }));
+function refreshDispBands() {
+  for (let i = 0; i < 6; i++) {
+    const d = dispBand[i], base = i * 10;
+    // moddedNorm = destNorm + route offsets, clamped — ONE source of truth for
+    // the per-slot mapping (destNorm's switch), not a re-derived copy here
+    d.freqN = moddedNorm(base + SLOT.FREQ);
+    d.oct = normToOct(moddedNorm(base + SLOT.WIDTH));
+    d.lift = moddedNorm(base + SLOT.LIFT) * 100;
+    d.gainMod = modRoutes.some(r => r.dst === base + SLOT.GAIN);
+    d.gainDb = moddedNorm(base + SLOT.GAIN) * 12 - 6;
+    // bell skirt exponent follows the continuous SLOPE morph (log 1.3…3.6)
+    d.bellP = logMorph(P.bands[i].slope.get(), 1.3, 3.6);
+    d.shape = P.bands[i].shape.get();
+    // any bell-geometry route: the aura's cache key would churn every frame
+    d.geoMod = modRoutes.some(r => r.dst >= base && r.dst <= base + SLOT.LIFT);
+  }
+}
+// shared marker painter for fader/quick-menu tracks
+function paintModMark(track, dst) {
+  let mk = track._modMark;
+  if (!mk) { mk = track._modMark = div_("mod-mark"); track.appendChild(mk); }
+  const rt = modRoutes.find(r => r.dst === dst);
+  if (!rt) { mk.style.display = "none"; return; }
+  mk.style.display = "block";
+  mk.style.left = (moddedNorm(dst) * 100) + "%";
+  mk.style.background = BAND_COLORS[rt.src];
+  mk.style.color = BAND_COLORS[rt.src];   // drives the currentColor glow
+}
+
+function openModEditor(route, x, y) {
+  meDest = route.dst;
+  meRebuild();
+  if (!modEditor.classList.contains("open")) modEditor.classList.add("open");
+  // centre the whole row on the anchor point, clamped to the viewport
+  const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+  const w = modEditor.offsetWidth || 16;
+  modEditor.style.left = clamp(x - w / 2, 4, vw - w - 4) + "px";
+  modEditor.style.top  = clamp(y + 8, 4, vh - 22) + "px";
+}
+/* Persistent handle on every routed destination — click it any time to bring
+   the amount dials back (they only auto-open on drop). A destination with
+   several routes shows ALL of them side by side. */
+function makeModHandle(hostEl) {
+  const h = div_("mod-handle");
+  h.style.display = "none";
+  h.dataset.tip = "Click: edit this destination's modulation amounts";
+  h.addEventListener("mousedown", e => { e.stopPropagation(); e.preventDefault(); });  // never start the knob drag
+  h.addEventListener("click", e => {
+    e.stopPropagation();
+    const rs = modRoutes.filter(r => r.dst === widgetDest(hostEl));
+    if (!rs.length) return;
+    const r = h.getBoundingClientRect();
+    openModEditor(rs[0], r.left + r.width / 2, r.bottom);
+  });
+  hostEl.appendChild(h);
+  return h;
+}
+function refreshModHandle(h, hostEl) {
+  const rs = modRoutes.filter(r => r.dst === widgetDest(hostEl));
+  h.style.display = rs.length ? "block" : "none";
+  if (rs.length) h.style.color = h.style.background = BAND_COLORS[rs[0].src];
+}
+
+document.addEventListener("mousedown", e => {
+  if (modEditor.classList.contains("open") && !modEditor.contains(e.target))
+    modEditor.classList.remove("open");
+});
+
+/* ════════════════════════════════════════════════════════════════════
+   WIDGET FACTORIES (Chaosverb-clone rendering)
+   ════════════════════════════════════════════════════════════════════ */
+const div_ = cls => { const d = document.createElement("div"); if (cls) d.className = cls; return d; };
+
+/* Knob rendering — exact Chaosverb v1.0.18 drawKnob (entropia-webview-ui kit):
+   72px canvas, thin gradient arc (copper → band accent) with a 3-pass
+   photoshop-style outer glow. */
+const KNOB_SIZE = 72, ARC_RADIUS = 24, ARC_START = 135;
+const degToRad = d => d * Math.PI / 180;
+function lerpColor(a, b, t) {
+  t = clamp(t, 0, 1);
+  const ar = parseInt(a.slice(1, 3), 16), ag = parseInt(a.slice(3, 5), 16), ab = parseInt(a.slice(5, 7), 16);
+  const br = parseInt(b.slice(1, 3), 16), bg = parseInt(b.slice(3, 5), 16), bb = parseInt(b.slice(5, 7), 16);
+  return `rgb(${Math.round(ar + (br - ar) * t)},${Math.round(ag + (bg - ag) * t)},${Math.round(ab + (bb - ab) * t)})`;
+}
+function drawKnob(canvas, normValue, accentColor, locked) {
+  const ctx = canvas.getContext("2d");
+  if (canvas.width !== KNOB_SIZE * DPR) { canvas.width = KNOB_SIZE * DPR; canvas.height = KNOB_SIZE * DPR; }
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const cx = KNOB_SIZE / 2, cy = KNOB_SIZE / 2, r = ARC_RADIUS, arcWidth = 1.5;
+  ctx.clearRect(0, 0, KNOB_SIZE, KNOB_SIZE);
+
+  // background track
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, degToRad(ARC_START), degToRad(ARC_START + 270));
+  ctx.strokeStyle = THEME.knobTrack; ctx.lineWidth = arcWidth; ctx.lineCap = "round";
+  ctx.stroke();
+
+  if (normValue > 0.001) {
+    const totalAngle = clamp(normValue, 0, 1) * 270;
+    const segments = Math.max(2, Math.round(totalAngle * 0.5));
+    const strokeArc = () => {
+      for (let i = 0; i < segments; i++) {
+        const t0 = i / segments, t1 = (i + 1) / segments;
+        const segStart = degToRad(ARC_START + t0 * totalAngle);
+        const segEnd = degToRad(ARC_START + t1 * totalAngle) + 0.012;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, segStart, segEnd);
+        ctx.strokeStyle = locked ? THEME.arcLocked : lerpColor(THEME.accent, accentColor, (t0 + t1) * 0.5);
+        ctx.lineWidth = arcWidth;
+        ctx.lineCap = i === 0 || i === segments - 1 ? "round" : "butt";
+        ctx.stroke();
+      }
+    };
+    if (locked) {
+      // Locked (Chaosverb mechanism): grey arc, single crisp pass, no glow —
+      // value still readable but visually deactivated.
+      ctx.save(); ctx.shadowBlur = 0; strokeArc(); ctx.restore();
+    } else {
+      // Halo as TWO whole-arc blurred strokes, then ONE crisp segmented
+      // gradient pass. It used to blur every gradient SEGMENT in all three
+      // passes — up to ~3×135 Gaussian blurs per refresh. stroke() returns
+      // instantly, so JS profiles showed nothing; the cost landed in raster,
+      // and a band drag (which refreshes FREQ + LIFT every frame) ran at
+      // 210 ms/frame avg, 450 ms p95 — "the GUI is stuck". Same drag with
+      // the blur count collapsed: 16.7 ms/frame, locked 60 fps. The halo
+      // needs no per-segment gradient — it is a blur.
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, degToRad(ARC_START), degToRad(ARC_START + totalAngle));
+      ctx.strokeStyle = accentColor; ctx.lineWidth = arcWidth; ctx.lineCap = "round";
+      ctx.shadowColor = accentColor;
+      ctx.shadowBlur = 9;   ctx.globalAlpha = 0.30; ctx.stroke();
+      ctx.shadowBlur = 4.5; ctx.globalAlpha = 0.55; ctx.stroke();
+      ctx.restore();
+      strokeArc();
+    }
+  }
+}
+
+/* knob bound to a getter/setter working in KNOB-NORM space (0..1) */
+function makeKnob(containerId, label, opts) {
+  const el = document.getElementById(containerId);
+  const body = div_("knob-body");
+  const canvas = document.createElement("canvas");
+  const face = div_("knob-face");
+  const ind = div_("knob-indicator");
+  face.appendChild(ind);
+  body.appendChild(canvas); body.appendChild(face);
+  const labelEl = div_("knob-label"); labelEl.textContent = label;
+  const val = div_("knob-value");
+  el.appendChild(body); el.appendChild(labelEl); el.appendChild(val);
+  if (opts.lockKey) {
+    bindLockGesture(el, opts.lockKey, opts.lockGlobal);
+    el.dataset.tip = "Right-click: lock / unlock (CHAOS skips locked params)";
+  }
+
+  const modHandle = makeModHandle(el);
+  const k = {
+    el, color: opts.color,
+    refresh() {
+      const norm = opts.get();
+      const locked = opts.lockKey ? isLocked(opts.lockKey, opts.lockGlobal) : false;
+      drawKnob(canvas, norm, k.color, locked);
+      drawModRings(canvas, widgetDest(el));   // mod-matrix rings (outer arcs, source colours)
+      refreshModHandle(modHandle, el);
+      ind.style.transform = `rotate(${-135 + clamp(norm, 0, 1) * 270}deg) translateY(-14px)`;
+      // Locked: grey dot, no glow, dim face — position still readable (Chaosverb).
+      ind.style.background = locked ? THEME.dotLocked : THEME.dot;
+      ind.style.boxShadow = locked ? "none" : `0 0 4px ${k.color}`;
+      ind.style.opacity = locked ? "0.85" : "1";
+      face.style.background = locked ? THEME.faceLocked : THEME.face;
+      face.style.borderColor = locked ? THEME.faceBorderLocked : "";
+      face.style.opacity = locked ? "0.5" : "1";
+      body.classList.toggle("locked", locked);
+      val.textContent = opts.fmt();
+      val.style.color = locked ? "var(--locked-ink)" : "";
+    }
+  };
+  // Drag accumulates into dragNorm rather than re-reading opts.get() each move.
+  // For a quantized param (SPEED snaps to 6 positions) reading back returns the
+  // SNAPPED value, so a few px of motion rounds straight back to where it was
+  // and the remainder is thrown away — only a single flick big enough to cross
+  // half a step in ONE event moved it. Accumulating locally lets small moves add
+  // up. Re-synced on every mousedown, so external changes are still picked up.
+  let dragging = false, lastY = 0, dragNorm = 0;
+  el.addEventListener("mousedown", e => {
+    dragging = true; lastY = e.clientY;
+    dragNorm = clamp(opts.get(), 0, 1);
+    e.preventDefault();
+  });
+  window.addEventListener("mousemove", e => {
+    if (!dragging) return;
+    const deltaY = lastY - e.clientY;
+    lastY = e.clientY;
+    const sensitivity = 0.005 * (e.shiftKey ? 0.2 : 1);   // reference feel
+    dragNorm = clamp(dragNorm + deltaY * sensitivity, 0, 1);
+    opts.set(dragNorm);
+    k.refresh();
+  });
+  window.addEventListener("mouseup", () => dragging = false);
+  el.addEventListener("dblclick", () => { opts.set(opts.def); k.refresh(); });
+  k.refresh();
+  return k;
+}
+
+function makeHSlider(id, label, opts) {
+  const el = document.getElementById(id);
+  const labelEl = div_("hs-label"); labelEl.textContent = label;
+  const val = div_("hs-value");
+  const track = div_("hs-track");
+  const fill = div_("hs-fill");
+  track.appendChild(fill);
+  el.appendChild(labelEl); el.appendChild(val); el.appendChild(track);
+  if (opts.lockKey) {
+    bindLockGesture(el, opts.lockKey);
+    el.dataset.tip = "Right-click: lock / unlock (CHAOS skips locked params)";
+  }
+  const modHandle = makeModHandle(el);
+  const s = {
+    el, color: opts.color,
+    refresh() {
+      const norm = clamp(opts.get(), 0, 1);
+      const locked = opts.lockKey ? isLocked(opts.lockKey) : false;
+      fill.style.width = (norm * 100) + "%";
+      fill.style.background = locked ? "var(--locked-fill)"
+                                     : `linear-gradient(90deg, ${s.color}55, ${s.color})`;
+      val.textContent = opts.fmt();
+      el.classList.toggle("locked", locked);
+      // Env-swapped faders (RATE→ATK, SMOOTH→REL, PHASE→SC-F) display env
+      // params while their mod-destination stays rate/smooth/phase — drawing
+      // route UI against a fader showing a DIFFERENT parameter would lie.
+      // Routes to those slots are inert in Env mode anyway (Env ignores them).
+      const envHidden = el.dataset.envswap && isEnv();
+      if (envHidden) { modHandle.style.display = "none"; if (track._modMark) track._modMark.style.display = "none"; }
+      else {
+        refreshModHandle(modHandle, el);   // mod-matrix marker + dial re-open
+        paintModMark(track, widgetDest(el));   // live modulated-value marker
+      }
+    }
+  };
+  let drag = false;
+  const setFromX = e => {
+    const r = track.getBoundingClientRect();
+    opts.set(clamp((e.clientX - r.left) / r.width, 0, 1));
+    s.refresh();
+  };
+  el.addEventListener("mousedown", e => { drag = true; setFromX(e); });
+  window.addEventListener("mousemove", e => drag && setFromX(e));
+  window.addEventListener("mouseup", () => drag = false);
+  // double-click → default (mode-aware; commits via the global mouseup handler)
+  el.addEventListener("dblclick", () => { opts.reset ? opts.reset() : opts.set(opts.def ?? 0); s.refresh(); });
+  s.refresh();
+  return s;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   CONTROL BINDINGS
+   ════════════════════════════════════════════════════════════════════ */
+const FREQ_MAP = MAPS.log(FMIN, FMAX);
+const fx = FREQ_MAP.to, xf = FREQ_MAP.from;   // canvas-x ↔ frequency
+const fmtHz = f => f >= 1000 ? (f / 1000).toFixed(f < 10000 ? 1 : 0) + " kHz" : Math.round(f) + " Hz";
+const fmtRate = hz => hz >= 100 ? Math.round(hz) + " Hz" : hz >= 10 ? hz.toFixed(1) + " Hz" : hz.toFixed(2) + " Hz";
+
+/* Q display (EQ convention): clockwise = higher Q = narrower band. */
+const octToQ = n => Math.pow(2, n / 2) / (Math.pow(2, n) - 1);
+const OCT_MIN = 0.1, OCT_MAX = 4;
+const octToNorm = o => 1 - Math.log(o / OCT_MIN) / Math.log(OCT_MAX / OCT_MIN);
+const normToOct = n => OCT_MIN * Math.pow(OCT_MAX / OCT_MIN, 1 - n);
+
+const knobFreq = makeKnob("knob_freq", "FREQUENCY", {
+  color: bandColor(), def: fx(1000), lockKey: "freq",
+  get: () => fx(PB().freq.get()),
+  set: n => PB().freq.set(xf(n)),
+  fmt: () => fmtHz(PB().freq.get())
+});
+const knobWidth = makeKnob("knob_bwidth", "Q", {
+  color: bandColor(), def: octToNorm(1), lockKey: "width",
+  get: () => octToNorm(PB().width.get()),
+  set: n => PB().width.set(normToOct(n)),
+  fmt: () => { const q = octToQ(PB().width.get()); return q >= 10 ? q.toFixed(1) : q.toFixed(2); }
+});
+const knobLift = makeKnob("knob_lift", "LIFT", {
+  color: bandColor(), def: 1, lockKey: "lift",
+  get: () => PB().lift.get() / 100,
+  set: n => PB().lift.set(n * 100),
+  fmt: () => Math.round(PB().lift.get()) + "%"
+});
+const knobDepth = makeKnob("knob_depth", "DEPTH", {
+  color: bandColor(), def: 1.0, lockKey: "depth",
+  get: () => PB().depth.get() / 100,
+  set: n => { setDepthEff(PB(), ui.selected, n * 100); knobBias.refresh(); },   // depth may trade bias back
+  fmt: () => Math.round(PB().depth.get()) + "%"
+});
+const knobBias = makeKnob("knob_bias", "BIAS", {
+  color: bandColor(), def: 0.5, lockKey: "bias",
+  get: () => (clamp(PB().bias.get(), -100, 100) + 100) / 200,   // full ±100% range
+  set: n => { setBiasRemembered(PB(), ui.selected, -100 + n * 200); knobDepth.refresh(); },
+  fmt: () => { const b = PB().bias.get(); return (b > 0 ? "R" : b < 0 ? "L" : "C") + " " + Math.abs(Math.round(b)) + "%"; }
+});
+const knobAmount = makeKnob("knob_mix", "AMOUNT", {
+  color: THEME.neutral, def: 1, lockKey: "amount", lockGlobal: true,
+  get: () => P.amount.get() / 100,
+  set: n => P.amount.set(n * 100),
+  fmt: () => Math.round(P.amount.get()) + "%"
+});
+const knobOut = makeKnob("knob_output", "LEVEL", {
+  color: THEME.neutral, def: (0 + 24) / 36,
+  get: () => (P.output.get() + 24) / 36,
+  set: n => P.output.set(-24 + n * 36),
+  fmt: () => { const v = P.output.get(); return (Math.abs(v) < 0.05 ? 0 : v).toFixed(1) + " dB"; }
+});
+const knobWow = makeKnob("knob_wow", "WOW", {
+  color: THEME.voiceViolet, def: 0, lockKey: "wow", lockGlobal: true,
+  get: () => P.wow.get() / 100, set: n => P.wow.set(n * 100), fmt: () => Math.round(P.wow.get()) + "%"
+});
+const knobFlutter = makeKnob("knob_flutter", "FLUTTER", {
+  color: THEME.voiceViolet, def: 0, lockKey: "flutter", lockGlobal: true,
+  get: () => P.flutter.get() / 100, set: n => P.flutter.set(n * 100), fmt: () => Math.round(P.flutter.get()) + "%"
+});
+const hsFlux = makeHSlider("hs_flux", "FLUX", {
+  color: THEME.voiceViolet, def: 0, lockKey: "flux", lockGlobal: true,
+  get: () => P.flux.get() / 100, set: n => P.flux.set(n * 100),
+  fmt: () => Math.round(P.flux.get()) + "%"
+});
+const knobSpeed = makeKnob("knob_speed", "SPEED", {
+  color: THEME.voiceWarm, def: 2 / 5,
+  get: () => P.speed.get() / 5,
+  set: n => P.speed.set(Math.round(clamp(n, 0, 1) * 5)),
+  fmt: () => SPEED_LABELS[P.speed.get()] || "×1"
+});
+
+/* The band knobs get re-coloured every refreshPanels (they follow the selected
+   band), but the global ones capture their colour once at construction — so a
+   skin change has to hand them the new voice explicitly. */
+function retintGlobalKnobs() {
+  knobAmount.color = knobOut.color = THEME.neutral;
+  knobWow.color = knobFlutter.color = THEME.voiceViolet;
+  hsFlux.color = THEME.voiceViolet;
+  knobSpeed.color = THEME.voiceWarm;
+}
+
+const ENV_ATK = MAPS.log(1, 500), ENV_REL = MAPS.log(5, 2000), ENV_SCF = MAPS.log(20, 2000);
+const RATE_MAP = MAPS.log(RATE_MIN, RATE_MAX);
+const isEnv = () => PB().mode.get() === 5;
+
+/* ONE rate behaviour (ratemode-switched map, defaults, formatting) shared by
+   the RATE fader, the step-editor SPEED fader, and the quick-menu row. */
+const rateCtl = {
+  norm(pb)   { const rm = pb.ratemode.get();
+               return rm === 0 ? pb.div.get() / (DIVS.length - 1)
+                    : rm === 1 ? RATE_MAP.to(pb.rate.get()) : 0.5; },
+  set(pb, n) { const rm = pb.ratemode.get();
+               if (rm === 0) pb.div.set(Math.round(n * (DIVS.length - 1)));
+               else if (rm === 1) pb.rate.set(RATE_MAP.from(n)); },
+  reset(pb)  { const rm = pb.ratemode.get();
+               if (rm === 0) pb.div.set(3);            // 1/2
+               else if (rm === 1) pb.rate.set(0.5); }, // 0.5 Hz
+  fmt(pb)    { const rm = pb.ratemode.get();
+               return rm === 0 ? DIVS[pb.div.get()]
+                    : rm === 1 ? fmtRate(pb.rate.get())
+                    : midiNoteName + " · " + Math.round(midiFreq) + " Hz"; }
+};
+
+const hsRate = makeHSlider("hs_rate", "RATE", {
+  color: bandColor(), lockKey: "rate",
+  get:   () => isEnv() ? ENV_ATK.to(P.envAtk.get()) : rateCtl.norm(PB()),
+  set:   n  => isEnv() ? P.envAtk.set(ENV_ATK.from(n)) : rateCtl.set(PB(), n),
+  reset: () => isEnv() ? P.envAtk.set(20) : rateCtl.reset(PB()),
+  fmt:   () => isEnv() ? Math.round(P.envAtk.get()) + " ms" : rateCtl.fmt(PB())
+});
+const hsInertia = makeHSlider("hs_inertia", "SMOOTH", {
+  color: bandColor(), lockKey: "inertia",
+  get: () => isEnv() ? ENV_REL.to(P.envRel.get()) : PB().inertia.get() / 100,
+  set: n => isEnv() ? P.envRel.set(ENV_REL.from(n)) : PB().inertia.set(n * 100),
+  reset: () => isEnv() ? P.envRel.set(150) : PB().inertia.set(60),
+  fmt: () => isEnv() ? Math.round(P.envRel.get()) + "ms" : Math.round(PB().inertia.get()) + "%"
+});
+const hsPhase = makeHSlider("hs_phase", "PHASE", {
+  color: bandColor(), lockKey: "phase",
+  get: () => isEnv() ? ENV_SCF.to(P.envScf.get()) : PB().phase.get() / 360,
+  set: n => isEnv() ? P.envScf.set(ENV_SCF.from(n)) : PB().phase.set(n * 360),
+  reset: () => isEnv() ? P.envScf.set(20) : PB().phase.set(0),
+  fmt: () => isEnv() ? (P.envScf.get() >= 1000 ? (P.envScf.get()/1000).toFixed(1)+"k" : Math.round(P.envScf.get())+"Hz") : Math.round(PB().phase.get()) + "°"
+});
+const hsEnvGain = makeHSlider("hs_envgain", "GAIN", {   // bipolar ±36 dB — drive the detector up or down
+  color: bandColor(),
+  get: () => (P.envGain.get() + 36) / 72,
+  set: n => P.envGain.set(-36 + n * 72),
+  reset: () => P.envGain.set(0),
+  fmt: () => { const g = Math.round(P.envGain.get()); return (g > 0 ? "+" : "") + g + " dB"; }
+});
+// SPEED inside the step editor — the fader stack (incl. RATE) is hidden in Steps
+// mode, so the sequencer gets its own rate control. Same param paths as hsRate,
+// same "rate" lock key (locking RATE dims + freezes both).
+const hsStepSpeed = makeHSlider("hs_stepspeed", "SPEED", {
+  color: bandColor(), lockKey: "rate",   // same binding + lock as RATE — a second view, not a second impl
+  get:   () => rateCtl.norm(PB()),
+  set:   n  => { rateCtl.set(PB(), n); hsRate.refresh(); },
+  reset: () => { rateCtl.reset(PB()); hsRate.refresh(); },
+  fmt:   () => rateCtl.fmt(PB())
+});
+const hsStepSmooth = makeHSlider("hs_stepsmooth", "SMOOTH", {
+  color: bandColor(),
+  get: () => PB().stepsmooth.get() / 100,
+  set: n => PB().stepsmooth.set(n * 100),
+  reset: () => PB().stepsmooth.set(0),
+  fmt: () => Math.round(PB().stepsmooth.get()) + "%"
+});
+
+/* ── mod-matrix destinations + drag source ──
+   band-relative slots resolve against the SELECTED band at drop time */
+knobFreq.el.dataset.mslot = SLOT.FREQ;   knobWidth.el.dataset.mslot = SLOT.WIDTH;
+knobLift.el.dataset.mslot = SLOT.LIFT;   knobDepth.el.dataset.mslot = SLOT.DEPTH;
+knobBias.el.dataset.mslot = SLOT.BIAS;
+// these three are display-multiplexed in Env mode (ATK/REL/SC-F) — route UI
+// hides on them there, see the envswap guard in makeHSlider.refresh
+hsRate.el.dataset.envswap = "1"; hsInertia.el.dataset.envswap = "1"; hsPhase.el.dataset.envswap = "1";
+hsRate.el.dataset.mslot = SLOT.RATE;     hsInertia.el.dataset.mslot = SLOT.SMOOTH;
+hsPhase.el.dataset.mslot = SLOT.PHASE;   hsStepSpeed.el.dataset.mslot = SLOT.RATE;
+hsStepSmooth.el.dataset.mslot = SLOT.STEPSMOOTH;
+knobAmount.el.dataset.mabs = 60; knobWow.el.dataset.mabs = 61;
+knobFlutter.el.dataset.mabs = 62; knobOut.el.dataset.mabs = 63;
+
+// knobs that can carry mod-matrix rings (animated per frame while routed)
+const ROUTED_KNOB_POOL = [knobFreq, knobWidth, knobLift, knobDepth, knobBias,
+                          knobAmount, knobWow, knobFlutter, knobOut];
+// routed faders repaint their modulated-value marker in the same loop cadence
+const ROUTED_FADER_POOL = [hsRate, hsInertia, hsPhase, hsStepSpeed, hsStepSmooth];
+
+let routeDrag = null, dragGhost = null;
+function startRouteDrag(src, stype, e) {
+  routeDrag = { src, stype };
+  dragGhost = div_("drag-ghost");
+  dragGhost.style.background = BAND_COLORS[src];
+  document.body.appendChild(dragGhost);
+  dragGhost.style.left = e.clientX + "px"; dragGhost.style.top = e.clientY + "px";
+  e.preventDefault();
+}
+
+/* per-band modulation pause (freeze). DSP holds all six waveform values while
+   set; the scope/rings/markers freeze with them via telemetry. */
+const modFreezeBtn = document.getElementById("modFreezeBtn");
+modFreezeBtn.onclick = () => { PB().freeze.set(!PB().freeze.get()); refreshPanels(); };
+window.addEventListener("mousemove", e => {
+  if (!routeDrag || !dragGhost) return;
+  dragGhost.style.left = e.clientX + "px"; dragGhost.style.top = e.clientY + "px";
+});
+window.addEventListener("mouseup", e => {
+  if (!routeDrag) return;
+  const hit = document.elementFromPoint(e.clientX, e.clientY);
+  const t = hit && hit.closest("[data-mslot],[data-mabs]");
+  if (t) {
+    const dst = widgetDest(t);
+    if (dst !== null && !isSelfModDest(routeDrag.src, dst)) {
+      // re-drop of the SAME waveform on an existing connection edits it;
+      // a different waveform onto the same knob is a new route (they sum)
+      let rt = modRoutes.find(r => r.src === routeDrag.src && r.dst === dst
+                                && routeWave(r) === routeDrag.stype);
+      if (!rt && modRoutes.length < 16) {
+        const lim = destHeadroom(dst, routeDrag.src);   // default +50, capped by remaining travel
+        rt = { src: routeDrag.src, stype: routeDrag.stype, dst, depth: clamp(50, lim.min, lim.max) };
+        modRoutes.push(rt);
+      }
+      pushRoutes();
+      if (rt) openModEditor(rt, e.clientX, e.clientY);
+    }
+  }
+  routeDrag = null;
+  if (dragGhost) { dragGhost.remove(); dragGhost = null; }
+});
+
+/* mode chips — click selects the band's pan MODE; DRAG one onto a knob/fader
+   routes THAT waveform (all six run per band, so S&H can drive freq while
+   Sine drives gain). Drag threshold keeps the two gestures apart. */
+const modeChipsEl = document.getElementById("modeChips");
+MODES.forEach((m, i) => {
+  const b = document.createElement("button");
+  b.className = "mode-chip"; b.textContent = m;
+  let down = null, dragged = false;
+  b.addEventListener("mousedown", e => {
+    if (e.button !== 0) return;
+    down = { x: e.clientX, y: e.clientY }; dragged = false;
+    e.preventDefault();
+  });
+  window.addEventListener("mousemove", e => {
+    if (!down || dragged) return;
+    if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) {
+      dragged = true;
+      startRouteDrag(ui.selected, i, e);   // this chip's waveform as the source
+    }
+  });
+  window.addEventListener("mouseup", () => {
+    if (down && !dragged) { PB().mode.set(i); refreshPanels(); }
+    down = null;
+  });
+  b.dataset.tip = "Click: pan mode · drag onto a knob: modulate it with " + m;
+  modeChipsEl.appendChild(b);
+});
+// MODE lock — right-click the mode strip (chips dim when locked)
+bindLockGesture(modeChipsEl, "mode");
+modeChipsEl.dataset.tip = "Right-click: lock / unlock Mod Type (CHAOS skips locked params)";
+
+// Section titles lock every parameter in the section (Chaosverb: click = group lock).
+function setupSectionTitle(id, sectionId, keys, verb, global) {
+  const el = document.getElementById(id);
+  el.classList.add("lockable");
+  el.dataset.tip = "Click: lock / unlock all " + verb + " parameters against CHAOS";
+  el.onclick = () => toggleSectionLock(sectionId, keys, global);
+  el._keys = keys; el._global = global;
+  return el;
+}
+const bandTitle = setupSectionTitle("bandSecLabel", "band", LOCK_SECTIONS.band, "band");
+const modTitle  = setupSectionTitle("modSecLabel",  "mod",  LOCK_SECTIONS.mod,  "modulator");
+const outTitle  = setupSectionTitle("outSecLabel",  "out",  LOCK_SECTIONS.out,  "output", true);
+// Locked (all params held) → title goes bright, matching Chaosverb.
+function updateSectionLockVis(el) {
+  const s = lockSetFor(el._global);
+  el.classList.toggle("locked", el._keys.every(k => s.has(k)));
+}
+
+document.getElementById("syncToggle").onclick = () => {
+  if (isEnv()) { P.envRms.set(!P.envRms.get()); refreshPanels(); return; }
+  PB().ratemode.set((PB().ratemode.get() + 1) % 3); refreshPanels();
+};
+document.getElementById("stepSyncToggle").onclick = () => {
+  PB().ratemode.set((PB().ratemode.get() + 1) % 3); refreshPanels();
+};
+document.getElementById("bypassBtn").onclick = e => {
+  P.bypass.set(!P.bypass.get());
+  refreshPanels();
+};
+document.getElementById("polToggle").onclick = () => {
+  PB().uni.set(!PB().uni.get());
+  // routes from this band change polarity → re-fit their depth to the new headroom
+  let touched = false;
+  modRoutes.forEach(r => {
+    if (r.src !== ui.selected) return;
+    const l = destHeadroom(r.dst, r.src), d = clamp(r.depth, l.min, l.max);
+    if (d !== r.depth) { r.depth = d; touched = true; }
+  });
+  if (touched) pushRoutes();
+  refreshPanels();
+};
+document.getElementById("routingToggle").onclick = () => { P.routing.set(P.routing.get() ? 0 : 1); refreshPanels(); };
+// SLOPE morph: drag ↑↓ — continuous 12…48 dB/oct (log). Per-move work is ONLY
+// the param write + pill label + a coalesced panel refresh (schedulePanels) —
+// a full refreshPanels per mousemove is the known stutter trap (B57/B80).
+const slopeDb = v => Math.round(logMorph(v, 12, 48));
+// the slope pill's mini knob: 270° arc = morph position, band-coloured
+function drawSlopeDial(v, col) {
+  const cv = document.getElementById("slopeDial"), S = 11, C = S / 2;
+  if (cv.width !== S * DPR) { cv.width = S * DPR; cv.height = S * DPR; }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, S, S);
+  ctx.lineWidth = 1.6; ctx.lineCap = "round";
+  const a0 = degToRad(ARC_START), span = degToRad(270);   // shared knob geometry
+  ctx.beginPath(); ctx.arc(C, C, 4, a0, a0 + span);
+  ctx.strokeStyle = THEME.line; ctx.stroke();
+  ctx.beginPath(); ctx.arc(C, C, 4, a0, a0 + span * clamp(v, 0, 100) / 100);
+  ctx.strokeStyle = col || "#3ab8d4"; ctx.stroke();
+}
+// band bypass: flips the selected band's ON param (the bell ghosts, audio
+// passes clean through this band; the 30 ms enable crossfade makes it pop-free)
+document.getElementById("bandBypassBtn").onclick = () => { PB().on.set(!PB().on.get()); refreshPanels(); };
+/* Band shapes. The icon is drawn from the same idea the DSP implements, so the
+   picture and the filter agree: bell humps at the handle, low/high hold a
+   plateau on their side, notch dips, tilt see-saws across it. */
+const SHAPES = [
+  { name: "BELL",  d: "M1 9 C7 9 7 3 12 3 C17 3 17 9 23 9" },
+  { name: "LOW SHELF",  d: "M1 3 L8 3 C12 3 12 9 16 9 L23 9" },
+  { name: "HIGH SHELF", d: "M1 9 L8 9 C12 9 12 3 16 3 L23 3" },
+  { name: "NOTCH", d: "M1 3 C7 3 7 9 12 9 C17 9 17 3 23 3" },
+  { name: "TILT",  d: "M1 9 L23 3" },
+];
+const SHAPE_NAMES = SHAPES.map(s => s.name);
+const shapeIcon = d => `<svg class="shape-ico" viewBox="0 0 24 12"><path d="${d}"/></svg>`;
+const shapeMenu = document.getElementById("shapeMenu");
+const shapeToggle = document.getElementById("shapeToggle");
+SHAPES.forEach((s, i) => {
+  const b = div_("shape-item");
+  b.innerHTML = shapeIcon(s.d) + "<span>" + s.name + "</span>";
+  b.addEventListener("click", e => {
+    e.stopPropagation();
+    PB().shape.set(i);
+    shapeMenu.classList.remove("visible");
+    refreshPanels();
+  });
+  shapeMenu.appendChild(b);
+});
+/* One opener for both anchors. Shell-relative coordinates, clamped inside the
+   shell; opens above the anchor when below would run off the bottom (the band
+   header sits low, so that is its normal case). */
+function openShapeMenu(anchorEl) {
+  const shell = document.getElementById("pluginShell").getBoundingClientRect();
+  const a = anchorEl.getBoundingClientRect();
+  shapeMenu.classList.toggle("visible");
+  if (! shapeMenu.classList.contains("visible")) return;
+  refreshShapeMenu();
+  const mw = shapeMenu.offsetWidth, mh = shapeMenu.offsetHeight;
+  let left = a.left - shell.left;
+  let top  = a.bottom - shell.top + 4;
+  if (top + mh > shell.height - 4) top = a.top - shell.top - mh - 4;   // flip above
+  shapeMenu.style.right = "auto";
+  shapeMenu.style.left = clamp(left, 4, shell.width - mw - 4) + "px";
+  shapeMenu.style.top  = clamp(top, 4, shell.height - mh - 4) + "px";
+}
+shapeToggle.onclick = e => { e.stopPropagation(); openShapeMenu(shapeToggle); };
+function refreshShapeMenu() {
+  const cur = PB().shape.get();
+  [...shapeMenu.children].forEach((el, i) => el.classList.toggle("on", i === cur));
+}
+window.addEventListener("mousedown", e => {
+  if (! e.target.closest("#shapeMenu") && ! e.target.closest("#shapeToggle") && ! e.target.closest("#qmShape"))
+    shapeMenu.classList.remove("visible");
+});
+document.getElementById("qmShape").onclick = e => {
+  e.stopPropagation();                      // the menu body is a drag surface
+  openShapeMenu(e.currentTarget);
+};
+document.getElementById("qmDelete").onclick = e => {
+  e.stopPropagation();                      // the menu body is a drag surface
+  deleteBand(ui.selected);
+};
+document.getElementById("qmSolo").onclick = e => {
+  e.stopPropagation();                      // the menu body is a drag surface
+  PB().solo.set(!PB().solo.get());
+  refreshPanels(); updateQuickMenu();
+};
+document.getElementById("qmFreeze").onclick = e => {
+  e.stopPropagation();
+  PB().freeze.set(!PB().freeze.get());      // same param as the MODULATOR ⏸
+  refreshPanels(); updateQuickMenu();
+};
+{
+  const st = document.getElementById("slopeToggle");
+  let drag = null;
+  st.addEventListener("mousedown", e => { drag = { y: e.clientY, v: PB().slope.get() }; e.preventDefault(); });
+  window.addEventListener("mousemove", e => {
+    if (!drag) return;
+    const v = clamp(drag.v + (drag.y - e.clientY) * 0.5, 0, 100);
+    PB().slope.set(v);
+    document.getElementById("slopeDbText").textContent = slopeDb(v) + " dB";
+    drawSlopeDial(v, bandColor());
+    schedulePanels();
+  });
+  window.addEventListener("mouseup", () => drag = null);
+  st.addEventListener("dblclick", () => { PB().slope.set(50); refreshPanels(); });
+}
+document.getElementById("overrideToggle").onclick = () => {
+  const i = ui.selected, pb = PB();
+  pb.override.set(!pb.override.get());
+  // re-fit under the NEW trim: to FREE, depth stays put; back to LINK, depth
+  // re-clamps under the cap (base tops out at 100 → e.g. 100 @ full bias → 50).
+  pb.depth.set(clamp(depthBaseOf(pb, i) * depthTrim(pb, i), 0, 100));
+  knobDepth.refresh(); refreshPanels();
+};
+function rnd(a, b) { return a + Math.random() * (b - a); }
+document.getElementById("rerollBtn").onclick = () => {
+  // Randomize every UNLOCKED option: the global feel (amount/wow/flutter) plus
+  // each ENABLED band (freq/Q/lift/depth/bias + full modulation engine). Locked
+  // params (ui.locks / ui.globalLocks) are left untouched. GAIN is loudness-comp
+  // and LEVEL is the master out — neither is ever re-rolled. Undo restores in one step.
+  const G = ui.globalLocks;
+  if (!G.has("amount"))  P.amount.set(rnd(55, 100));
+  if (!G.has("wow"))     P.wow.set(rnd(0, 50));
+  if (!G.has("flutter")) P.flutter.set(rnd(0, 40));
+  let anyModeFree = false;
+  for (let i = 0; i < 6; i++) {
+    const pb = P.bands[i];
+    if (!pb.on.get()) continue;
+    const L = ui.locks[i];
+    if (!L.has("freq"))  pb.freq.set(80 * Math.pow(12000 / 80, Math.random()));   // log-uniform
+    if (!L.has("width")) pb.width.set(rnd(0.3, 3.0));
+    if (!L.has("lift"))  pb.lift.set(rnd(55, 100));
+    // roll a base BEFORE bias moves (the base is bias-invariant); a locked
+    // DEPTH keeps its live value untouched — nothing to refit with derived state
+    const depthFree = ! L.has("depth");
+    const base = depthFree ? rnd(30, 100) : 0;
+    if (!L.has("bias")) pb.bias.set(rnd(-100, 100));           // full range — DSP clamp keeps the pan off the rail
+    if (depthFree) pb.depth.set(clamp(base * depthTrim(pb, i), 0, 100));
+    if (!L.has("mode"))  pb.mode.set(Math.floor(Math.random() * 5));   // 0..4 → Sine..Steps (Env needs sidechain, excluded)
+    if (!L.has("rate")) {                                     // RATE lock freezes value + sync/free + division
+      pb.ratemode.set(Math.random() < 0.75 ? 0 : 1);         // mostly synced
+      pb.div.set(Math.floor(Math.random() * 7));
+      pb.rate.set(rnd(0.1, 8));
+    }
+    if (!L.has("inertia")) pb.inertia.set(rnd(0, 100));
+    if (!L.has("phase"))   pb.phase.set(rnd(0, 360));
+    if (!L.has("mode")) {                                     // keep a locked modulator's live trajectory intact
+      const b = ui.bands[i];
+      b.driftA = Math.random() * 100;
+      b.target = Math.random() * 2 - 1;
+      b.lz = { x: Math.random() * 0.4 - 0.2, y: 0, z: 0 };
+      b.lastDeal = -1;
+      anyModeFree = true;
+    }
+  }
+  if (anyModeFree) rerollNative().catch(() => {});            // re-deal DSP random streams only if a modulator is free
+  schedulePanels();
+  scheduleCommit();
+  const f = document.getElementById("mutationFlash");
+  f.classList.add("fire");
+  setTimeout(() => f.classList.remove("fire"), 60);
+};
+
+/* global speed stepper */
+P.speed.onChange(() => knobSpeed.refresh());
+
+document.getElementById("stepUp").onclick = () => { B().stepCount = Math.min(16, B().stepCount + 1); pushSteps(ui.selected); refreshPanels(); };
+document.getElementById("stepDown").onclick = () => { B().stepCount = Math.max(2, B().stepCount - 1); pushSteps(ui.selected); refreshPanels(); };
+
+/* MIDI note display — updated live by the "modvals" telemetry handler */
+let midiNoteName = "—", midiFreq = 0;
+
+/* Per-frame chase of the 60 Hz telemetry targets. Frame-rate independent:
+   the same ~11 ms time constant at 60 or 120 Hz. Only runs when embedded —
+   the browser sim writes pan directly. Snaps when the gap is tiny so a
+   settled pan is exact, and on a big jump (preset load) so it doesn't glide. */
+function smoothTelemetry(dt) {
+  if (!EMBEDDED) return;
+  const k = 1 - Math.exp(-dt / 0.011);
+  for (let i = 0; i < 6; i++) {
+    const b = ui.bands[i];
+    if (b.panTarget === undefined) continue;
+    const d = b.panTarget - b.pan;
+    b.pan = Math.abs(d) < 0.0005 || Math.abs(d) > 1.2 ? b.panTarget : b.pan + d * k;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   PANEL REFRESH
+   ════════════════════════════════════════════════════════════════════ */
+/* Chaosverb-style toggle tinting: the toggle wears its current option's colour */
+// Toggle tints follow the skin, so they are read at paint time, not captured.
+const COL_ORANGE = () => THEME.voiceWarm, COL_PURPLE = () => THEME.voiceViolet, COL_CYAN = () => THEME.voiceCyan;
+const tintToggle = (el, col) => { el.style.color = col; el.style.borderColor = col; el.style.boxShadow = "0 0 7px " + col + "55"; };
+const RATE_MODE_NAMES = ["SYNC", "FREE", "MIDI"];
+const RATE_MODE_COLS = () => [COL_ORANGE(), COL_PURPLE(), COL_CYAN()];
+function applyRateModeToggle(el, rm) {
+  el.textContent = RATE_MODE_NAMES[rm] || "SYNC";
+  tintToggle(el, RATE_MODE_COLS()[rm] || COL_ORANGE());
+}
+
+function refreshPanels() {
+  const c = bandColor(), pb = PB(), b = B();
+  bandTitle.textContent = "Band " + (ui.selected + 1);
+  bandTitle.style.color = c;
+  modTitle.style.color = c;
+  const frozen = PB().freeze.get();
+  modFreezeBtn.classList.toggle("frozen", frozen);
+  modFreezeBtn.textContent = frozen ? "▶" : "⏸";
+  modFreezeBtn.dataset.tip = frozen ? "Resume this band's modulation"
+                                    : "Pause this band's modulation — all waveforms hold their value";
+  updateSectionLockVis(bandTitle);
+  updateSectionLockVis(modTitle);
+  updateSectionLockVis(outTitle);
+  modeChipsEl.classList.toggle("locked", isLocked("mode"));
+  // No band placed yet → both per-band inspectors edit nothing: show them "off".
+  // (Output stays live — it is global.)
+  const noBands = ! ui.bands.some(x => x.configured);
+  document.querySelector(".sec-band").classList.toggle("section-off", noBands);
+  document.querySelector(".sec-mod").classList.toggle("section-off", noBands);
+  [knobFreq, knobWidth, knobLift, knobDepth, knobBias].forEach(k => { k.color = c; k.refresh(); });
+  [hsRate, hsInertia, hsPhase].forEach(s => { s.color = c; s.refresh(); });
+  knobAmount.refresh(); knobOut.refresh(); knobWow.refresh(); knobFlutter.refresh(); hsFlux.refresh(); knobSpeed.refresh();
+  document.querySelectorAll(".mode-chip").forEach((el, i) => {
+    const on = i === pb.mode.get();
+    el.style.color = on ? THEME.onAccent : "";
+    el.style.background = on ? c : "";
+    el.style.borderColor = on ? c : "";
+  });
+  const mode = pb.mode.get();
+  const rm = document.getElementById("syncToggle");
+  const setHsLabel = (hs, txt) => { const el = hs.el.querySelector(".hs-label"); if (el) el.textContent = txt; };
+  if (mode === 5) {   // Env: sliders become the detection-circuit controls
+    setHsLabel(hsRate, "ATK"); setHsLabel(hsInertia, "REL"); setHsLabel(hsPhase, "SC-F");
+    rm.textContent = P.envRms.get() ? "RMS" : "PEAK";
+    tintToggle(rm, P.envRms.get() ? COL_PURPLE() : COL_ORANGE());   // PEAK orange → RMS purple
+    hsPhase.el.classList.remove("disabled");
+    hsInertia.el.classList.remove("disabled");
+  } else {
+    setHsLabel(hsRate, "Rate"); setHsLabel(hsInertia, "Smooth"); setHsLabel(hsPhase, "Phase");
+    applyRateModeToggle(rm, pb.ratemode.get());   // SYNC orange → FREE purple → MIDI cyan
+    hsPhase.el.classList.toggle("disabled", mode === 2 || mode === 3);   // S&H / Chaos: no phase
+    hsInertia.el.classList.toggle("disabled", mode <= 1);
+  }
+  const stack = document.getElementById("sliderStack");
+  stack.style.display = mode === 4 ? "none" : "flex";
+  stack.classList.toggle("compact", mode === 5);   // ENV: 4 rows in the space of 3
+  // Steps: the grid IS the shape — drop the little scope so the editor gets the full width
+  scopeCanvas.style.display = mode === 4 ? "none" : "";
+  document.getElementById("envGainRow").style.display = mode === 5 ? "flex" : "none";
+  if (mode === 5) { hsEnvGain.color = c; hsEnvGain.refresh(); }
+  document.getElementById("stepEditor").classList.toggle("visible", mode === 4);
+  if (mode === 4) {
+    hsStepSmooth.color = c; hsStepSmooth.refresh();
+    hsStepSpeed.color = c; hsStepSpeed.refresh();
+    applyRateModeToggle(document.getElementById("stepSyncToggle"), pb.ratemode.get());
+  }
+  document.getElementById("stepCount").textContent = b.stepCount;
+  const pol = document.getElementById("polToggle");
+  pol.textContent = pb.uni.get() ? "UNI" : "BI";
+  tintToggle(pol, pb.uni.get() ? COL_PURPLE() : COL_ORANGE());   // BI orange → UNI purple
+  const ovr = document.getElementById("overrideToggle");
+  ovr.classList.toggle("free", pb.override.get());                // chain intact ↔ broken
+  tintToggle(ovr, pb.override.get() ? COL_PURPLE() : COL_ORANGE());   // linked orange → free purple
+  const rt = document.getElementById("routingToggle");
+  rt.textContent = P.routing.get() ? "PARALLEL" : "SERIAL";
+  tintToggle(rt, P.routing.get() ? COL_PURPLE() : COL_ORANGE());   // Serial orange → Parallel purple
+  const bb = document.getElementById("bandBypassBtn");
+  const bandBypassed = b.configured && !pb.on.get();
+  bb.classList.toggle("active", bandBypassed);
+  bb.style.color = bb.style.borderColor = ""; bb.style.boxShadow = "";   // same neutral look as the global bypass
+  document.querySelector(".sec-band").classList.toggle("bypassed", bandBypassed);
+  const st = document.getElementById("slopeToggle");
+  const shp = SHAPES[pb.shape.get()] || SHAPES[0];
+  shapeToggle.innerHTML = shapeIcon(shp.d);
+  shapeToggle.dataset.tip = "Band shape: " + shp.name
+    + " — what this band grabs. Click to choose.";
+  refreshShapeMenu();
+  // Tilt is pinned to LR4 — Q and SLOPE do nothing there, so show that.
+  const tiltOn = pb.shape.get() === 4;
+  document.getElementById("knob_bwidth").classList.toggle("ctl-off", tiltOn);
+  document.getElementById("slopeToggle").classList.toggle("ctl-off", tiltOn);
+  document.getElementById("slopeDbText").textContent = slopeDb(pb.slope.get()) + " dB";
+  drawSlopeDial(pb.slope.get(), c);
+  tintToggle(st, c);   // selected band's colour — it is a per-band setting
+  const byp = document.getElementById("bypassBtn");
+  byp.classList.toggle("active", P.bypass.get());
+  document.getElementById("bypassDim").classList.toggle("on", P.bypass.get());
+}
+
+/* param changes from host (automation) → ONE coalesced repaint per frame.
+   (Direct per-event refresh redraws every knob's 3-pass glow per mousemove —
+   that was the drag stutter.) */
+let panelsDirty = false;
+function schedulePanels() {
+  if (panelsDirty) return;
+  panelsDirty = true;
+  requestAnimationFrame(() => { panelsDirty = false; refreshPanels(); });
+}
+P.bands.forEach(pb => Object.values(pb).forEach(p => p.onChange(schedulePanels)));
+P.amount.onChange(schedulePanels);
+P.output.onChange(schedulePanels);
+P.bypass.onChange(schedulePanels);
+
+/* ════════════════════════════════════════════════════════════════════
+   STEP EDITOR (slot-stable ratchets)
+   ════════════════════════════════════════════════════════════════════ */
+const stepCanvas = document.getElementById("stepCanvas");
+
+// glue runs: leader = first non-tied cell walking left; run extends over tied cells
+const stepLeader = (b, cell) => { let L = cell; while (L > 0 && b.steps[L].tie) L--; return L; };
+const stepRunLen = (b, leader) => { let n = 1; while (leader + n < b.stepCount && b.steps[leader + n].tie) n++; return n; };
+function stepSlotAt(b, cyclePos) {
+  const pos = ((cyclePos % 1) + 1) % 1 * b.stepCount;
+  const cell = Math.min(b.stepCount - 1, Math.floor(pos));
+  const leader = stepLeader(b, cell), runLen = stepRunLen(b, leader);
+  const st = b.steps[leader];
+  const local = (pos - leader) / runLen;                       // 0..1 across the glued run
+  const sub = Math.min(st.subdiv - 1, Math.floor(local * st.subdiv));
+  return { slot: leader, sub, cell, leader, runLen };
+}
+function stepValueAt(b, cyclePos) {
+  const { slot, sub } = stepSlotAt(b, cyclePos);
+  return b.steps[slot].vals[sub];
+}
+
+function drawSteps() {
+  const b = B(), r = stepCanvas.getBoundingClientRect();
+  if (r.width === 0) return;
+  const W = Math.round(r.width * DPR), H = Math.round(r.height * DPR);
+  if (stepCanvas.width !== W) { stepCanvas.width = W; stepCanvas.height = H; }
+  const ctx = stepCanvas.getContext("2d");
+  ctx.clearRect(0, 0, W, H);
+  ctx.strokeStyle = THEME.lineBright; ctx.lineWidth = DPR;
+  ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
+  const n = b.stepCount, c = bandColor();
+  const telemetryLive = EMBEDDED && performance.now() - lastModEvent < 300;
+  const cyclePos = telemetryLive ? b.livePhase
+                                 : (simClock * simRateHz(ui.selected)) + PB().phase.get() / 360;
+  const act = PB().on.get() ? stepSlotAt(b, cyclePos) : { slot: -1, sub: -1 };
+  const slotW = W / n;
+  for (let i = 0; i < n; ) {
+    // draw one glued run [i, i+runLen) as a single wide step (ratchets span it)
+    const st = b.steps[i];
+    const runLen = stepRunLen(b, i);   // i is always a run leader here
+    const runX = i * slotW, runW = runLen * slotW, subW = runW / st.subdiv;
+    for (let m = 0; m < st.subdiv; m++) {
+      const v = st.vals[m];
+      const x = runX + m * subW;
+      const y0 = H / 2, y1 = H / 2 - v * (H / 2 - 4 * DPR);
+      const hot = i === act.slot && m === act.sub;
+      ctx.fillStyle = c + (hot ? "cc" : "59");
+      ctx.fillRect(x + 1.5 * DPR, Math.min(y0, y1), Math.max(subW - 3 * DPR, DPR), Math.abs(y1 - y0) || DPR);
+    }
+    ctx.fillStyle = THEME.line;
+    ctx.fillRect(runX, 0, DPR, H);   // divider only at run boundaries → glued cells read as one
+    if (st.subdiv > 1) {
+      ctx.fillStyle = c + "ee";
+      for (let m = 0; m < st.subdiv; m++)
+        ctx.fillRect(runX + m * subW + 1.5 * DPR, 2 * DPR, Math.max(subW - 3 * DPR, DPR), 2 * DPR);
+    }
+    i += runLen;
+  }
+
+  // SMOOTH overlay — the actual glided waveform (mirrors the DSP one-pole so the
+  // square→smooth morph is visible). Skipped at 0 (pure square = the bars above).
+  // The settled polyline only changes with pattern/count/smooth/size/band — cache
+  // it (was a 2×W settle+trace with per-pixel allocation, every frame).
+  const sm = PB().stepsmooth.get() / 100;
+  if (sm > 0.005 && n > 0) {
+    const key = [ui.selected, stepsRev, n, sm.toFixed(3), W, H].join("|");
+    if (!smoothPathCache || smoothPathCache.key !== key) {
+      const stepPx = W / n;
+      const slewPx = sm * sm * stepPx * 1.5;               // corner in px = DSP corner in samples
+      const coeff = slewPx < 0.5 ? 1 : 1 - Math.exp(-1 / slewPx);
+      const tgt = px => stepValueAt(b, (px % W) / W);
+      let v = tgt(0);
+      for (let px = 0; px < W; px++) v += (tgt(px) - v) * coeff;   // settle one cycle
+      const path = new Path2D();
+      for (let px = 0; px <= W; px++) {
+        v += (tgt(px) - v) * coeff;
+        const y = H / 2 - v * (H / 2 - 4 * DPR);
+        px === 0 ? path.moveTo(px, y) : path.lineTo(px, y);
+      }
+      smoothPathCache = { key, path };
+    }
+    ctx.strokeStyle = c + "ee"; ctx.lineWidth = 1.6 * DPR; ctx.lineJoin = "round";
+    ctx.stroke(smoothPathCache.path);
+  }
+}
+let smoothPathCache = null;   // { key, path } — see SMOOTH overlay above
+let stepsRev = 0;             // bumped on every step-data change (cache key part)
+
+let stepDrag = false;
+const stepHit = (b, xNorm) => stepSlotAt(b, clamp(xNorm, 0, 0.9999));
+const cellAt = (b, xNorm) => Math.min(b.stepCount - 1, Math.floor(clamp(xNorm, 0, 0.9999) * b.stepCount));
+const paintStep = e => {   // vertical drag sets the value of the run under the cursor (its leader)
+  const b = B(), r = stepCanvas.getBoundingClientRect();
+  const { slot, sub } = stepHit(b, (e.clientX - r.left) / r.width);
+  b.steps[slot].vals[sub] = clamp(-((e.clientY - r.top) / r.height * 2 - 1), -1, 1);
+  pushSteps(ui.selected);
+};
+stepCanvas.addEventListener("mousedown", e => {
+  const b = B(), r = stepCanvas.getBoundingClientRect();
+  const cell = cellAt(b, (e.clientX - r.left) / r.width);
+  const st = b.steps[cell];
+  if (e.altKey) {     // SPLIT: un-merge a glued cell, else divide 1 → 2 → 4 (stops at 4)
+    if (st.tie) st.tie = false;
+    else if (st.subdiv < 4) {
+      const next = st.subdiv === 1 ? 2 : 4;
+      for (let m = st.subdiv; m < next; m++) st.vals[m] = st.vals[m % st.subdiv];
+      st.subdiv = next;
+    } else return;
+    pushSteps(ui.selected);
+    return;
+  }
+  if (e.shiftKey) {   // GLUE: a divided step re-joins (4/2 → 1), else merge into the step on the left
+    if (st.subdiv > 1) st.subdiv = 1;               // vals[0] becomes the whole step
+    else if (cell > 0 && ! st.tie) st.tie = true;   // extend the left run over this cell
+    else return;                                    // cell 0 / already glued: nothing to do
+    pushSteps(ui.selected);
+    return;
+  }
+  stepDrag = true; paintStep(e);
+});
+window.addEventListener("mousemove", e => stepDrag && paintStep(e));
+window.addEventListener("mouseup", () => stepDrag = false);
+
+/* step pattern presets */
+const mkSlot = (v, subdiv = 1, vals = null) => ({ subdiv, vals: vals || [v, v, v, v], tie: false });
+const STEP_FACTORY = {
+  "Ramp Up":   n => Array.from({length: n}, (_, k) => mkSlot(-1 + 2 * k / (n - 1))),
+  "Ramp Down": n => Array.from({length: n}, (_, k) => mkSlot(1 - 2 * k / (n - 1))),
+  "Pyramid":   n => Array.from({length: n}, (_, k) => mkSlot(1 - 4 * Math.abs(k / (n - 1) - 0.5))),
+  "Ping-Pong": n => Array.from({length: n}, (_, k) => mkSlot(k % 2 ? 1 : -1)),
+  "Ratchet LR": n => Array.from({length: n}, (_, k) =>
+    k % 4 === 3 ? mkSlot(0, 4, [1, -1, 1, -1]) : k % 2 ? mkSlot(1) : mkSlot(-1)),
+};
+const stepPresetSel = document.getElementById("stepPresetSel");
+// User presets persist to a SHARED file via the processor (the WebView's own
+// localStorage sits in a unique per-instance data folder → lost on reopen, not
+// shared between instances). In a plain browser we fall back to localStorage.
+const setPresetsNative = native("setPresets"), getPresetsNative = native("getPresets");
+let stepPresetCache = {};
+function userStepPresets() { return stepPresetCache; }
+function persistPresets() {
+  const json = JSON.stringify(stepPresetCache);
+  if (EMBEDDED) setPresetsNative(json).catch(() => {});
+  else { try { localStorage.setItem("entropanStepPresets", json); } catch {} }
+}
+function loadPresets() {
+  const apply = json => { try { stepPresetCache = JSON.parse(json || "{}") || {}; } catch { stepPresetCache = {}; } refreshStepPresetList(); };
+  if (EMBEDDED) getPresetsNative().then(apply).catch(() => {});
+  else apply(localStorage.getItem("entropanStepPresets"));
+}
+const stepDelBtn = document.getElementById("stepDelBtn");
+const updateDelBtn = () => { stepDelBtn.disabled = ! (stepPresetSel.value || "").startsWith("u:"); };  // only ★ presets deletable
+function refreshStepPresetList() {
+  while (stepPresetSel.firstChild) stepPresetSel.removeChild(stepPresetSel.firstChild);
+  const mk = (label, val, dis) => { const o = document.createElement("option"); o.textContent = label; o.value = val; if (dis) o.disabled = true; stepPresetSel.appendChild(o); };
+  mk("— pattern —", "", true);
+  Object.keys(STEP_FACTORY).forEach(k => mk(k, "f:" + k));
+  Object.keys(userStepPresets()).forEach(k => mk("★ " + k, "u:" + k));
+  stepPresetSel.value = "";
+  updateDelBtn();
+}
+stepPresetSel.addEventListener("change", () => {
+  const b = B(), v = stepPresetSel.value;
+  updateDelBtn();
+  if (!v) return;
+  if (v.startsWith("f:")) b.steps = STEP_FACTORY[v.slice(2)](b.stepCount).concat(b.steps.slice(b.stepCount));
+  else {
+    const pat = userStepPresets()[v.slice(2)];
+    if (pat) { b.stepCount = pat.length; b.steps = pat.map(x => ({ subdiv: x.subdiv, vals: [...x.vals, 0, 0, 0, 0].slice(0, 4), tie: !!x.tie })).concat(Array.from({length: Math.max(0, 16 - pat.length)}, () => mkSlot(0))); }
+  }
+  pushSteps(ui.selected);
+  refreshPanels();
+});
+stepDelBtn.addEventListener("click", () => {
+  const v = stepPresetSel.value;
+  if (!v.startsWith("u:")) return;
+  delete stepPresetCache[v.slice(2)];   // drop the ★ preset, persist, rebuild the list
+  persistPresets();
+  refreshStepPresetList();
+});
+// Inline name entry — WKWebView blocks window.prompt(), so SAVE opened nothing.
+const presetNameInput = document.createElement("input");
+presetNameInput.type = "text"; presetNameInput.className = "preset-name-input";
+presetNameInput.placeholder = "name — Enter to save, Esc to cancel"; presetNameInput.maxLength = 24;
+presetNameInput.style.display = "none";
+document.getElementById("stepEditor").appendChild(presetNameInput);
+function commitPreset() {
+  const name = presetNameInput.value.trim();
+  presetNameInput.style.display = "none";
+  if (!name) return;
+  const b = B();
+  stepPresetCache[name] = b.steps.slice(0, b.stepCount).map(x => ({ subdiv: x.subdiv, vals: x.vals.slice(0, x.subdiv), tie: !!x.tie }));
+  persistPresets();
+  refreshStepPresetList();
+}
+document.getElementById("stepSaveBtn").addEventListener("click", () => {
+  presetNameInput.value = "";
+  presetNameInput.style.display = "block";
+  presetNameInput.focus();
+});
+presetNameInput.addEventListener("keydown", e => {
+  if (e.key === "Enter") commitPreset();
+  else if (e.key === "Escape") presetNameInput.style.display = "none";
+  e.stopPropagation();
+});
+presetNameInput.addEventListener("blur", () => { presetNameInput.style.display = "none"; });
+loadPresets();
+
+/* ════════════════════════════════════════════════════════════════════
+   SPECTRUM CANVAS + GESTURES
+   ════════════════════════════════════════════════════════════════════ */
+const spec = document.getElementById("spectrum");
+function sizeSpectrum() {
+  const r = spec.getBoundingClientRect();
+  spec.width = Math.round(r.width * DPR);
+  spec.height = Math.round(r.height * DPR);
+}
+
+/* analyzer: real frames via "spectrum" event when embedded; fake otherwise */
+const anaBins = 256;
+const ana = new Float32Array(anaBins).fill(-60);
+const anaTarget = new Float32Array(anaBins).fill(-60);
+let lastSpectrumEvent = 0;
+if (EMBEDDED) {
+  window.__JUCE__.backend.addEventListener("spectrum", data => {
+    try {
+      const arr = typeof data === "string" ? JSON.parse(data) : data;
+      const m = arr.mags || arr;
+      if (!m || !m.length) return;
+      lastSpectrumEvent = performance.now();
+      // linear-interp resample (nearest-neighbour was the blocky look)
+      for (let i = 0; i < anaBins; i++) {
+        const pos = i / (anaBins - 1) * (m.length - 1);
+        const i0 = Math.floor(pos), fr = pos - i0;
+        anaTarget[i] = m[i0] * (1 - fr) + m[Math.min(m.length - 1, i0 + 1)] * fr;
+      }
+    } catch {}
+  });
+}
+function tickAnalyzer(t) {
+  if (EMBEDDED) {
+    const live = performance.now() - lastSpectrumEvent < 500;
+    // live: attack/release toward the latest frame (fast rise, relaxed fall).
+    // stale (audio stopped): decay to the floor — never invent motion.
+    for (let i = 0; i < anaBins; i++) {
+      const tgt = live ? anaTarget[i] : -60;
+      ana[i] += (tgt - ana[i]) * (tgt > ana[i] ? 0.55 : 0.16);
+    }
+    return;
+  }
+  for (let i = 0; i < anaBins; i++) {
+    const x = i / anaBins;
+    const f = xf(x);
+    const db = -14 - 12 * x
+      + 6 * Math.sin(x * 9 + t * 0.7)
+      + 4 * Math.sin(x * 23 - t * 1.3)
+      + (Math.random() - 0.5) * 3
+      + (f > 40 && f < 140 ? 8 : 0);
+    ana[i] += (db - ana[i]) * 0.18;
+  }
+}
+
+function bellY(i, x) {
+  // reads the per-frame DISPLAY cache (base + modulation), refreshed at the
+  // top of drawSpectrum — a modulated freq/width/lift moves the bell live.
+  // The skirt exponent follows SLOPE: 12 dB/oct draws soft wide flanks,
+  // 48 near-rectangular (bellP 1.3 / 2.0 / 3.6; 2.0 = the old gaussian).
+  const d = dispBand[i];
+  const sigma = (d.oct / 2) / Math.log2(FMAX / FMIN) * 2.2;
+  const s = (x - d.freqN) / sigma;            // signed: <0 below the handle
+  const dd = Math.abs(s);
+  const p = d.bellP || 2;
+  const bell = Math.exp(-Math.pow(dd, p));
+  // Curve per shape. These are DRAWINGS, not the measured response — the
+  // filters are minimum-phase cascades and this only has to read true: what
+  // the shape grabs, and how sharply SLOPE cuts it off.
+  let v;
+  switch (d.shape | 0) {
+    case 1:  v = 1 / (1 + Math.exp(s * 4 * p)); break;   // Low  — shelf, open below
+    case 2:  v = 1 / (1 + Math.exp(-s * 4 * p)); break;  // High — shelf, open above
+    case 3:  v = 1 - bell; break;                        // Notch — everything but
+    case 4: {                                            // Tilt — a see-saw that
+      // ROCKS with the band's live pan. It was drawn static, lows always up,
+      // which read as "the tilt is stuck pointing at the lows" no matter what
+      // the audio did. Height here = pushed toward the pan side: pan R lifts
+      // the highs (EQ tilt-plus), pan L lifts the lows, centre is flat.
+      // The transition is FIXED at the LR4 width — the DSP pins tilt to LR4,
+      // so the drawing must not pretend the Q knob changes it.
+      const p = clamp(ui.bands[i].pan || 0, -1, 1);
+      const sF = (x - d.freqN) / 0.08;
+      v = 0.5 * (1 + Math.tanh(sF) * p);
+      break;
+    }
+    default: v = bell;                                   // Bell
+  }
+  return v * (d.lift / 100);
+}
+
+/* per-band aura cache: the blur filter is expensive — re-render only when the
+   bell/gain actually changes, then stamp the cached bitmap each frame */
+const auraCache = Array.from({ length: 6 }, () => ({ key: "", canvas: document.createElement("canvas") }));
+
+/* static grid cache (redrawn on resize only) */
+let gridCache = null, gridCacheInk = null;
+function drawGridCached(ctx, W, H) {
+  // THEME must be in the cache key — without it the dark grid survived a skin
+  // change (same class of bug as the aura cache missing its shape input)
+  if (!gridCache || gridCache.width !== W || gridCache.height !== H || gridCacheInk !== THEME.ink) {
+    gridCache = document.createElement("canvas");
+    gridCache.width = W; gridCache.height = H;
+    gridCacheInk = THEME.ink;
+    const g = gridCache.getContext("2d");
+    g.strokeStyle = `rgba(${THEME.ink},0.10)`; g.lineWidth = DPR;
+    g.fillStyle = `rgba(${THEME.ink},0.28)`; g.font = `${9 * DPR}px 'Barlow Condensed', ui-sans-serif, system-ui, sans-serif`;
+    [50, 100, 200, 500, 1000, 2000, 5000, 10000].forEach(f => {
+      const x = fx(f) * W;
+      g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke();
+      g.fillText(f >= 1000 ? (f / 1000) + "k" : String(f), x + 3 * DPR, H - 5 * DPR);
+    });
+    for (let db = -48; db < 0; db += 12) {
+      const y = (db / -60) * H;
+      g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke();
+      g.fillText(String(db), W - 22 * DPR, y - 3 * DPR);
+    }
+  }
+  ctx.drawImage(gridCache, 0, 0);
+}
+
+function drawSpectrum(t) {
+  const ctx = spec.getContext("2d"), W = spec.width, H = spec.height;
+  refreshDispBands();   // bells/handles/aura draw the MODULATED values
+  ctx.clearRect(0, 0, W, H);
+
+  // grid (cached bitmap)
+  drawGridCached(ctx, W, H);
+  ctx.font = `${9 * DPR}px 'Barlow Condensed', ui-sans-serif, system-ui, sans-serif`;
+
+  // analyzer fill — quadratic midpoint curve through the bins (no stair edges)
+  ctx.beginPath(); ctx.moveTo(0, H);
+  const ay = i => clamp(-ana[i] / 60, 0, 1) * H;
+  const axp = i => i / (anaBins - 1) * W;
+  ctx.lineTo(0, ay(0));
+  for (let i = 0; i < anaBins - 1; i++) {
+    const mx = (axp(i) + axp(i + 1)) / 2, my = (ay(i) + ay(i + 1)) / 2;
+    ctx.quadraticCurveTo(axp(i), ay(i), mx, my);
+  }
+  ctx.lineTo(W, ay(anaBins - 1));
+  ctx.lineTo(W, H); ctx.closePath();
+  // gradient cached per height + ink (stops bake the theme) — same pattern as drawGridCached
+  const gKey = H + "|" + THEME.ink;
+  if (!drawSpectrum._g || drawSpectrum._gKey !== gKey) {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, `rgba(${THEME.ink},0.10)`); g.addColorStop(1, `rgba(${THEME.ink},0.0)`);
+    drawSpectrum._g = g; drawSpectrum._gKey = gKey;
+  }
+  ctx.fillStyle = drawSpectrum._g; ctx.fill();
+  ctx.strokeStyle = `rgba(${THEME.ink},0.25)`; ctx.lineWidth = DPR; ctx.stroke();
+
+  const topH = H * 0.82;
+
+  // bells
+  for (let bi = 0; bi < 6; bi++) {
+    const pb = P.bands[bi], b = ui.bands[bi];
+    const on = pb.on.get();
+    if (!on && !b.configured) continue;
+    const c = BAND_COLORS[bi], sel = bi === ui.selected, ghost = !on;
+
+    ctx.beginPath(); ctx.moveTo(0, H);
+    for (let px = 0; px <= W; px += 2 * DPR) {
+      ctx.lineTo(px, H - bellY(bi, px / W) * topH);
+    }
+    ctx.lineTo(W, H); ctx.closePath();
+    // bypassed band: same shape, just drained of energy — dimmer fill/stroke,
+    // no dash, no glow
+    ctx.fillStyle = c + (ghost ? "14" : "2e"); ctx.fill();
+    ctx.strokeStyle = c + (ghost ? (sel ? "5a" : "3c") : (sel ? "ee" : "99"));
+    ctx.lineWidth = (sel ? 2 : 1.4) * DPR;
+    if (sel && !ghost) { ctx.shadowColor = c; ctx.shadowBlur = 8 * DPR; }
+    ctx.stroke(); ctx.shadowBlur = 0;
+
+    // apex handle — display values, so modulated freq/lift move the dot too
+    const dd = dispBand[bi];
+    const liftV = dd.lift, freqV = xf(dd.freqN), widthV = dd.oct;
+    const hx = dd.freqN * W, hy = H - (liftV / 100) * topH;
+    ctx.beginPath(); ctx.arc(hx, hy, (sel ? 6 : 4.5) * DPR, 0, 7);
+    ctx.fillStyle = c + (ghost ? "55" : "ff"); ctx.fill();
+    ctx.beginPath(); ctx.arc(hx, hy, 2 * DPR, 0, 7);
+    ctx.fillStyle = ghost ? THEME.markGhost : THEME.mark; ctx.fill();
+
+    // gain aura — expensive blur render is CACHED per band; re-rendered only
+    // when bell geometry or gain changes, stamped as a bitmap every frame.
+    // A MODULATED gain would thrash that cache every frame (new key per frame,
+    // full blur re-render each time), so routed gain takes a cheap live path:
+    // a glow stroke along the bell whose intensity follows the modulated dB.
+    const gainV = dd.gainMod ? dd.gainDb : pb.gain.get();
+    if ((dd.gainMod || dd.geoMod) && Math.abs(gainV) > 0.05 && !ghost) {
+      const amt = Math.abs(gainV) / 6;
+      ctx.save();
+      ctx.beginPath();
+      for (let px = 0; px <= W; px += 2 * DPR) {
+        const py = H - bellY(bi, px / W) * topH;
+        px === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.shadowColor = c; ctx.shadowBlur = (5 + amt * 22) * DPR;
+      ctx.strokeStyle = c + "aa";
+      ctx.lineWidth = (1 + amt * 2.5) * DPR;
+      ctx.globalAlpha = 0.35 + 0.6 * amt;
+      ctx.stroke(); ctx.stroke();
+      ctx.restore();
+      if (sel) {
+        ctx.fillStyle = c + "cc";
+        ctx.fillText((gainV > 0 ? "+" : "") + gainV.toFixed(1) + " dB",
+                     hx + 10 * DPR, Math.max(12 * DPR, hy - 12 * DPR));
+      }
+    }
+    else if (Math.abs(gainV) > 0.05 && !ghost && dragBand !== bi) {
+      const boost = gainV > 0;
+      const amt = Math.abs(gainV) / 6;
+      const blur = (5 + amt * 22) * DPR;
+      const cache = auraCache[bi];
+      // bellP (slope morph) shapes the traced bell — without it in the key a
+      // slope change kept stamping the stale aura bitmap (user report)
+      // Tilt's curve rocks with the live pan, so its aura must re-render as it
+      // moves — but the blur render is the expensive thing this cache exists
+      // to avoid, so the pan is bucketed to quarter steps: the aura rocks in
+      // 9 coarse positions while the traced outline stays perfectly smooth.
+      const panBucket = dd.shape === 4 ? Math.round(clamp(ui.bands[bi].pan || 0, -1, 1) * 4) : 0;
+      const key = [W, H, gainV.toFixed(2), freqV.toFixed(1), widthV.toFixed(3), liftV.toFixed(1), dd.bellP.toFixed(2), dd.shape, panBucket, c].join("|");
+      if (cache.key !== key) {
+        cache.key = key;
+        cache.canvas.width = W; cache.canvas.height = H;
+        const a = cache.canvas.getContext("2d");
+        a.clearRect(0, 0, W, H);
+        // ctx.filter (CSS blur) is NOT supported by WKWebView — use the
+        // blurred SHADOW of the filled bell instead (shadowBlur is universal):
+        // fill the shape far off-canvas, let its shadow land here, then punch
+        // out the interior so only the halo on the boost/cut side survives.
+        const SHIFT = 4000;
+        const tracePath = (close, dx) => {
+          a.beginPath();
+          a.moveTo(dx, close === "down" ? H : 0);
+          a.lineTo(dx, H - bellY(bi, 0) * topH);
+          for (let px = 0; px <= W; px += 2 * DPR)
+            a.lineTo(px + dx, H - bellY(bi, px / W) * topH);
+          a.lineTo(W + dx, close === "down" ? H : 0);
+          a.closePath();
+        };
+        a.save();
+        a.shadowColor = c;
+        a.shadowBlur = blur;
+        a.shadowOffsetX = SHIFT;
+        a.fillStyle = c;
+        tracePath(boost ? "down" : "up", -SHIFT);
+        a.fill(); a.fill();                       // double shadow pass = stronger halo
+        a.restore();
+        a.globalCompositeOperation = "destination-out";
+        tracePath(boost ? "down" : "up", 0);
+        a.fill(); a.fill(); a.fill();
+        a.globalCompositeOperation = "source-over";
+      }
+      ctx.globalAlpha = 0.55 + 0.45 * amt;
+      ctx.drawImage(cache.canvas, 0, 0);
+      ctx.globalAlpha = 1;
+      if (sel) {
+        ctx.fillStyle = c + "cc";
+        ctx.fillText((gainV > 0 ? "+" : "") + gainV.toFixed(1) + " dB",
+                     hx + 10 * DPR, hy + (boost ? -1 : 1) * (blur + 8 * DPR) + 3 * DPR);
+      }
+    }
+
+    if (ghost) continue;
+
+    // pan trace: full L/R rail, effective range centred on BIAS, live tick
+    const half = (widthV / 2) / Math.log2(FMAX / FMIN);
+    const cx = fx(freqV);
+    const reach = (pb.depth.get() / 100) * (P.amount.get() / 100);  // half-swing
+    const biasN = clamp(pb.bias.get() / 100, -(1 - reach), 1 - reach); // limited to headroom
+    const finalPan = ui.bands[bi].pan;                        // final pan from telemetry/sim
+    const px2 = clamp(cx + finalPan * half, 0, 1) * W;
+    const py = H - (liftV / 100) * topH * 0.5;
+    // full rail (faint)
+    ctx.strokeStyle = c + "33"; ctx.lineWidth = DPR;
+    ctx.beginPath();
+    ctx.moveTo(clamp(cx - half, 0, 1) * W, py); ctx.lineTo(clamp(cx + half, 0, 1) * W, py);
+    ctx.stroke();
+    // effective swing range around the bias centre
+    const ex0 = clamp(cx + (biasN - reach) * half, 0, 1) * W, ex1 = clamp(cx + (biasN + reach) * half, 0, 1) * W;
+    ctx.strokeStyle = c + "88"; ctx.lineWidth = 3 * DPR;
+    ctx.beginPath(); ctx.moveTo(ex0, py); ctx.lineTo(ex1, py); ctx.stroke();
+    ctx.lineWidth = 1.5 * DPR; ctx.strokeStyle = c + "bb";
+    [ex0, ex1].forEach(xx => { ctx.beginPath(); ctx.moveTo(xx, py - 4 * DPR); ctx.lineTo(xx, py + 4 * DPR); ctx.stroke(); });
+    // bias centre marker (hollow) + live pan tick (solid)
+    const bx = clamp(cx + biasN * half, 0, 1) * W;
+    ctx.strokeStyle = c + "66"; ctx.lineWidth = DPR;
+    ctx.beginPath(); ctx.moveTo(bx, py - 5 * DPR); ctx.lineTo(bx, py + 5 * DPR); ctx.stroke();
+    ctx.strokeStyle = c + "cc"; ctx.lineWidth = 2 * DPR;
+    ctx.beginPath(); ctx.moveTo(px2, py - 7 * DPR); ctx.lineTo(px2, py + 7 * DPR); ctx.stroke();
+    if (sel) {
+      ctx.fillStyle = c + "88";
+      ctx.fillText("L", clamp(cx - half, 0, 1) * W - 10 * DPR, py + 3 * DPR);
+      ctx.fillText("R", clamp(cx + half, 0, 1) * W + 4 * DPR, py + 3 * DPR);
+    }
+  }
+}
+
+/* gestures */
+let dragBand = -1, downPos = null, bandDragEvent = null;
+function bandAt(e) {
+  const r = spec.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+  let best = -1, bd = 0.05;
+  for (let i = 0; i < 6; i++) {
+    const pb = P.bands[i];
+    if (!pb.on.get() && !ui.bands[i].configured) continue;
+    // hit test against the DISPLAYED (modulated) handle — grab what you see
+    const hx = dispBand[i].freqN, hy = 1 - (dispBand[i].lift / 100) * 0.82;
+    const d = Math.hypot(x - hx, y - hy);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+function bandBodyAt(e) {
+  const r = spec.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+  let best = -1, bd = 1e9;
+  for (let i = 0; i < 6; i++) {
+    const pb = P.bands[i];
+    if (!pb.on.get()) continue;   // body-click selects ACTIVE bands only —
+                                  // ghosts (their wide skirts read as "empty
+                                  // space") are selected via their tip
+    const cx = fx(pb.freq.get());
+    const half = (pb.width.get() / 2) / Math.log2(FMAX / FMIN) * 1.6;
+    if (Math.abs(x - cx) > half) continue;
+    const curveY = 1 - bellY(i, x) * 0.82;
+    if (y < curveY - 0.02) continue;
+    const d = Math.abs(x - cx);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+spec.addEventListener("mousedown", e => {
+  const hit = bandAt(e);
+  if (hit >= 0) {
+    dragBand = hit; downPos = [e.clientX, e.clientY];
+    ui.selected = hit; ui.menuHidden = false; refreshPanels();
+    return;
+  }
+  const body = bandBodyAt(e);
+  if (body >= 0) {
+    ui.menuHidden = false;
+    if (body !== ui.selected) { ui.selected = body; refreshPanels(); }
+    return;
+  }
+  ui.menuHidden = true;   // clicked truly empty space → tuck the menu away
+});
+window.addEventListener("mousemove", e => {
+  if (dragBand < 0) return;
+  if (downPos && Math.hypot(e.clientX - downPos[0], e.clientY - downPos[1]) < 4) return;
+  bandDragEvent = e;   // apply once per frame in the loop — not per mouse event
+});
+window.addEventListener("mouseup", () => { dragBand = -1; downPos = null; bandDragEvent = null; });
+function applyBandDrag() {
+  if (dragBand < 0 || !bandDragEvent) return;
+  const e = bandDragEvent; bandDragEvent = null;
+  const r = spec.getBoundingClientRect();
+  const pb = P.bands[dragBand];
+  pb.freq.set(xf(clamp((e.clientX - r.left) / r.width, 0, 1)));
+  pb.lift.set(clamp((1 - (e.clientY - r.top) / r.height) / 0.82 * 100, 0, 100));
+  knobFreq.refresh(); knobLift.refresh();
+}
+/* Delete is not the same as the BYPASS toggle: bypass keeps the band's
+   settings and its bell on the analyser, delete returns the slot to the pool —
+   parameters back to their defaults, any mod routes aimed at it dropped — so
+   re-adding later starts clean instead of inheriting a band you thought you
+   had thrown away. Driven by the × in the floating band menu. */
+function deleteBand(i) {
+  const defs = bandIds(i), pb = P.bands[i];
+  for (const k in defs) if (pb[k] && defs[k].def !== undefined) pb[k].set(defs[k].def);
+  ui.bands[i].configured = false;
+  // Routes are addressed as band*10 + slot, so drop the whole decade.
+  const lo = i * 10, hi = lo + 10;
+  const before = modRoutes.length;
+  modRoutes = modRoutes.filter(r => !(r.dst >= lo && r.dst < hi));
+  if (modRoutes.length !== before) pushRoutes();
+  if (ui.selected === i) {
+    const nxt = ui.bands.findIndex(b => b.configured);
+    if (nxt >= 0) ui.selected = nxt;
+  }
+  refreshPanels();
+}
+spec.addEventListener("dblclick", e => {
+  const hit = bandAt(e);
+  if (hit >= 0) { // double-click the tip = on/off toggle
+    const pb = P.bands[hit];
+    pb.on.set(!pb.on.get());
+    if (pb.on.get()) ui.bands[hit].configured = true;
+    ui.selected = hit; refreshPanels(); return;
+  }
+  let free = -1;
+  for (let i = 0; i < 6; i++) if (!P.bands[i].on.get() && !ui.bands[i].configured) { free = i; break; }
+  if (free < 0) return;
+  const r = spec.getBoundingClientRect();
+  const pb = P.bands[free];
+  pb.on.set(true); ui.bands[free].configured = true;
+  ui.menuHidden = false;
+  pb.freq.set(xf(clamp((e.clientX - r.left) / r.width, 0, 1)));
+  pb.lift.set(clamp((1 - (e.clientY - r.top) / r.height) / 0.82 * 100, 0, 100));
+  ui.selected = free;
+  refreshPanels();
+});
+spec.addEventListener("wheel", e => {
+  const hit = bandAt(e);
+  const i = hit >= 0 ? hit : ui.selected;
+  const pb = P.bands[i];
+  // gentle: ~0.03 oct per wheel notch, proportional + capped for trackpads
+  const step = clamp(e.deltaY * 0.0008, -0.03, 0.03);
+  pb.width.set(clamp(pb.width.get() - step, 0.1, 4));
+  knobWidth.refresh();
+  e.preventDefault();
+}, { passive: false });
+
+/* ════════════════════════════════════════════════════════════════════
+   QUICK MENU (floating, band-following, draggable offset)
+   ════════════════════════════════════════════════════════════════════ */
+const quickMenu = document.getElementById("quickMenu");
+const qmRate = document.getElementById("qm_rate");
+const qmDepth = document.getElementById("qm_depth");
+const qmGain = document.getElementById("qm_gain");
+const qmBias = document.getElementById("qm_bias");
+const qmSolo = document.getElementById("qmSolo");
+const qmShape = document.getElementById("qmShape");
+const qmFreeze = document.getElementById("qmFreeze");
+let qmOffset = null;
+let qmAnchor = { x: 0, y: 0 };
+(() => {
+  const grip = document.getElementById("qmGrip");
+  let drag = null;
+  grip.addEventListener("mousedown", e => {
+    drag = [e.clientX - quickMenu.offsetLeft, e.clientY - quickMenu.offsetTop];
+    e.preventDefault(); e.stopPropagation();
+  });
+  window.addEventListener("mousemove", e => {
+    if (!drag) return;
+    qmOffset = {
+      dx: (e.clientX - drag[0]) - qmAnchor.x,
+      dy: (e.clientY - drag[1]) - qmAnchor.y
+    };
+  });
+  window.addEventListener("mouseup", () => drag = null);
+})();
+function qmRefreshRow(row, norm, text, color) {
+  // element lookups memoized on the row — this runs every frame for 4 rows
+  const els = row._qmEls || (row._qmEls = {
+    fill: row.querySelector(".qm-fill"),
+    value: row.querySelector(".qm-value"),
+    track: row.querySelector(".qm-track"),
+  });
+  els.fill.style.width = (clamp(norm, 0, 1) * 100) + "%";
+  els.fill.style.background = `linear-gradient(90deg, ${color}55, ${color})`;
+  els.value.textContent = text;
+  const dst = widgetDest(row);
+  row.classList.toggle("routed", modRoutes.some(r => r.dst === dst));   // pads value clear of the dot
+  refreshModHandle(row._modH || (row._modH = makeModHandle(row)), row);
+  paintModMark(els.track, dst);   // live modulated value
+}
+function updateQuickMenu() {
+  const pb = PB(), wrap = spec.parentElement;
+  if (!pb.on.get() || ui.menuHidden) { quickMenu.classList.remove("visible"); return; }
+  quickMenu.classList.add("visible");
+  const rw = wrap.clientWidth, rh = wrap.clientHeight;
+  const topH = 0.82;
+  const hx = fx(pb.freq.get()) * rw;
+  const py = (1 - (pb.lift.get() / 100) * topH * 0.5) * rh;
+  const half = (pb.width.get() / 2) / Math.log2(FMAX / FMIN) * rw;
+  let mx = hx + half + 10, my = py - 24;
+  // MEASURED, not hardcoded: the old constants (122/86) froze the menu's
+  // original size, so every row added since let it hang below the analyser —
+  // over the modulator header, where the freeze ▶ painted through it.
+  const qmW = quickMenu.offsetWidth + 4, qmH = quickMenu.offsetHeight + 4;
+  if (mx + qmW > rw) mx = hx - half - qmW - 8;
+  mx = clamp(mx, 4, rw - qmW);
+  my = clamp(my, 4, rh - qmH);
+  qmAnchor = { x: mx, y: my };
+  if (qmOffset) {
+    mx = clamp(mx + qmOffset.dx, 0, rw - qmW);
+    my = clamp(my + qmOffset.dy, 0, rh - qmH);
+  }
+  quickMenu.style.left = mx + "px";
+  quickMenu.style.top = my + "px";
+  quickMenu.style.borderColor = bandColor() + "88";
+  const rateText = pb.ratemode.get() === 2 ? midiNoteName : rateCtl.fmt(pb);   // qm: short MIDI form
+  qmRefreshRow(qmRate, rateCtl.norm(pb), rateText, bandColor());
+  qmRefreshRow(qmDepth, pb.depth.get() / 100, Math.round(pb.depth.get()) + "%", bandColor());
+  const gv = pb.gain.get();
+  qmRefreshRow(qmGain, (gv + 6) / 12, (gv >= 0 ? "+" : "") + gv.toFixed(1) + " dB", bandColor());
+  const bs = clamp(pb.bias.get(), -100, 100);
+  qmRefreshRow(qmBias, (bs + 100) / 200, (bs > 0 ? "R" : bs < 0 ? "L" : "C") + " " + Math.abs(Math.round(bs)) + "%", bandColor());
+  // Solo is global in effect, so the button also has to report when SOME OTHER
+  // band holds the bus — otherwise you sit on a silent band with an unlit
+  // button and no clue why you are hearing something else.
+  // The floating window is the band's own panel, so the shape belongs here too.
+  // updateQuickMenu runs EVERY FRAME — rewrite the icon only when the shape
+  // actually changes, or the SVG is torn down and rebuilt 60 times a second.
+  {
+    const si = pb.shape.get();
+    if (qmShape._shape !== si) {
+      qmShape._shape = si;
+      const sh = SHAPES[si] || SHAPES[0];
+      qmShape.innerHTML = shapeIcon(sh.d);
+      qmShape.dataset.tip = "Band shape: " + sh.name + " — click to choose";
+    }
+  }
+  // Freeze mirrors the MODULATOR header's button exactly: ⏸ while running,
+  // ▶ while held, lit in the freeze colour when engaged.
+  const qmFrozen = pb.freeze.get();
+  qmFreeze.textContent = qmFrozen ? "▶" : "⏸";
+  qmFreeze.classList.toggle("frozen", qmFrozen);
+  qmFreeze.dataset.tip = qmFrozen ? "Resume this band's modulation"
+                                  : "Pause this band's modulation — all waveforms hold their value";
+  const soloOn = pb.solo.get();
+  const soloElsewhere = P.bands.some((b, i) => i !== ui.selected && b.solo.get());
+  qmSolo.classList.toggle("active", soloOn);
+  qmSolo.classList.toggle("dimmed", !soloOn && soloElsewhere);
+  qmSolo.dataset.tip = soloOn
+    ? "Soloed — monitoring this band's bell alone, panned"
+    : soloElsewhere ? "Another band holds the solo bus; arm this one to hear both"
+                    : "Solo — monitor this band's bell on its own, panned";
+}
+function qmDragRow(row, apply, reset) {
+  let drag = false;
+  const setFrom = e => {
+    const r = row.querySelector(".qm-track").getBoundingClientRect();
+    apply(clamp((e.clientX - r.left) / r.width, 0, 1));
+  };
+  row.addEventListener("mousedown", e => { drag = true; setFrom(e); e.stopPropagation(); e.preventDefault(); });
+  window.addEventListener("mousemove", e => drag && setFrom(e));
+  window.addEventListener("mouseup", () => drag = false);
+  // double-click → default (commits via the global mouseup handler)
+  if (reset) row.addEventListener("dblclick", e => { reset(); refreshPanels(); e.stopPropagation(); });
+}
+qmDragRow(qmRate, n => {
+  const pb = PB();
+  rateCtl.set(pb, n);
+  hsRate.refresh();
+  if (pb.mode.get() === 4) hsStepSpeed.refresh();
+}, () => rateCtl.reset(PB()));
+qmDragRow(qmDepth, n => { setDepthEff(PB(), ui.selected, n * 100); knobDepth.refresh(); knobBias.refresh(); }, () => setDepthEff(PB(), ui.selected, 100));
+qmDragRow(qmGain, n => { PB().gain.set(-6 + n * 12); }, () => PB().gain.set(0));
+qmDragRow(qmBias, n => { setBiasRemembered(PB(), ui.selected, -100 + n * 200); knobBias.refresh(); knobDepth.refresh(); }, () => setBiasRemembered(PB(), ui.selected, 0));
+// floating band rows are mod destinations too (GAIN is only reachable here)
+qmRate.dataset.mslot = SLOT.RATE; qmDepth.dataset.mslot = SLOT.DEPTH;
+qmGain.dataset.mslot = SLOT.GAIN; qmBias.dataset.mslot = SLOT.BIAS;
+
+/* ════════════════════════════════════════════════════════════════════
+   SCOPE + LOCAL MODULATOR SIM
+   (browser-preview fallback only — in the plugin, real per-band telemetry
+   from the processor drives these via the "modvals"/"scopevals" events)
+   ════════════════════════════════════════════════════════════════════ */
+const scopeCanvas = document.getElementById("scopeCanvas");
+const SCOPE_N = 240;
+let scopeBuf = new Float32Array(SCOPE_N);
+let envBuf = new Float32Array(SCOPE_N);   // global envelope-follower shape (Env mode)
+let envHead = 0, envDecim = 0; const ENV_DECIM = 6;   // longer time window for the env scope
+let scopeHead = 0, scopeBand = 0;
+let lastModEvent = 0;
+
+let lastScopeVals = 0;
+if (EMBEDDED) {
+  window.__JUCE__.backend.addEventListener("scopevals", data => {
+    try {
+      const d = typeof data === "string" ? JSON.parse(data) : data;
+      if (!d || !d.bands) return;
+      lastScopeVals = performance.now();
+      const sel = d.bands[ui.selected] || [], env = d.env || [];
+      for (let k = 0; k < sel.length; k++) {
+        scopeBuf[scopeHead] = PB().on.get() ? sel[k] : 0;   // already the final pan
+        scopeHead = (scopeHead + 1) % SCOPE_N;
+        if (++envDecim >= ENV_DECIM) { envDecim = 0; envBuf[envHead] = env[k] || 0; envHead = (envHead + 1) % SCOPE_N; }
+      }
+    } catch {}
+  });
+  window.__JUCE__.backend.addEventListener("modvals", data => {
+    try {
+      const d = typeof data === "string" ? JSON.parse(data) : data;
+      if (!d || !d.pans) return;
+      lastModEvent = performance.now();
+      // TARGETS, not display values — the audio thread emits at 60 Hz on its
+      // own clock, which beats against the display's refresh (one frame gets
+      // two updates, the next none → visible stepping). smoothTelemetry()
+      // chases these per frame, so motion stays fluid at any refresh rate.
+      for (let i = 0; i < 6; i++) ui.bands[i].panTarget = d.pans[i] || 0;
+      if (d.phases) for (let i = 0; i < 6; i++) ui.bands[i].livePhase = d.phases[i];
+      if (d.srcs) for (let i = 0; i < 36; i++) modSrcVals[i] = d.srcs[i] || 0;   // band-major × waveform
+      if (d.midiNote !== undefined && d.midiNote >= 0) {
+        midiFreq = 440 * Math.pow(2, (d.midiNote - 69) / 12);
+        const names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+        midiNoteName = names[d.midiNote % 12] + (Math.floor(d.midiNote / 12) - 1);
+      }
+    } catch {}
+  });
+}
+
+function pushScope() {
+  if (scopeBand !== ui.selected) { scopeBuf.fill(0); envBuf.fill(0); envHead = 0; scopeBand = ui.selected; }
+  if (EMBEDDED && performance.now() - lastScopeVals < 300) return; // real 750 Hz feed active
+  scopeBuf[scopeHead] = PB().on.get() ? ui.bands[ui.selected].pan : 0;
+  scopeHead = (scopeHead + 1) % SCOPE_N;
+  // preview-only fake envelope (decimated for a slower window)
+  if (++envDecim >= ENV_DECIM) { envDecim = 0;
+    envBuf[envHead] = clamp(0.5 + 0.35 * Math.sin(simClock * 1.7) + 0.15 * Math.sin(simClock * 5.3), 0, 1);
+    envHead = (envHead + 1) % SCOPE_N; }
+}
+function drawScope() {
+  const r = scopeCanvas.getBoundingClientRect();
+  if (r.width === 0) return;
+  const W = Math.round(r.width * DPR), H = Math.round(r.height * DPR);
+  if (scopeCanvas.width !== W) { scopeCanvas.width = W; scopeCanvas.height = H; }
+  const ctx = scopeCanvas.getContext("2d"), c = bandColor();
+  const on = PB().on.get();
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = `${7.5 * DPR}px 'Barlow Condensed', ui-sans-serif, system-ui, sans-serif`;
+
+  if (PB().mode.get() === 5) {
+    // ── ENVELOPE scope: 0 at bottom → 1 at top, filled ──
+    ctx.strokeStyle = THEME.line; ctx.lineWidth = DPR;
+    [0.25, 0.5, 0.75].forEach(fy => { ctx.beginPath(); ctx.moveTo(0, fy * H); ctx.lineTo(W, fy * H); ctx.stroke(); });
+    ctx.fillStyle = THEME.textFaint; ctx.fillText("ENV", 3 * DPR, 10 * DPR);
+    ctx.beginPath(); ctx.moveTo(0, H);
+    for (let i = 0; i < SCOPE_N; i++) {
+      const v = clamp(envBuf[(envHead + i) % SCOPE_N], 0, 1);
+      ctx.lineTo(i / (SCOPE_N - 1) * W, H - v * (H * 0.92) - 2 * DPR);
+    }
+    ctx.lineTo(W, H); ctx.closePath();
+    ctx.fillStyle = c + (on ? "2e" : "12"); ctx.fill();
+    ctx.strokeStyle = c + (on ? "dd" : "55"); ctx.lineWidth = 1.5 * DPR;
+    ctx.beginPath();
+    for (let i = 0; i < SCOPE_N; i++) {
+      const v = clamp(envBuf[(envHead + i) % SCOPE_N], 0, 1);
+      const x = i / (SCOPE_N - 1) * W, y = H - v * (H * 0.92) - 2 * DPR;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+    const last = clamp(envBuf[(envHead + SCOPE_N - 1) % SCOPE_N], 0, 1);
+    ctx.beginPath(); ctx.arc(W - 3 * DPR, H - last * (H * 0.92) - 2 * DPR, 2.5 * DPR, 0, 7);
+    ctx.fillStyle = on ? THEME.mark : THEME.markGhost; ctx.fill();
+    return;
+  }
+
+  // ── PAN scope: L (top) / centre / R (bottom) ──
+  ctx.strokeStyle = THEME.lineBright; ctx.lineWidth = DPR;
+  ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
+  ctx.strokeStyle = THEME.line;
+  [0.12, 0.88].forEach(fy => { ctx.beginPath(); ctx.moveTo(0, fy * H); ctx.lineTo(W, fy * H); ctx.stroke(); });
+  ctx.fillStyle = THEME.textFaint;
+  ctx.fillText("L", 3 * DPR, 0.12 * H + 3 * DPR);
+  ctx.fillText("R", 3 * DPR, 0.88 * H + 3 * DPR);
+  ctx.strokeStyle = c + (on ? "dd" : "44"); ctx.lineWidth = 1.5 * DPR;
+  ctx.beginPath();
+  for (let i = 0; i < SCOPE_N; i++) {
+    const v = scopeBuf[(scopeHead + i) % SCOPE_N];
+    const x = i / (SCOPE_N - 1) * W;
+    const y = H / 2 - v * (H * 0.38);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  }
+  ctx.stroke();
+  const last = scopeBuf[(scopeHead + SCOPE_N - 1) % SCOPE_N];
+  ctx.beginPath(); ctx.arc(W - 3 * DPR, H / 2 - last * H * 0.38, 2.5 * DPR, 0, 7);
+  ctx.fillStyle = on ? THEME.mark : THEME.markGhost; ctx.fill();
+}
+
+/* local sim (skipped for bands when live telemetry present) */
+let simClock = 0, lastT = performance.now();
+function simRateHz(i) {
+  const pb = P.bands[i], rm = pb.ratemode.get();
+  const base = rm === 0 ? DIV_HZ[pb.div.get()] : rm === 1 ? pb.rate.get() : (midiFreq || 220);
+  return base * (SPEEDS[P.speed.get()] || 1);
+}
+function hash(seed) { const s = Math.sin(seed * 127.1) * 43758.5453; return s - Math.floor(s); }
+function tickMods(dt) {
+  if (EMBEDDED && performance.now() - lastModEvent < 300) return; // real telemetry flowing
+  for (let i = 0; i < 6; i++) {
+    const pb = P.bands[i], b = ui.bands[i];
+    if (!pb.on.get()) { b.pan = 0; continue; }
+    // freeze gates ONLY the waveform tick (mirrors the DSP's !cfg.freeze scope);
+    // the shared pan tail below runs either way, so the held position stays
+    // live to the depth/bias/amount knobs without a second copy of the formula
+    if (!pb.freeze.get()) {
+    const f = Math.min(simRateHz(i), 30); // visual sim caps at 30 Hz (real DSP goes to audio rate)
+    b.phi = (b.phi + f * dt) % 1;
+    const ph = (b.phi + pb.phase.get() / 360) % 1;
+
+    // ── all six waveforms tick from the band's one clock (mirrors the DSP) ──
+    if (!b.waves) b.waves = [0, 0, 0, 0, 0, 0];
+    const tgt = [0, 0, 0, 0, 0, 0];
+    tgt[0] = Math.sin(ph * Math.PI * 2);
+    tgt[1] = 1 - 4 * Math.abs(ph - 0.5);
+    {   // S&H (smooth it via the SMOOTH fader for a glide)
+      const cell = Math.floor(simClock * f);
+      if (cell !== b.lastDeal) { b.lastDeal = cell; b.shVal = hash(cell * 6 + i + P.seed.get() + b.driftA) * 2 - 1; }
+      tgt[2] = b.shVal || 0;
+    }
+    {   // Chaos
+      const s = 10, r = 28, be = 8 / 3, sc = Math.min(0.02, dt * f * 1.2);
+      const { x, y, z } = b.lz;
+      b.lz.x = x + s * (y - x) * sc;
+      b.lz.y = y + (x * (r - z) - y) * sc;
+      b.lz.z = z + (x * y - be * z) * sc;
+      if (!isFinite(b.lz.x)) b.lz = { x: 0.1, y: 0, z: 0 };
+      tgt[3] = clamp(b.lz.x / 18, -1, 1);
+    }
+    tgt[4] = stepValueAt(b, (simClock * f) + pb.phase.get() / 360);
+    // Env (preview only — real plugin drives this from audio telemetry)
+    tgt[5] = Math.sin(simClock * 1.7 + i) * 0.5 + Math.sin(simClock * 5.3) * 0.2;
+
+    // per-waveform slew — MUST mirror the DSP formulas (PluginProcessor.cpp,
+    // "All six waveforms run per band" block); retune there → retune here
+    const inr = pb.inertia.get() / 100, i2 = inr * inr, per = 1 / Math.max(f, 1e-6);
+    for (let t = 0; t < 6; t++) {
+      let k;
+      if (t <= 1) k = 1;                                                        // sine/tri
+      else {
+        let slewT;
+        if (t === 2 || t === 4) slewT = Math.min(0.004 + i2 * 2.0, per / 3.5);  // S&H / Steps
+        else if (t === 3) slewT = Math.min(2.0, 0.004 + i2 * 2.0);              // Chaos
+        else slewT = 0.005 + i2 * 0.5;                                          // Env (B67 floor)
+        k = 1 - Math.exp(-dt / slewT);
+      }
+      b.waves[t] += (tgt[t] - b.waves[t]) * k;
+      if (!EMBEDDED) modSrcVals[i * 6 + t] = b.waves[t];   // sim feeds rings/markers/bells
+    }
+    b.target = tgt[pb.mode.get()] ?? 0;
+    b.mod = b.waves[pb.mode.get()] ?? 0;                   // pan follows the selected MODE
+    }   // !freeze
+    const mv = applyPolarity(pb, b.mod);
+    b.pan = clamp(pb.bias.get() / 100 + mv * (pb.depth.get() / 100) * (P.amount.get() / 100), -1, 1);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   MAIN LOOP
+   ════════════════════════════════════════════════════════════════════ */
+let lastFrame = 0, loopCalls = 0, loopErr = null, ringFrame = false;
+function loop(ts) {
+  loopCalls++;
+  requestAnimationFrame(loop);
+  // No frame cap: rAF already paces to the display. The old 15 ms gate pinned
+  // 120 Hz screens to 60 fps and, on a 60 Hz screen, dropped a frame whenever
+  // rAF jittered under 15 ms — the "not smooth" judder. Painters cost ~0.3 ms,
+  // so there is nothing to protect against here.
+  lastFrame = ts;
+  const now = performance.now(), dt = Math.min(0.05, (now - lastT) / 1000);
+  lastT = now; simClock += dt;
+  applyBandDrag();
+  tickAnalyzer(simClock);
+  tickMods(dt);
+  smoothTelemetry(dt);
+  pushScope();
+  try {
+    drawSpectrum(simClock);
+    drawScope();
+    updateQuickMenu();
+    if (PB().mode.get() === 4) drawSteps();
+    // live mod-matrix rings: only knobs that actually have routes repaint, and
+    // only every other frame — a routed knob is a full 3-pass glow redraw, and
+    // 30 Hz is plenty for the breathing ring (halves the steady cost).
+    ringFrame = !ringFrame;
+    if (modRoutes.length && ringFrame) {
+      for (const k of ROUTED_KNOB_POOL) {
+        const d = widgetDest(k.el);
+        if (d !== null && modRoutes.some(r => r.dst === d)) k.refresh();
+      }
+      // faders: only the marker moves — cheap style write, no canvas.
+      // Env-swapped faders skip while displaying env params (see makeHSlider).
+      for (const s of ROUTED_FADER_POOL) {
+        const d = widgetDest(s.el);
+        if (d !== null && !(s.el.dataset.envswap && isEnv()) && modRoutes.some(r => r.dst === d))
+          paintModMark(s.el.querySelector(".hs-track"), d);
+      }
+    }
+  } catch (e) { loopErr = e.message + " | " + (e.stack || "").split("\n")[1]; }
+}
+
+/* shell zoom: scale the fixed 900×560 layout to fill the window */
+const shellEl = document.getElementById("pluginShell");
+function fitShell() {
+  // documentElement.clientWidth is reliable in every WebView backend
+  // (window.innerWidth can be stale in some embedded contexts).
+  const vw = document.documentElement.clientWidth;
+  const vh = document.documentElement.clientHeight;
+  const scale = (vw > 0 && vh > 0) ? Math.min(vw / 900, vh / 560) : 1;  // pre-layout guard
+  shellEl.style.zoom = scale;          // kit pattern: crisp canvases, no bitmap upscale
+  sizeSpectrum();
+  gridCache = null;                     // grid depends on canvas size
+}
+window.addEventListener("load", fitShell);
+requestAnimationFrame(fitShell);        // re-fit once real layout metrics exist
+window.addEventListener("resize", fitShell);
+
+fitShell();
+loadRoutes();    // pull persisted mod-matrix routes (after modRoutes exists)
+refreshPanels();
+
+/* Robust animation kick: some embedded WebViews drop rAF callbacks queued
+   during module evaluation — arm from a macrotask and from the load event,
+   idempotently. */
+let loopStarted = false;
+function kickLoop() {
+  if (loopStarted) return;
+  loopStarted = true;
+  lastT = performance.now();
+  requestAnimationFrame(loop);
+}
+setTimeout(kickLoop, 0);
+window.addEventListener("load", kickLoop);
+
+/* ── SETTINGS (Chaosverb set: tooltips, window size presets, brightness) ── */
+const settingsPopover = document.getElementById("settingsPopover");
+/* ── licensing panel (Moonbase) ──────────────────────────────────────────────
+   Status is pulled fresh each time the popover opens rather than polled: it
+   only changes on activation/deactivation, both of which the user drives. */
+const getLicenseNative = native("getLicenseStatus"), deactivateNative = native("deactivateLicense");
+const licenseRow = document.getElementById("licenseRow");
+const licenseDetailRow = document.getElementById("licenseDetailRow");
+const licenseState = document.getElementById("licenseState");
+const licenseEmail = document.getElementById("licenseEmail");
+const licenseExpiry = document.getElementById("licenseExpiry");
+const licenseDeactivate = document.getElementById("licenseDeactivate");
+const licenseErrorRow = document.getElementById("licenseErrorRow");
+const licenseError = document.getElementById("licenseError");
+
+const LICENSE_LABEL = {
+  licensed: "Activated", trial_active: "Trial", offline_activated: "Activated (offline)",
+  unlicensed: "Not activated", unavailable: "Unavailable",
+};
+
+function refreshLicense() {
+  if (!EMBEDDED) return;                       // browser preview has no backend
+  getLicenseNative().then(s => {
+    if (!s) return;
+    licenseRow.style.display = "flex";
+    licenseState.textContent = LICENSE_LABEL[s.state] || s.state;
+    licenseState.style.color = s.active ? "" : "var(--danger)";
+    // Deactivate only makes sense for a real activation — a trial has nothing
+    // to release, and an unlicensed instance has nothing to release either.
+    licenseDeactivate.style.display = (s.active && !s.isTrial) ? "block" : "none";
+    // Offline activations report a machine UUID as the user id — meaningless
+    // noise in a settings panel, so only real e-mail addresses are shown.
+    const email = s.email && s.email.includes("@") ? s.email : "";
+    const hasDetail = !!(email || s.expirationMs > 0);
+    licenseDetailRow.style.display = hasDetail ? "flex" : "none";
+    licenseEmail.textContent = email;
+    licenseExpiry.textContent = s.expirationMs > 0
+      ? (s.isTrial ? "ends " : "renews ") + new Date(s.expirationMs).toLocaleDateString()
+      : "";
+    // Only meaningful while inactive — a working license reports no error.
+    const showErr = !!s.error && !s.active;
+    licenseErrorRow.style.display = showErr ? "block" : "none";
+    licenseError.textContent = showErr ? s.error : "";
+  }).catch(() => {});
+}
+
+licenseDeactivate.addEventListener("click", () => {
+  licenseDeactivate.disabled = true;
+  licenseDeactivate.textContent = "…";
+  deactivateNative().then(r => {
+    licenseDeactivate.disabled = false;
+    licenseDeactivate.textContent = "Deactivate";
+    if (r && !r.success) licenseState.textContent = r.message || "Failed";
+    refreshLicense();
+  }).catch(() => {
+    licenseDeactivate.disabled = false;
+    licenseDeactivate.textContent = "Deactivate";
+  });
+});
+
+/* One header popover wiring: trigger toggles .open, an outside mousedown
+   closes it. The exclusion uses closest(triggerSel), NOT target.id — the
+   trigger wraps an <svg>/<path> (or child spans), so the actual event target
+   is a descendant; an id check would let the mousedown close it and the click
+   reopen it. onOpen fires each time it opens (e.g. refresh license state). */
+function wirePopover(popover, trigger, triggerSel, onOpen) {
+  trigger.addEventListener("click", e => {
+    popover.classList.toggle("open");
+    if (onOpen && popover.classList.contains("open")) onOpen();
+    e.stopPropagation();
+  });
+  document.addEventListener("mousedown", e => {
+    if (popover.classList.contains("open") && !popover.contains(e.target)
+        && !(e.target.closest && e.target.closest(triggerSel)))
+      popover.classList.remove("open");
+  });
+}
+wirePopover(settingsPopover, document.getElementById("settingsBtn"), "#settingsBtn");
+
+/* ── ABOUT popup: the Entropan name opens build + license + contact ── */
+const aboutPopover = document.getElementById("aboutPopover");
+document.getElementById("aboutBuild").textContent = "V" + ENTROPAN_VERSION + " · " + ENTROPAN_BUILD;
+document.getElementById("eyebrow").textContent = "Entropia Audio · V" + ENTROPAN_VERSION + " · " + ENTROPAN_BUILD;
+wirePopover(aboutPopover, document.getElementById("brandBlock"), "#brandBlock", refreshLicense);
+const openUrlNative = native("openExternalURL");
+document.getElementById("contactLink").addEventListener("click", () => {
+  if (EMBEDDED) openUrlNative("https://entropiaudio.com").catch(() => {});
+  else window.open("https://entropiaudio.com", "_blank");   // browser preview
+});
+
+/* UI preferences. In the plugin these ride a shared app-data file (native
+   get/setUiSettings) so a skin choice survives reopen and is shared by every
+   instance — the WebView's localStorage lives in a per-instance temp folder
+   and is lost. In a plain browser we fall back to localStorage. */
+const settings = (() => {
+  try { return JSON.parse(localStorage.getItem("entropanSettings") || "{}"); } catch { return {}; }
+})();
+const getUiSettingsNative = native("getUiSettings"), setUiSettingsNative = native("setUiSettings");
+let prefsTouched = false;   // user beat the async load → their choice wins
+function saveSettings() {
+  prefsTouched = true;
+  if (EMBEDDED) setUiSettingsNative(JSON.stringify(settings)).catch(() => {});
+  else { try { localStorage.setItem("entropanSettings", JSON.stringify(settings)); } catch {} }
+}
+
+/* theme (skin): Night = the original dark UI, Daylight = the parchment palette.
+   Canvas renderers read THEME; CSS reads body.theme-light. Everything that
+   caches a rendered bitmap keys on the theme so nothing survives the switch. */
+let themeName = settings.theme === "light" ? "light" : "dark";
+const themeToggle = document.getElementById("themeToggle");
+function applyThemeUI() {
+  applyTheme(themeName);
+  themeToggle.classList.toggle("on", themeName === "light");
+  gridCache = null;                       // grid bitmap is theme-coloured
+  auraCache.forEach(c => c.key = "");     // aura bitmaps bake the band colour
+  retintGlobalKnobs();                    // globals captured their voice at build time
+  refreshPanels();
+  drawSpectrum(simClock); drawScope();
+  if (PB().mode.get() === 4) drawSteps();
+}
+themeToggle.addEventListener("click", () => {
+  themeName = themeName === "light" ? "dark" : "light";
+  settings.theme = themeName; saveSettings();
+  applyThemeUI();
+});
+/* Paint the stored skin now. The plugin also re-applies once the shared file
+   lands, but only the embedded path did — in a plain browser themeName said
+   "light" while the body still rendered Night, and the first click then read
+   as a no-op. */
+applyThemeUI();
+
+/* brightness */
+let brightness = clamp(settings.brightness ?? 100, 70, 130);
+const brightnessValue = document.getElementById("brightnessValue");
+/* apply* only PAINTS. Persisting from inside them meant the two init calls
+   below wrote the defaults to the shared file — and flipped prefsTouched —
+   before the restore had even read it, so no preference ever came back. Only
+   a real gesture saves. */
+function applyBrightness() {
+  shellEl.style.filter = brightness === 100 ? "" : `brightness(${brightness}%)`;
+  brightnessValue.textContent = brightness + "%";
+}
+const nudgeBrightness = d => {
+  brightness = clamp(brightness + d, 70, 130);
+  applyBrightness();
+  settings.brightness = brightness; saveSettings();
+};
+document.getElementById("brightnessUp").addEventListener("click", () => nudgeBrightness(+5));
+document.getElementById("brightnessDown").addEventListener("click", () => nudgeBrightness(-5));
+applyBrightness();
+
+/* window size presets → native editor resize */
+/* Window size is remembered TWICE, on purpose. The host session keeps this
+   instance's size (apvts editorWidth/Height), so reopening a project restores
+   what that instance looked like; rememberSize() additionally files it as the
+   user's global default, which is what a freshly inserted instance starts at.
+   Session wins when it exists — the preference only supplies the default. */
+function rememberSize(w, h) {
+  settings.sizeW = Math.round(w); settings.sizeH = Math.round(h);
+  saveSettings();
+}
+document.querySelectorAll(".settings-preset-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const w = parseInt(btn.dataset.w), h = parseInt(btn.dataset.h);
+    if (EMBEDDED) setEditorSizeNative(w, h).catch(() => {});
+    rememberSize(w, h);
+  });
+});
+
+/* tooltips: custom floating div (WKWebView doesn't render native title) */
+let tooltipsEnabled = settings.tooltips !== false;
+const tooltipsToggle = document.getElementById("tooltipsToggle");
+function applyTooltipsToggle() {
+  tooltipsToggle.classList.toggle("on", tooltipsEnabled);
+}
+tooltipsToggle.addEventListener("click", () => {
+  tooltipsEnabled = !tooltipsEnabled; applyTooltipsToggle();
+  settings.tooltips = tooltipsEnabled; saveSettings();
+});
+applyTooltipsToggle();
+
+/* Pull the shared UI-preferences file (plugin only — async, so the UI starts on
+   its defaults and re-skins once the file arrives). Nothing here is audio
+   state, so a late apply is harmless. */
+if (EMBEDDED) {
+  getUiSettingsNative().then(json => {
+    if (prefsTouched) return;             // user already picked in the gap — don't undo it
+    let saved = {};
+    try { saved = JSON.parse(json || "{}"); } catch { return; }
+    Object.assign(settings, saved);
+    if (saved.theme === "light" || saved.theme === "dark") { themeName = saved.theme; applyThemeUI(); }
+    if (typeof saved.brightness === "number") { brightness = clamp(saved.brightness, 70, 130); applyBrightness(); }
+    if (typeof saved.tooltips === "boolean") { tooltipsEnabled = saved.tooltips; applyTooltipsToggle(); }
+  }).catch(() => {});
+}
+
+/* Right-click is OUR gesture (CHAOS locks, mod-route removal), but anywhere we
+   don't handle it the WebView popped its own native menu — Reload / Back /
+   Inspect — over the plugin. Reload in particular drops the UI back to defaults
+   mid-session. Kill the default document-wide; the element handlers still run,
+   this only removes the browser menu. */
+document.addEventListener("contextmenu", e => e.preventDefault());
+
+const tipEl = document.createElement("div");
+tipEl.className = "ui-tooltip";
+document.body.appendChild(tipEl);
+/* move titles to data-tip once (kills the broken native path) */
+// (tooltips are authored as data-tip directly — WKWebView never renders native
+// title attributes, so none exist in this document)
+document.addEventListener("mouseover", e => {
+  const t = e.target.closest("[data-tip]");
+  if (!t || !tooltipsEnabled) { tipEl.classList.remove("visible"); return; }
+  tipEl.textContent = t.dataset.tip;
+  tipEl.classList.add("visible");
+  // measure AFTER setting text (may wrap to multiple lines) so the tip is placed
+  // fully clear of the control — above if it fits, else below. Never covers it.
+  const r = t.getBoundingClientRect();
+  const tw = tipEl.offsetWidth, th = tipEl.offsetHeight, gap = 6;
+  const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+  tipEl.style.left = clamp(r.left + r.width / 2 - tw / 2, 4, vw - tw - 4) + "px";
+  const above = r.top - th - gap;
+  tipEl.style.top = (above >= 4 ? above : Math.min(r.bottom + gap, vh - th - 4)) + "px";
+});
+document.addEventListener("mouseout", () => tipEl.classList.remove("visible"));
+
+/* ── corner resize grip → native setEditorSize (AU hosts lack edge resize) ── */
+const setEditorSizeNative = native("setEditorSize");
+(() => {
+  const grip = document.getElementById("resizeGrip");
+  let drag = null;
+  grip.addEventListener("mousedown", e => {
+    drag = { x: e.screenX, y: e.screenY,
+             w: document.documentElement.clientWidth,
+             h: document.documentElement.clientHeight };
+    e.preventDefault(); e.stopPropagation();
+  });
+  let last = null;
+  window.addEventListener("mousemove", e => {
+    if (!drag) return;
+    const dw = e.screenX - drag.x;
+    let w = clamp(drag.w + dw, 720, 1620);
+    let h = Math.round(w * 560 / 900);          // aspect-locked
+    last = [Math.round(w), h];
+    if (EMBEDDED) setEditorSizeNative(last[0], last[1]).catch(() => {});
+  });
+  // File the size once the drag ENDS — writing on every mousemove would hammer
+  // the shared preferences file for the whole gesture.
+  window.addEventListener("mouseup", () => {
+    if (drag && last) rememberSize(last[0], last[1]);
+    drag = null; last = null;
+  });
+})();
+
+/* ════════════════════════════════════════════════════════════════════
+   PLUGIN PRESETS (Chaosverb pattern)
+   Custom popover menu: Save Preset (⌘-click = Reset to Default),
+   Save as Default, then the saved list with per-row delete. Naming goes
+   through an overlay modal — window.prompt() is blocked in WKWebView.
+   Storage is native (PropertiesFile); browser preview stubs to localStorage
+   so the flow is testable outside the plugin.
+   ════════════════════════════════════════════════════════════════════ */
+(() => {
+  const listFn   = EMBEDDED ? native("listPluginPresets")
+                            : async () => JSON.parse(localStorage.getItem("presetNames") || "[]");
+  const saveFn   = EMBEDDED ? native("savePluginPreset")
+                            : async n => { const a = new Set(JSON.parse(localStorage.getItem("presetNames") || "[]")); a.add(n); localStorage.setItem("presetNames", JSON.stringify([...a])); return true; };
+  const loadFn   = EMBEDDED ? native("loadPluginPreset")   : async () => true;
+  const delFn    = EMBEDDED ? native("deletePluginPreset")
+                            : async n => { const a = JSON.parse(localStorage.getItem("presetNames") || "[]").filter(x => x !== n); localStorage.setItem("presetNames", JSON.stringify(a)); return true; };
+  const saveDefFn  = EMBEDDED ? native("saveCurrentAsDefaults") : async () => true;
+  const resetDefFn = EMBEDDED ? native("resetToDefaults")       : async () => true;
+
+  const btn = document.getElementById("presetBtn");
+  const currentEl = document.getElementById("presetCurrent");
+  const menu = document.getElementById("presetMenu");
+  const overlay = document.getElementById("presetSaveOverlay");
+  const saveTitle = document.getElementById("presetSaveTitle");
+  const saveInput = document.getElementById("presetSaveInput");
+  const saveMsg = document.getElementById("presetSaveMsg");
+  const saveActions = document.getElementById("presetSaveActions");
+
+  let currentPreset = null;
+  let names = [];
+
+  const setCurrent = name => {
+    currentPreset = name;
+    currentEl.textContent = name || "— select preset —";
+    btn.classList.toggle("has-preset", !!name);
+  };
+
+  const closeMenu = () => menu.classList.remove("visible");
+
+  const uniqueName = base => {
+    const stripped = base.replace(/\s*\(\d+\)\s*$/, "");
+    let n = 2;
+    while (names.some(p => p.toLowerCase() === `${stripped} (${n})`.toLowerCase())) n++;
+    return `${stripped} (${n})`;
+  };
+
+  const closeOverlay = () => { overlay.classList.remove("visible"); saveMsg.textContent = ""; saveMsg.classList.remove("warn"); };
+
+  const commitSave = async name => {
+    await saveFn(name);
+    setCurrent(name);
+    closeOverlay();
+    await rebuildMenu();
+  };
+
+  // buttons: [{label, cls, fn}] — every dialog variant goes through here
+  const dialog = (title, msg, warn, withInput, buttons) => {
+    saveTitle.textContent = title;
+    saveMsg.textContent = msg;
+    saveMsg.classList.toggle("warn", !!warn);
+    saveInput.style.display = withInput ? "block" : "none";
+    saveActions.textContent = "";
+    for (const b of buttons) {
+      const el = document.createElement("button");
+      el.textContent = b.label;
+      if (b.cls) el.className = b.cls;
+      el.onclick = b.fn;
+      saveActions.appendChild(el);
+    }
+    overlay.classList.add("visible");
+    if (withInput) { saveInput.focus(); saveInput.select(); }
+  };
+
+  const askName = () => dialog("SAVE PRESET", "", false, true, [
+    { label: "Cancel", fn: closeOverlay },
+    { label: "Save", cls: "primary", fn: trySaveFromInput },
+  ]);
+
+  function trySaveFromInput() {
+    const name = saveInput.value.trim();
+    if (!name) { saveMsg.textContent = "Name can't be empty."; saveMsg.classList.add("warn"); return; }
+    const clash = names.find(p => p.toLowerCase() === name.toLowerCase());
+    if (clash) {
+      dialog("SAVE PRESET", `"${clash}" already exists.`, true, true, [
+        { label: "Cancel", fn: closeOverlay },
+        { label: "Unique", fn: () => commitSave(uniqueName(name)) },
+        { label: "Overwrite", cls: "danger", fn: () => commitSave(clash) },
+      ]);
+      return;
+    }
+    commitSave(name);
+  }
+
+  const startSaveFlow = () => {
+    closeMenu();
+    saveInput.value = currentPreset || "";
+    if (currentPreset) {
+      // a preset is loaded: offer overwrite vs new before asking for a name
+      dialog("SAVE PRESET", `"${currentPreset}" is loaded. Save changes to it, or save as new?`, false, false, [
+        { label: "Cancel", fn: closeOverlay },
+        { label: "Save as New", fn: () => { saveInput.value = ""; askName(); } },
+        { label: "Overwrite", cls: "primary", fn: () => commitSave(currentPreset) },
+      ]);
+    } else {
+      askName();
+    }
+  };
+
+  saveInput.addEventListener("keydown", e => {
+    if (e.key === "Enter") trySaveFromInput();
+    else if (e.key === "Escape") closeOverlay();
+    e.stopPropagation();   // don't trigger app-level shortcuts while typing
+  });
+  overlay.addEventListener("mousedown", e => { if (e.target === overlay) closeOverlay(); });
+
+  const row = (label, icon, fn) => {
+    const r = document.createElement("div");
+    r.className = "preset-row";
+    const ic = document.createElement("span"); ic.className = "preset-action-icon"; ic.textContent = icon;
+    const lb = document.createElement("span"); lb.textContent = label;
+    r.appendChild(ic); r.appendChild(lb);
+    r.addEventListener("click", fn);
+    return r;
+  };
+
+  async function rebuildMenu() {
+    try { names = (await listFn()) || []; } catch { names = []; }
+    names = names.map(String).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    menu.textContent = "";
+
+    const saveRow = row("Save Preset", "+", e => {
+      if (e.metaKey || e.ctrlKey) {   // hidden Chaosverb gesture: reset to defaults
+        resetDefFn().then(() => {
+          saveRow.querySelector("span:last-child").textContent = "Reset ✓";
+          setTimeout(rebuildMenu, 900);
+        });
+        return;
+      }
+      startSaveFlow();
+    });
+    saveRow.dataset.tip = "Save current sound · ⌘-click: reset to default";
+    menu.appendChild(saveRow);
+
+    const defRow = row("Save as Default", "★", () => {
+      saveDefFn().then(() => {
+        defRow.querySelector("span:last-child").textContent = "Saved ✓";
+        setTimeout(rebuildMenu, 1100);
+      });
+    });
+    defRow.dataset.tip = "New instances start from this state";
+    menu.appendChild(defRow);
+
+    if (names.length) {
+      const div = document.createElement("div"); div.className = "preset-divider"; menu.appendChild(div);
+      const lbl = document.createElement("div"); lbl.className = "preset-section-label"; lbl.textContent = "Presets"; menu.appendChild(lbl);
+      for (const name of names) {
+        const r = document.createElement("div");
+        r.className = "preset-row" + (name === currentPreset ? " is-current" : "");
+        const nm = document.createElement("span"); nm.textContent = name; r.appendChild(nm);
+        const x = document.createElement("button"); x.className = "preset-x"; x.textContent = "×";
+        x.dataset.tip = `Delete "${name}"`;
+        r.appendChild(x);
+        nm.addEventListener("click", async () => {
+          await loadFn(name);
+          setCurrent(name);
+          closeMenu();
+          await rebuildMenu();
+        });
+        x.addEventListener("click", async e => {
+          e.stopPropagation();
+          await delFn(name);
+          if (currentPreset === name) setCurrent(null);
+          await rebuildMenu();
+        });
+        menu.appendChild(r);
+      }
+    }
+  }
+
+  btn.addEventListener("click", async e => {
+    e.stopPropagation();
+    const opening = !menu.classList.contains("visible");
+    if (opening) await rebuildMenu();
+    menu.classList.toggle("visible", opening);
+  });
+  document.addEventListener("mousedown", e => {
+    if (menu.classList.contains("visible")
+        && !menu.contains(e.target)
+        && !(e.target.closest && e.target.closest("#presetBtn")))
+      closeMenu();
+  });
+
+  rebuildMenu();
+})();
+
+/* debug/testing handle — browser-only (never exposed inside the plugin) */
+if (!EMBEDDED)
+  window.__entropan = { version: ENTROPAN_BUILD, P, ui, spec, quickMenu, refreshPanels, drawScope, drawSpectrum, loopInfo: () => ({ lastFrame, simClock, loopCalls, loopErr, loopStarted }), kickLoop };
+</script>
+</body>
+</html>
